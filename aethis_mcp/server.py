@@ -60,12 +60,61 @@ def aethis_decide(
     """Evaluate eligibility against a published rule bundle.
 
     Provide the bundle_id and a dict of field_values matching the schema.
-    Returns the eligibility outcome (eligible/ineligible/undetermined),
-    satisfied criteria, and reasoning.
+    Returns the eligibility outcome (eligible/ineligible/undetermined).
+
+    When the outcome is 'undetermined', the response includes:
+    - next_question: the Z3-optimized best question to ask next
+    - optimal_path: the full remaining question path to eligibility
     """
     try:
         result = _client().decide(bundle_id, field_values)
         return _fmt(result)
+    except AethisAPIError as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def aethis_next_question(
+    bundle_id: Annotated[str, "The ID of the published rule bundle"],
+    field_values: Annotated[dict, "Answers collected so far (can be empty dict for first question)"],
+) -> str:
+    """Get the optimal next question to ask for an eligibility check.
+
+    Uses Z3 constraint optimization to determine the single best question
+    to ask next, given the answers so far. Also returns the full remaining
+    path (all questions still needed, sorted by priority).
+
+    Use this in a conversational loop:
+    1. Call with empty field_values to get the first question
+    2. Ask the user that question
+    3. Add their answer to field_values and call again
+    4. Repeat until decision is 'eligible' or 'not_eligible'
+    """
+    try:
+        result = _client().decide(bundle_id, field_values)
+        decision = result.get("decision")
+
+        if decision == "eligible":
+            return f"Decision: eligible. No more questions needed."
+        if decision == "not_eligible":
+            return f"Decision: not eligible. No more questions needed."
+
+        # Undetermined — format next question prominently
+        nq = result.get("next_question")
+        path = result.get("optimal_path", [])
+        lines = [f"Decision: undetermined ({result.get('fields_provided', 0)}/{result.get('fields_evaluated', 0)} fields provided)"]
+        if nq:
+            lines.append(f"\nNext question to ask:")
+            lines.append(f"  Field: {nq['field_id']}")
+            lines.append(f"  Question: {nq['question']}")
+            lines.append(f"  Priority weight: {nq['weight']} (lower = more important)")
+        if path:
+            lines.append(f"\nFull remaining path ({len(path)} questions):")
+            for i, q in enumerate(path, 1):
+                lines.append(f"  {i}. {q['question']} ({q['field_id']}, weight={q['weight']})")
+        if result.get("missing_fields"):
+            lines.append(f"\nAll missing fields: {', '.join(result['missing_fields'])}")
+        return "\n".join(lines)
     except AethisAPIError as e:
         return f"Error: {e}"
 
