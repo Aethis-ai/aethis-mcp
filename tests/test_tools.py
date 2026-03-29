@@ -32,6 +32,23 @@ MOCK_DECIDE = {
     "reasoning": "All criteria met via age exemption route.",
 }
 
+MOCK_DECIDE_UNDETERMINED = {
+    "decision": "undetermined",
+    "bundle_id": "b_123",
+    "fields_evaluated": 5,
+    "fields_provided": 1,
+    "missing_fields": ["has_degree", "has_selt", "age"],
+    "next_question": {
+        "field_id": "has_degree",
+        "question": "Do you hold a UK degree?",
+        "weight": 1,
+    },
+    "optimal_path": [
+        {"field_id": "has_degree", "question": "Do you hold a UK degree?", "weight": 1},
+        {"field_id": "has_selt", "question": "Do you have a SELT certificate?", "weight": 2},
+    ],
+}
+
 MOCK_EXPLAIN = {
     "bundle_id": "b_123",
     "rules": [
@@ -58,12 +75,13 @@ MOCK_GENERATE = {
 # -- Tool registration -------------------------------------------------------
 
 class TestToolRegistration:
-    def test_all_six_tools_registered(self):
+    def test_all_seven_tools_registered(self):
         tools = run(mcp.list_tools())
         names = {t.name for t in tools}
         assert names == {
             "aethis_schema",
             "aethis_decide",
+            "aethis_next_question",
             "aethis_explain",
             "aethis_list_projects",
             "aethis_project_status",
@@ -127,6 +145,38 @@ class TestDecide:
             "field_values": {},
         }))
         assert "422" in result.content[0].text
+
+
+class TestNextQuestion:
+    @patch("aethis_mcp.server._client")
+    def test_undetermined_shows_next_question(self, mock_factory):
+        client = MagicMock(spec=AethisClient)
+        client.decide.return_value = MOCK_DECIDE_UNDETERMINED
+        mock_factory.return_value = client
+
+        result = run(mcp.call_tool("aethis_next_question", {
+            "bundle_id": "b_123",
+            "field_values": {"nationality": "Australian"},
+        }))
+        text = result.content[0].text
+        assert "undetermined" in text
+        assert "has_degree" in text
+        assert "Do you hold a UK degree?" in text
+        assert "2 questions" in text
+
+    @patch("aethis_mcp.server._client")
+    def test_eligible_returns_done(self, mock_factory):
+        client = MagicMock(spec=AethisClient)
+        client.decide.return_value = {"decision": "eligible"}
+        mock_factory.return_value = client
+
+        result = run(mcp.call_tool("aethis_next_question", {
+            "bundle_id": "b_123",
+            "field_values": {"age": 70},
+        }))
+        text = result.content[0].text
+        assert "eligible" in text
+        assert "No more questions" in text
 
 
 class TestExplain:
