@@ -26,15 +26,18 @@ class AethisClient:
         self._client = httpx.Client(
             base_url=base_url,
             headers={"X-API-Key": api_key},
-            timeout=60.0,
+            timeout=30.0,
         )
+
+    def close(self) -> None:
+        self._client.close()
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         resp = self._client.request(method, path, **kwargs)
         if resp.status_code >= 400:
             try:
                 detail = resp.json().get("detail", resp.text)
-            except Exception:
+            except (ValueError, KeyError):
                 detail = resp.text or f"HTTP {resp.status_code}"
             raise AethisAPIError(resp.status_code, detail)
         return resp.json()

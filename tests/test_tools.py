@@ -21,15 +21,15 @@ def run(coro):
 MOCK_SCHEMA = {
     "bundle_id": "b_123",
     "fields": [
-        {"field_name": "age", "field_type": "int", "description": "Age in years"},
-        {"field_name": "has_degree", "field_type": "bool", "description": "UK degree holder"},
+        {"field_name": "applicant_age", "field_type": "int", "description": "Applicant age in years"},
+        {"field_name": "flight_fitness_certified", "field_type": "bool", "description": "Flight fitness certified"},
     ],
 }
 
 MOCK_DECIDE = {
     "outcome": "eligible",
-    "satisfied_criteria": ["age_group"],
-    "reasoning": "All criteria met via age exemption route.",
+    "satisfied_criteria": ["pilot_experience"],
+    "reasoning": "All criteria met via experienced pilot route.",
 }
 
 MOCK_DECIDE_UNDETERMINED = {
@@ -37,27 +37,27 @@ MOCK_DECIDE_UNDETERMINED = {
     "bundle_id": "b_123",
     "fields_evaluated": 5,
     "fields_provided": 1,
-    "missing_fields": ["has_degree", "has_selt", "age"],
+    "missing_fields": ["flight_fitness_certified", "simulator_hours_completed", "applicant_age"],
     "next_question": {
-        "field_id": "has_degree",
-        "question": "Do you hold a UK degree?",
+        "field_id": "flight_fitness_certified",
+        "question": "Is the applicant flight-fitness certified?",
         "weight": 1,
     },
     "optimal_path": [
-        {"field_id": "has_degree", "question": "Do you hold a UK degree?", "weight": 1},
-        {"field_id": "has_selt", "question": "Do you have a SELT certificate?", "weight": 2},
+        {"field_id": "flight_fitness_certified", "question": "Is the applicant flight-fitness certified?", "weight": 1},
+        {"field_id": "simulator_hours_completed", "question": "Has the applicant completed the required simulator hours?", "weight": 2},
     ],
 }
 
 MOCK_EXPLAIN = {
     "bundle_id": "b_123",
     "rules": [
-        {"name": "age_exemption", "description": "Applicants aged 65+ are exempt."},
+        {"name": "experienced_pilot_exemption", "description": "Pilots with 1000+ hours are exempt from simulator test."},
     ],
 }
 
 MOCK_PROJECTS = [
-    {"project_id": "p_1", "name": "test-project", "domain": "immigration"},
+    {"project_id": "p_1", "name": "test-project", "domain": "galactic_federation"},
 ]
 
 MOCK_STATUS = {
@@ -156,12 +156,12 @@ class TestNextQuestion:
 
         result = run(mcp.call_tool("aethis_next_question", {
             "bundle_id": "b_123",
-            "field_values": {"nationality": "Australian"},
+            "field_values": {"species": "human"},
         }))
         text = result.content[0].text
         assert "undetermined" in text
-        assert "has_degree" in text
-        assert "Do you hold a UK degree?" in text
+        assert "flight_fitness_certified" in text
+        assert "Is the applicant flight-fitness certified?" in text
         assert "2 questions" in text
 
     @patch("aethis_mcp.server._client")
