@@ -1,0 +1,151 @@
+"""MCP server exposing Aethis developer API tools."""
+
+from __future__ import annotations
+
+import json
+from typing import Annotated
+
+from fastmcp import FastMCP
+
+from aethis_mcp.client import AethisAPIError, AethisClient
+
+mcp = FastMCP(
+    "Aethis",
+    instructions=(
+        "Aethis is a neuro-symbolic AI platform for regulated eligibility checks. "
+        "Use `aethis_schema` to discover what input fields a rule bundle requires, "
+        "then `aethis_decide` to evaluate eligibility, and `aethis_explain` for "
+        "human-readable rule descriptions. "
+        "Use `aethis_list_projects` to discover available projects and bundles."
+    ),
+)
+
+
+def _client() -> AethisClient:
+    return AethisClient()
+
+
+def _fmt(data: dict | list) -> str:
+    """Format API response as indented JSON for LLM readability."""
+    return json.dumps(data, indent=2, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Decision tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def aethis_schema(
+    bundle_id: Annotated[str, "The ID of the published rule bundle"],
+) -> str:
+    """Get the input fields required for an eligibility check.
+
+    Returns field names, types (bool/enum/int/str), descriptions, and
+    allowed values. Use this before calling aethis_decide to know what
+    field_values to provide.
+    """
+    try:
+        result = _client().get_schema(bundle_id)
+        return _fmt(result)
+    except AethisAPIError as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def aethis_decide(
+    bundle_id: Annotated[str, "The ID of the published rule bundle"],
+    field_values: Annotated[dict, "Input field values (see aethis_schema for required fields)"],
+) -> str:
+    """Evaluate eligibility against a published rule bundle.
+
+    Provide the bundle_id and a dict of field_values matching the schema.
+    Returns the eligibility outcome (eligible/ineligible/undetermined),
+    satisfied criteria, and reasoning.
+    """
+    try:
+        result = _client().decide(bundle_id, field_values)
+        return _fmt(result)
+    except AethisAPIError as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def aethis_explain(
+    bundle_id: Annotated[str, "The ID of the published rule bundle"],
+) -> str:
+    """Get human-readable descriptions of the rules in a bundle.
+
+    Returns natural-language explanations of what the rule bundle checks,
+    including criteria groups, requirements, and exception paths.
+    """
+    try:
+        result = _client().explain(bundle_id)
+        return _fmt(result)
+    except AethisAPIError as e:
+        return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Discovery tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def aethis_list_projects() -> str:
+    """List all projects in the current tenant.
+
+    Returns project IDs, names, domains, and latest bundle information.
+    Use this to discover available bundles for aethis_schema / aethis_decide.
+    """
+    try:
+        result = _client().list_projects()
+        return _fmt(result)
+    except AethisAPIError as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def aethis_project_status(
+    project_id: Annotated[str, "The project ID"],
+) -> str:
+    """Check the status of a project and its latest generation job.
+
+    Returns project state, latest bundle ID, and generation job progress
+    (queued/running/success/failed).
+    """
+    try:
+        result = _client().get_status(project_id)
+        return _fmt(result)
+    except AethisAPIError as e:
+        return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Authoring tool
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def aethis_generate(
+    project_id: Annotated[str, "The project ID to generate rules for"],
+) -> str:
+    """Trigger rule generation for a project.
+
+    Queues an async generation job that uses the project's uploaded sources,
+    guidance hints, and test cases to synthesize a rule bundle.
+    Poll with aethis_project_status to check progress.
+    """
+    try:
+        result = _client().generate(project_id)
+        return _fmt(result)
+    except AethisAPIError as e:
+        return f"Error: {e}"
+
+
+def main() -> None:
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()
