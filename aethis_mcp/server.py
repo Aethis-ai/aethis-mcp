@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 from typing import Annotated
 
@@ -20,9 +21,15 @@ mcp = FastMCP(
     ),
 )
 
+_shared_client: AethisClient | None = None
+
 
 def _client() -> AethisClient:
-    return AethisClient()
+    global _shared_client
+    if _shared_client is None:
+        _shared_client = AethisClient()
+        atexit.register(_shared_client.close)
+    return _shared_client
 
 
 def _fmt(data: dict | list) -> str:

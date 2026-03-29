@@ -6,12 +6,12 @@ build-backend = "hatchling.build"
 name = "aethis-mcp"
 version = "0.1.0"
 description = "MCP server for the Aethis developer API — eligibility checks via Claude, Cursor, Windsurf"
-readme = {text = "", content-type = "text/markdown"}
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    "fastmcp>=2.0",
-    "httpx>=0.27",
+    "fastmcp>=2.0,<4",
+    "httpx>=0.27,<1",
 ]
 
 [project.scripts]
