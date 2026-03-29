@@ -26,7 +26,9 @@ class AethisClient:
         self._client = httpx.Client(
             base_url=base_url,
             headers={"X-API-Key": api_key},
-            timeout=30.0,
+            timeout=httpx.Timeout(connect=5, read=25, write=10, pool=5),
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            verify=True,
         )
 
     def close(self) -> None:
