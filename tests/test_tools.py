@@ -21,8 +21,8 @@ def run(coro):
 MOCK_SCHEMA = {
     "bundle_id": "b_123",
     "fields": [
-        {"field_name": "applicant_age", "field_type": "int", "description": "Applicant age in years"},
-        {"field_name": "flight_fitness_certified", "field_type": "bool", "description": "Flight fitness certified"},
+        {"field_name": "space.crew.age", "field_type": "int", "description": "Crew member age in years"},
+        {"field_name": "space.medical.cert_valid", "field_type": "bool", "description": "Medical certificate valid"},
     ],
 }
 
@@ -37,22 +37,22 @@ MOCK_DECIDE_UNDETERMINED = {
     "bundle_id": "b_123",
     "fields_evaluated": 5,
     "fields_provided": 1,
-    "missing_fields": ["flight_fitness_certified", "simulator_hours_completed", "applicant_age"],
+    "missing_fields": ["space.medical.cert_valid", "space.crew.flight_hours", "space.crew.age"],
     "next_question": {
-        "field_id": "flight_fitness_certified",
-        "question": "Is the applicant flight-fitness certified?",
+        "field_id": "space.medical.cert_valid",
+        "question": "Is the medical certificate valid?",
         "weight": 1,
     },
     "optimal_path": [
-        {"field_id": "flight_fitness_certified", "question": "Is the applicant flight-fitness certified?", "weight": 1},
-        {"field_id": "simulator_hours_completed", "question": "Has the applicant completed the required simulator hours?", "weight": 2},
+        {"field_id": "space.medical.cert_valid", "question": "Is the medical certificate valid?", "weight": 1},
+        {"field_id": "space.crew.flight_hours", "question": "How many flight hours does the crew member have?", "weight": 2},
     ],
 }
 
 MOCK_EXPLAIN = {
     "bundle_id": "b_123",
     "rules": [
-        {"name": "experienced_pilot_exemption", "description": "Pilots with 1000+ hours are exempt from simulator test."},
+        {"name": "flight_readiness", "description": "Flight hours >= 500 and pilot license, or age >= 60 exemption."},
     ],
 }
 
@@ -160,8 +160,8 @@ class TestNextQuestion:
         }))
         text = result.content[0].text
         assert "undetermined" in text
-        assert "flight_fitness_certified" in text
-        assert "Is the applicant flight-fitness certified?" in text
+        assert "space.medical.cert_valid" in text
+        assert "Is the medical certificate valid?" in text
         assert "2 questions" in text
 
     @patch("aethis_mcp.server._client")
