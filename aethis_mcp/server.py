@@ -56,7 +56,7 @@ def aethis_schema(
         result = _client().get_schema(bundle_id)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: {e}"
+        return f"Error: API request failed (HTTP {e.status_code})"
 
 
 @mcp.tool()
@@ -77,7 +77,7 @@ def aethis_decide(
         result = _client().decide(bundle_id, field_values)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: {e}"
+        return f"Error: API request failed (HTTP {e.status_code})"
 
 
 @mcp.tool()
@@ -123,7 +123,7 @@ def aethis_next_question(
             lines.append(f"\nAll missing fields: {', '.join(result['missing_fields'])}")
         return "\n".join(lines)
     except AethisAPIError as e:
-        return f"Error: {e}"
+        return f"Error: API request failed (HTTP {e.status_code})"
 
 
 @mcp.tool()
@@ -139,7 +139,7 @@ def aethis_explain(
         result = _client().explain(bundle_id)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: {e}"
+        return f"Error: API request failed (HTTP {e.status_code})"
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@ def aethis_list_projects() -> str:
         result = _client().list_projects()
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: {e}"
+        return f"Error: API request failed (HTTP {e.status_code})"
 
 
 @mcp.tool()
@@ -174,7 +174,7 @@ def aethis_project_status(
         result = _client().get_status(project_id)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: {e}"
+        return f"Error: API request failed (HTTP {e.status_code})"
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ def aethis_generate(
         result = _client().generate(project_id)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: {e}"
+        return f"Error: API request failed (HTTP {e.status_code})"
 
 
 def main() -> None:
