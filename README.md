@@ -69,22 +69,24 @@ Add to `.cursor/mcp.json`:
 | `aethis_project_status` | Check project status and generation progress |
 | `aethis_generate` | Trigger rule generation for a project |
 
+First publish a bundle using [`aethis-cli`](https://github.com/aethis-ai/aethis-cli) or the API, then use the MCP tools to interact with it.
+
 ## Example: conversational eligibility
 
 ```
-User: Check if this applicant is eligible for space_crew_cert:20490101-00000001
+User: Check if this crew member is eligible for space_crew_cert:20490101-00000001
 
 Claude: [calls aethis_next_question with empty field_values]
-       → "How many simulator hours has the applicant completed?"
+       → "How many flight hours does the crew member have?"
 
-User: 500 hours
+User: 600 hours
 
-Claude: [calls aethis_next_question with {"simulator_hours": 500}]
-       → "Is the applicant flight-fitness certified?"
+Claude: [calls aethis_next_question with {"space.crew.flight_hours": 600}]
+       → "Is the medical certificate valid?"
 
 User: Yes
 
-Claude: [calls aethis_next_question with {"simulator_hours": 500, "flight_fitness_certified": true}]
+Claude: [calls aethis_next_question with {"space.crew.flight_hours": 600, "space.medical.cert_valid": true}]
        → Decision: eligible. No more questions needed.
 ```
 
