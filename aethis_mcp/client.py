@@ -18,11 +18,14 @@ class AethisAPIError(Exception):
 class AethisClient:
     """Synchronous client for the Aethis decision and project endpoints."""
 
+    _LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"}
+
     def __init__(self) -> None:
         api_key = os.environ.get("AETHIS_API_KEY", "")
         base_url = os.environ.get("AETHIS_BASE_URL", "https://api.aethis.ai")
         if not api_key:
             raise AethisAPIError(401, "AETHIS_API_KEY environment variable is not set")
+        self._validate_base_url(base_url)
         self._client = httpx.Client(
             base_url=base_url,
             headers={"X-API-Key": api_key},
@@ -30,6 +33,19 @@ class AethisClient:
             limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
             verify=True,
         )
+
+    @classmethod
+    def _validate_base_url(cls, url: str) -> None:
+        """Reject http:// URLs unless targeting localhost."""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme == "http" and parsed.hostname not in cls._LOCAL_HOSTS:
+            raise AethisAPIError(
+                400,
+                f"Refusing to use HTTP for remote host '{parsed.hostname}'. "
+                "Use HTTPS or target localhost for local development.",
+            )
 
     def close(self) -> None:
         self._client.close()
