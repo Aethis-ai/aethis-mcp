@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -24,6 +24,14 @@ from aethis_mcp.server import mcp, _format_generate_and_test_result
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def _make_mock_client(**overrides) -> AsyncMock:
+    """Create an AsyncMock client with sensible defaults."""
+    client = AsyncMock(spec=AethisClient)
+    for attr, value in overrides.items():
+        getattr(client, attr).return_value = value
+    return client
 
 
 # ---------------------------------------------------------------------------
@@ -160,10 +168,11 @@ class TestCreateRuleset:
 
     @patch("aethis_mcp.server._client")
     def test_orchestrates_create_upload_tests(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.create_project.return_value = MOCK_PROJECT
-        client.upload_source_text.return_value = MOCK_UPLOAD
-        client.add_tests.return_value = MOCK_TESTS_ADDED
+        client = _make_mock_client(
+            create_project=MOCK_PROJECT,
+            upload_source_text=MOCK_UPLOAD,
+            add_tests=MOCK_TESTS_ADDED,
+        )
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_create_ruleset", {
@@ -188,7 +197,7 @@ class TestCreateRuleset:
 
     @patch("aethis_mcp.server._client")
     def test_handles_api_error(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
+        client = AsyncMock(spec=AethisClient)
         client.create_project.side_effect = AethisAPIError(429, "Rate limit exceeded")
         mock_factory.return_value = client
 
@@ -207,8 +216,7 @@ class TestCreateRuleset:
 class TestAddGuidance:
     @patch("aethis_mcp.server._client")
     def test_adds_and_suggests_next_step(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.add_guidance.return_value = MOCK_GUIDANCE
+        client = _make_mock_client(add_guidance=MOCK_GUIDANCE)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_add_guidance", {
@@ -227,8 +235,7 @@ class TestAddGuidance:
 class TestGenerateAndTest:
     @patch("aethis_mcp.server._client")
     def test_all_passing_suggests_publish(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.generate_and_test.return_value = MOCK_GENERATE_AND_TEST_ALL_PASS
+        client = _make_mock_client(generate_and_test=MOCK_GENERATE_AND_TEST_ALL_PASS)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_generate_and_test", {"project_id": "proj_abc"}))
@@ -238,8 +245,7 @@ class TestGenerateAndTest:
 
     @patch("aethis_mcp.server._client")
     def test_failures_show_diagnosis(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.generate_and_test.return_value = MOCK_GENERATE_AND_TEST_WITH_FAILURES
+        client = _make_mock_client(generate_and_test=MOCK_GENERATE_AND_TEST_WITH_FAILURES)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_generate_and_test", {"project_id": "proj_abc"}))
@@ -252,8 +258,7 @@ class TestGenerateAndTest:
 
     @patch("aethis_mcp.server._client")
     def test_regressions_highlighted(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.generate_and_test.return_value = MOCK_GENERATE_AND_TEST_WITH_REGRESSION
+        client = _make_mock_client(generate_and_test=MOCK_GENERATE_AND_TEST_WITH_REGRESSION)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_generate_and_test", {"project_id": "proj_abc"}))
@@ -264,8 +269,7 @@ class TestGenerateAndTest:
 
     @patch("aethis_mcp.server._client")
     def test_improvements_shown(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.generate_and_test.return_value = MOCK_GENERATE_AND_TEST_WITH_IMPROVEMENT
+        client = _make_mock_client(generate_and_test=MOCK_GENERATE_AND_TEST_WITH_IMPROVEMENT)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_generate_and_test", {"project_id": "proj_abc"}))
@@ -276,7 +280,7 @@ class TestGenerateAndTest:
 
     @patch("aethis_mcp.server._client")
     def test_handles_timeout(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
+        client = AsyncMock(spec=AethisClient)
         client.generate_and_test.side_effect = AethisAPIError(504, "Generation timed out")
         mock_factory.return_value = client
 
@@ -292,9 +296,10 @@ class TestGenerateAndTest:
 class TestRefine:
     @patch("aethis_mcp.server._client")
     def test_with_feedback_adds_guidance_then_generates(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.add_guidance.return_value = MOCK_GUIDANCE
-        client.generate_and_test.return_value = MOCK_GENERATE_AND_TEST_WITH_IMPROVEMENT
+        client = _make_mock_client(
+            add_guidance=MOCK_GUIDANCE,
+            generate_and_test=MOCK_GENERATE_AND_TEST_WITH_IMPROVEMENT,
+        )
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_refine", {
@@ -313,8 +318,7 @@ class TestRefine:
 
     @patch("aethis_mcp.server._client")
     def test_without_feedback_generates_directly(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.generate_and_test.return_value = MOCK_GENERATE_AND_TEST_ALL_PASS
+        client = _make_mock_client(generate_and_test=MOCK_GENERATE_AND_TEST_ALL_PASS)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_refine", {
@@ -327,8 +331,7 @@ class TestRefine:
 
     @patch("aethis_mcp.server._client")
     def test_whitespace_only_feedback_skips_guidance(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.generate_and_test.return_value = MOCK_GENERATE_AND_TEST_ALL_PASS
+        client = _make_mock_client(generate_and_test=MOCK_GENERATE_AND_TEST_ALL_PASS)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_refine", {
@@ -345,8 +348,7 @@ class TestRefine:
 class TestPublish:
     @patch("aethis_mcp.server._client")
     def test_refuses_when_tests_fail(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.run_tests.return_value = MOCK_TEST_RUN_FAILING
+        client = _make_mock_client(run_tests=MOCK_TEST_RUN_FAILING)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_publish", {
@@ -361,9 +363,10 @@ class TestPublish:
 
     @patch("aethis_mcp.server._client")
     def test_publishes_when_all_pass(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.run_tests.return_value = MOCK_TEST_RUN_PASSING
-        client.publish.return_value = MOCK_PUBLISH
+        client = _make_mock_client(
+            run_tests=MOCK_TEST_RUN_PASSING,
+            publish=MOCK_PUBLISH,
+        )
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_publish", {
@@ -377,9 +380,10 @@ class TestPublish:
 
     @patch("aethis_mcp.server._client")
     def test_force_publishes_despite_failures(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.run_tests.return_value = MOCK_TEST_RUN_FAILING
-        client.publish.return_value = MOCK_PUBLISH
+        client = _make_mock_client(
+            run_tests=MOCK_TEST_RUN_FAILING,
+            publish=MOCK_PUBLISH,
+        )
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_publish", {
@@ -393,9 +397,10 @@ class TestPublish:
 
     @patch("aethis_mcp.server._client")
     def test_shows_deprecated_bundles(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.run_tests.return_value = MOCK_TEST_RUN_PASSING
-        client.publish.return_value = MOCK_PUBLISH
+        client = _make_mock_client(
+            run_tests=MOCK_TEST_RUN_PASSING,
+            publish=MOCK_PUBLISH,
+        )
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_publish", {"project_id": "proj_abc"}))
