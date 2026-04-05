@@ -77,7 +77,7 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_archive_project");
     expect(names).toContain("aethis_archive_bundle");
     expect(names).toContain("aethis_generate");
-    expect(names).toContain("aethis_create_ruleset");
+    expect(names).toContain("aethis_create_bundle");
     expect(names).toContain("aethis_add_guidance");
     expect(names).toContain("aethis_generate_and_test");
     expect(names).toContain("aethis_refine");
@@ -410,10 +410,10 @@ describe("aethis_generate", () => {
 // Intelligent authoring tools
 // ---------------------------------------------------------------------------
 
-describe("aethis_create_ruleset", () => {
+describe("aethis_create_bundle", () => {
   it("rejects empty test_cases", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_create_ruleset({
+    const result = await h.aethis_create_bundle({
       name: "test", section_id: "s1", source_text: "Law.",
       test_cases: [],
     });
@@ -422,7 +422,7 @@ describe("aethis_create_ruleset", () => {
 
   it("rejects test case missing keys", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_create_ruleset({
+    const result = await h.aethis_create_bundle({
       name: "test", section_id: "s1", source_text: "Law.",
       test_cases: [{ name: "bad" }],
     });
@@ -431,7 +431,7 @@ describe("aethis_create_ruleset", () => {
 
   it("rejects invalid expected_outcome", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_create_ruleset({
+    const result = await h.aethis_create_bundle({
       name: "test", section_id: "s1", source_text: "Law.",
       test_cases: [{ name: "c", field_values: {}, expected_outcome: "maybe" }],
     });
@@ -441,7 +441,7 @@ describe("aethis_create_ruleset", () => {
   it("orchestrates create → upload → add_tests", async () => {
     const client = mockClient();
     const h = createToolHandlers(client);
-    const result = await h.aethis_create_ruleset({
+    const result = await h.aethis_create_bundle({
       name: "test-rules", section_id: "test_section", source_text: "The law says...",
       test_cases: [
         { name: "c1", field_values: { age: 30 }, expected_outcome: "eligible" },

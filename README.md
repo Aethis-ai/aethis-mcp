@@ -168,7 +168,7 @@ The LLM is used once, at authoring time. After that, every decision is pure logi
 | **Discovery** | `aethis_list_projects`, `aethis_project_status`, `aethis_list_bundles` | Find projects, check generation progress, browse bundle versions |
 | **Test cases** | `aethis_list_tests`, `aethis_get_test`, `aethis_update_test`, `aethis_delete_test` | Full CRUD on golden test cases |
 | **Management** | `aethis_archive_project`, `aethis_archive_bundle` | Archive projects and bundles (permanent) |
-| **Authoring** | `aethis_create_ruleset`, `aethis_generate_and_test`, `aethis_add_guidance`, `aethis_refine`, `aethis_publish` | Create, iterate, and publish rule bundles (TDD workflow) |
+| **Authoring** | `aethis_create_bundle`, `aethis_generate_and_test`, `aethis_add_guidance`, `aethis_refine`, `aethis_publish` | Create, iterate, and publish rule bundles (TDD workflow) |
 | **Low-level** | `aethis_generate` | Async generation with manual polling |
 
 ---
@@ -196,7 +196,7 @@ Questions come in priority order. The engine short-circuits as soon as a decisio
 ### Author rules (TDD loop)
 
 ```
-aethis_create_ruleset(name, section_id, source_text, test_cases)  → project_id
+aethis_create_bundle(name, section_id, source_text, test_cases)  → project_id
 aethis_generate_and_test(project_id)                               → 2/3 passing, shows failures
 aethis_refine(project_id, "the trainee exemption overrides...")    → 3/3 passing
 aethis_publish(project_id)                                         → bundle_id, ready to use

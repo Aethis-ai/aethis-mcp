@@ -355,7 +355,7 @@ export function createToolHandlers(client: AethisClient) {
 
     // -- Intelligent authoring tools --
 
-    async aethis_create_ruleset(args: {
+    async aethis_create_bundle(args: {
       name: string;
       section_id: string;
       source_text: string;
@@ -385,7 +385,7 @@ export function createToolHandlers(client: AethisClient) {
         await client.addTests(projectId, args.test_cases);
 
         return ok([
-          "Ruleset project created successfully.",
+          "Rule bundle created successfully.",
           `  Project ID: ${projectId}`,
           `  Section: ${args.section_id}`,
           `  Source: ${args.source_text.length} characters uploaded as ${filename}`,
@@ -617,16 +617,16 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
-    "aethis_create_ruleset",
-    "Create a new ruleset project with source text and test cases (TDD). Test cases are required. After creation, call aethis_generate_and_test.",
+    "aethis_create_bundle",
+    "Create a new rule bundle with source text and test cases (TDD). Test cases are required. After creation, call aethis_generate_and_test.",
     {
-      name: z.string().describe("Human-readable name for the ruleset"),
+      name: z.string().describe("Human-readable name for the rule bundle"),
       section_id: z.string().describe("Unique section identifier (e.g., 'flight_readiness')"),
       source_text: z.string().describe("The source legislation, policy, or specification text"),
       test_cases: z.array(z.record(z.string(), z.unknown())).describe("Test cases: [{name, field_values, expected_outcome}]. At least 1 required."),
       domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
     },
-    (args) => handlers.aethis_create_ruleset(args),
+    (args) => handlers.aethis_create_bundle(args),
   );
 
   server.tool(
@@ -691,7 +691,7 @@ async function main(): Promise<void> {
         "Use aethis_schema to discover what input fields a rule bundle requires, " +
         "then aethis_decide to evaluate eligibility (with optional include_trace and include_explanation for provenance), " +
         "and aethis_explain for human-readable rule descriptions. " +
-        "To author new rules: aethis_create_ruleset (with test cases first — TDD), " +
+        "To author new rules: aethis_create_bundle (with test cases first — TDD), " +
         "then aethis_generate_and_test to iterate, and aethis_publish when passing.",
     },
   );
