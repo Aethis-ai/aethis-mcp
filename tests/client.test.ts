@@ -37,6 +37,10 @@ describe("AethisClient construction", () => {
     expect(() => new AethisClient("", "https://api.aethis.ai")).toThrow(/API key/i);
   });
 
+  it("throws if AETHIS_API_KEY is whitespace-only", () => {
+    expect(() => new AethisClient("   ", "https://api.aethis.ai")).toThrow(AethisAPIError);
+  });
+
   it("throws if remote URL uses HTTP", () => {
     expect(() => new AethisClient("ak_test", "http://evil.example.com")).toThrow(AethisAPIError);
     expect(() => new AethisClient("ak_test", "http://evil.example.com")).toThrow(/HTTPS/i);
@@ -188,6 +192,22 @@ describe("AethisClient API methods", () => {
     expect(JSON.parse(init.body)).toEqual({ bundle_id: "b_123", field_values: { age: 30 } });
   });
 
+  it("decide() passes include_trace and include_explanation", async () => {
+    await client.decide("b_123", { age: 30 }, { includeTrace: true, includeExplanation: true });
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.include_trace).toBe(true);
+    expect(body.include_explanation).toBe(true);
+  });
+
+  it("decide() omits trace/explanation flags when not set", async () => {
+    await client.decide("b_123", { age: 30 });
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.include_trace).toBeUndefined();
+    expect(body.include_explanation).toBeUndefined();
+  });
+
   it("getSchema() gets /api/v1/public/bundles/:id/schema", async () => {
     await client.getSchema("b_123");
     const [url, init] = fetchSpy.mock.calls[0];
@@ -199,6 +219,13 @@ describe("AethisClient API methods", () => {
     await client.explain("b_123");
     const [url] = fetchSpy.mock.calls[0];
     expect(url).toBe("https://api.aethis.ai/api/v1/public/bundles/b_123/explain");
+  });
+
+  it("archiveBundle() posts to /api/v1/public/bundles/:id/archive", async () => {
+    await client.archiveBundle("b_123");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/bundles/b_123/archive");
+    expect(init.method).toBe("POST");
   });
 
   it("listProjects() gets /api/v1/public/projects/", async () => {
@@ -217,6 +244,20 @@ describe("AethisClient API methods", () => {
     await client.generate("p_1");
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/generate");
+    expect(init.method).toBe("POST");
+  });
+
+  it("listBundles() gets /api/v1/public/projects/:id/bundles", async () => {
+    await client.listBundles("p_1");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/bundles");
+    expect(init.method).toBe("GET");
+  });
+
+  it("archiveProject() posts to /api/v1/public/projects/:id/archive", async () => {
+    await client.archiveProject("p_1");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/archive");
     expect(init.method).toBe("POST");
   });
 
@@ -241,6 +282,35 @@ describe("AethisClient API methods", () => {
     expect(JSON.parse(init.body)).toEqual({ guidance_text: "Dolphins excluded" });
   });
 
+  it("listTests() gets /api/v1/public/projects/:id/tests", async () => {
+    await client.listTests("p_1");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests");
+    expect(init.method).toBe("GET");
+  });
+
+  it("getTest() gets /api/v1/public/projects/:id/tests/:tc_id", async () => {
+    await client.getTest("p_1", "tc_1");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests/tc_1");
+    expect(init.method).toBe("GET");
+  });
+
+  it("updateTest() puts to /api/v1/public/projects/:id/tests/:tc_id", async () => {
+    await client.updateTest("p_1", "tc_1", { name: "renamed" });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests/tc_1");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ name: "renamed" });
+  });
+
+  it("deleteTest() deletes /api/v1/public/projects/:id/tests/:tc_id", async () => {
+    await client.deleteTest("p_1", "tc_1");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests/tc_1");
+    expect(init.method).toBe("DELETE");
+  });
+
   it("addTests() posts to /api/v1/public/projects/:id/tests", async () => {
     const cases = [{ name: "c1", field_values: {}, expected_outcome: "eligible" }];
     await client.addTests("p_1", cases);
@@ -261,9 +331,89 @@ describe("AethisClient API methods", () => {
     expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/publish");
   });
 
-  it("generateAndTest() posts to /api/v1/public/projects/:id/generate-and-test", async () => {
-    await client.generateAndTest("p_1");
+  it("encodes path parameters to prevent traversal", async () => {
+    await client.getSchema("../../admin/secrets");
     const [url] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/generate-and-test");
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/bundles/..%2F..%2Fadmin%2Fsecrets/schema");
+    expect(url).not.toContain("../../");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generateAndTest compound operation
+// ---------------------------------------------------------------------------
+
+describe("AethisClient generateAndTest", () => {
+  it("chains generate → poll → runTests", async () => {
+    const fetchSpy = vi.fn();
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {
+      fetchFn: fetchSpy,
+      retryDelayMs: 0,
+      pollIntervalMs: 0,
+    });
+
+    // 1. generate returns job_id
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ job_id: "j_1", status: "queued" }));
+    // 2. first poll: still running
+    fetchSpy.mockResolvedValueOnce(jsonResponse({
+      project_status: "generating",
+      job: { job_id: "j_1", status: "running", progress_percent: 50 },
+      latest_bundle_id: null,
+    }));
+    // 3. second poll: success
+    fetchSpy.mockResolvedValueOnce(jsonResponse({
+      project_status: "ready",
+      job: { job_id: "j_1", status: "success", result_bundle_id: "b_new" },
+      latest_bundle_id: "b_new",
+    }));
+    // 4. runTests
+    fetchSpy.mockResolvedValueOnce(jsonResponse({
+      total: 2, passed: 2, failed: 0, errors: 0,
+      results: [
+        { name: "c1", expected: "eligible", actual: "eligible", passed: true },
+        { name: "c2", expected: "not_eligible", actual: "not_eligible", passed: true },
+      ],
+    }));
+
+    const result = await client.generateAndTest("p_1") as Record<string, unknown>;
+    expect(result.bundle_id).toBe("b_new");
+    expect(result.total).toBe(2);
+    expect(result.passed).toBe(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it("throws on generation failure", async () => {
+    const fetchSpy = vi.fn();
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {
+      fetchFn: fetchSpy,
+      retryDelayMs: 0,
+      pollIntervalMs: 0,
+    });
+
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ job_id: "j_1", status: "queued" }));
+    fetchSpy.mockResolvedValueOnce(jsonResponse({
+      project_status: "failed",
+      job: { job_id: "j_1", status: "failed", error_message: "Syntax error in source" },
+    }));
+
+    await expect(client.generateAndTest("p_1")).rejects.toThrow(/Syntax error in source/);
+  });
+
+  it("throws on timeout", async () => {
+    const fetchSpy = vi.fn();
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {
+      fetchFn: fetchSpy,
+      retryDelayMs: 0,
+      pollIntervalMs: 0,
+      pollTimeoutMs: 1, // immediate timeout
+    });
+
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ job_id: "j_1", status: "queued" }));
+    fetchSpy.mockResolvedValue(jsonResponse({
+      project_status: "generating",
+      job: { job_id: "j_1", status: "running", progress_percent: 10 },
+    }));
+
+    await expect(client.generateAndTest("p_1")).rejects.toThrow(/timed out/i);
   });
 });

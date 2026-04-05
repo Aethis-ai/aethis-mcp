@@ -18,20 +18,29 @@ const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
 const MAX_RETRIES = 3;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"]);
 
+const DEFAULT_POLL_INTERVAL_MS = 3000;
+const DEFAULT_POLL_TIMEOUT_MS = 300_000; // 5 minutes
+
 export interface AethisClientOptions {
   fetchFn?: FetchFn;
   /** Base delay in ms for exponential backoff (default 1000). Set to 0 for tests. */
   retryDelayMs?: number;
+  /** Interval between status polls in ms (default 3000). Set to 0 for tests. */
+  pollIntervalMs?: number;
+  /** Max time to wait for generation in ms (default 300000). */
+  pollTimeoutMs?: number;
 }
 
 export class AethisClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly fetchFn: FetchFn;
-  private readonly retryDelayMs: number;
+  readonly retryDelayMs: number;
+  readonly pollIntervalMs: number;
+  readonly pollTimeoutMs: number;
 
   constructor(apiKey: string, baseUrl: string, options?: AethisClientOptions) {
-    if (!apiKey) {
+    if (!apiKey?.trim()) {
       throw new AethisAPIError(401, "API key is required. Set AETHIS_API_KEY environment variable.");
     }
     this.validateBaseUrl(baseUrl);
@@ -39,6 +48,8 @@ export class AethisClient {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.fetchFn = options?.fetchFn ?? globalThis.fetch;
     this.retryDelayMs = options?.retryDelayMs ?? 1000;
+    this.pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    this.pollTimeoutMs = options?.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
   }
 
   private validateBaseUrl(url: string): void {
@@ -51,9 +62,8 @@ export class AethisClient {
     }
   }
 
-  private async request(method: string, path: string, body?: unknown): Promise<unknown> {
+  private async request(method: string, path: string, body?: unknown, openaiKey?: string): Promise<unknown> {
     const url = `${this.baseUrl}${path}`;
-    let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       let resp: Response;
@@ -63,6 +73,7 @@ export class AethisClient {
           method,
           headers: {
             "X-API-Key": this.apiKey,
+            ...(openaiKey ? { "X-OpenAI-Key": openaiKey } : {}),
             ...(body !== undefined && !(body instanceof FormData)
               ? { "Content-Type": "application/json" }
               : {}),
@@ -76,7 +87,6 @@ export class AethisClient {
         };
         resp = await this.fetchFn(url, init);
       } catch (err) {
-        lastError = err as Error;
         if (attempt < MAX_RETRIES) {
           await this.sleep(2 ** attempt * this.retryDelayMs);
           continue;
@@ -121,19 +131,31 @@ export class AethisClient {
 
   // -- Decision API --
 
-  async decide(bundleId: string, fieldValues: Record<string, unknown>): Promise<unknown> {
+  async decide(
+    bundleId: string,
+    fieldValues: Record<string, unknown>,
+    options?: { includeTrace?: boolean; includeExplanation?: boolean },
+  ): Promise<unknown> {
     return this.request("POST", "/api/v1/public/decide", {
       bundle_id: bundleId,
       field_values: fieldValues,
+      ...(options?.includeTrace ? { include_trace: true } : {}),
+      ...(options?.includeExplanation ? { include_explanation: true } : {}),
     });
   }
 
   async getSchema(bundleId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/bundles/${bundleId}/schema`);
+    return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/schema`);
   }
 
   async explain(bundleId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/bundles/${bundleId}/explain`);
+    return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/explain`);
+  }
+
+  // -- Bundle management --
+
+  async archiveBundle(bundleId: string): Promise<unknown> {
+    return this.request("POST", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/archive`);
   }
 
   // -- Projects API --
@@ -143,11 +165,19 @@ export class AethisClient {
   }
 
   async getStatus(projectId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/projects/${projectId}/status`);
+    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/status`);
   }
 
-  async generate(projectId: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${projectId}/generate`);
+  async generate(projectId: string, openaiKey?: string): Promise<unknown> {
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, undefined, openaiKey);
+  }
+
+  async listBundles(projectId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/bundles`);
+  }
+
+  async archiveProject(projectId: string): Promise<unknown> {
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/archive`);
   }
 
   // -- Authoring API --
@@ -163,30 +193,89 @@ export class AethisClient {
   async uploadSourceText(projectId: string, filename: string, content: string): Promise<unknown> {
     const form = new FormData();
     form.append("files", new Blob([content], { type: "text/plain" }), filename);
-    return this.request("POST", `/api/v1/public/projects/${projectId}/sources`, form);
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/sources`, form);
   }
 
   async addGuidance(projectId: string, guidanceText: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${projectId}/guidance`, {
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/guidance`, {
       guidance_text: guidanceText,
     });
   }
 
   async addTests(projectId: string, testCases: unknown[]): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${projectId}/tests`, {
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`, {
       test_cases: testCases,
     });
   }
 
+  async listTests(projectId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`);
+  }
+
+  async getTest(projectId: string, tcId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests/${encodeURIComponent(tcId)}`);
+  }
+
+  async updateTest(projectId: string, tcId: string, updates: Record<string, unknown>): Promise<unknown> {
+    return this.request("PUT", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests/${encodeURIComponent(tcId)}`, updates);
+  }
+
+  async deleteTest(projectId: string, tcId: string): Promise<unknown> {
+    return this.request("DELETE", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests/${encodeURIComponent(tcId)}`);
+  }
+
   async runTests(projectId: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${projectId}/test-run`);
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/test-run`);
   }
 
   async publish(projectId: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${projectId}/publish`);
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/publish`);
   }
 
-  async generateAndTest(projectId: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${projectId}/generate-and-test`);
+  // -- Compound operations --
+
+  /**
+   * Generate rules then poll until complete, then run tests.
+   * Mirrors the CLI's generate --poll + test workflow.
+   */
+  async generateAndTest(projectId: string, openaiKey?: string): Promise<unknown> {
+    // 1. Trigger generation
+    const job = await this.generate(projectId, openaiKey) as Record<string, unknown>;
+    const jobId = job.job_id as string;
+
+    // 2. Poll until done
+    const deadline = Date.now() + this.pollTimeoutMs;
+    let bundleId: string | undefined;
+
+    while (Date.now() < deadline) {
+      const status = await this.getStatus(projectId) as Record<string, unknown>;
+      const jobData = status.job as Record<string, unknown> | undefined;
+
+      if (jobData) {
+        const jobStatus = jobData.status as string;
+        if (jobStatus === "success") {
+          bundleId = (status.latest_bundle_id ?? jobData.result_bundle_id) as string | undefined;
+          break;
+        }
+        if (jobStatus === "failed") {
+          const errorMsg = (jobData.error_message ?? "unknown error") as string;
+          throw new AethisAPIError(500, `Generation failed (job ${jobId}): ${errorMsg}`);
+        }
+      }
+
+      await this.sleep(this.pollIntervalMs);
+    }
+
+    if (!bundleId) {
+      throw new AethisAPIError(504, `Generation timed out after ${this.pollTimeoutMs / 1000}s. Use aethis_project_status to check progress.`);
+    }
+
+    // 3. Run tests
+    const testResult = await this.runTests(projectId) as Record<string, unknown>;
+
+    return {
+      bundle_id: bundleId,
+      ...testResult,
+    };
   }
 }

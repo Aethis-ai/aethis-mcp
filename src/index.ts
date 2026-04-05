@@ -4,11 +4,15 @@
  * MCP server exposing Aethis developer API tools.
  */
 
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
 import { AethisClient, AethisAPIError } from "./client.js";
+
+const require = createRequire(import.meta.url);
+const { version: PKG_VERSION } = require("../package.json") as { version: string };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,14 +24,23 @@ interface ToolResult {
   isError?: boolean;
 }
 
-interface GenerateAndTestResult {
-  iteration?: number;
+interface TestCaseResult {
+  name?: string;
+  tc_id?: string;
+  expected?: string;
+  actual?: string | null;
+  passed?: boolean;
+  error?: string;
+  field_errors?: Record<string, string> | null;
+}
+
+interface TestRunResult {
   bundle_id?: string;
-  summary?: string;
-  test_results?: { total?: number; passed?: number; failed?: number; errors?: number };
-  improvements?: Array<{ test: string; was: string; now: string }>;
-  regressions?: Array<{ test: string; was: string; now: string; diagnosis?: string }>;
-  remaining_failures?: Array<{ test: string; diagnosis?: string }>;
+  total?: number;
+  passed?: number;
+  failed?: number;
+  errors?: number;
+  results?: TestCaseResult[];
 }
 
 // ---------------------------------------------------------------------------
@@ -59,62 +72,72 @@ function apiError(e: unknown): ToolResult {
 }
 
 // ---------------------------------------------------------------------------
-// Format generate-and-test result
+// Format test results with diff tracking
 // ---------------------------------------------------------------------------
 
-export function formatGenerateAndTestResult(result: GenerateAndTestResult): string {
-  const iteration = result.iteration ?? "?";
-  const bundleId = result.bundle_id ?? "unknown";
-  const summary = result.summary ?? "";
-  const testResults = result.test_results ?? {};
-  const improvements = result.improvements ?? [];
-  const regressions = result.regressions ?? [];
-  const remaining = result.remaining_failures ?? [];
-
-  const total = testResults.total ?? 0;
-  const passed = testResults.passed ?? 0;
+export function formatTestResults(
+  current: TestRunResult,
+  previous: TestRunResult | null,
+  iteration: number,
+): string {
+  const bundleId = current.bundle_id ?? "unknown";
+  const total = current.total ?? 0;
+  const passed = current.passed ?? 0;
+  const results = current.results ?? [];
 
   const lines: string[] = [`=== Iteration ${iteration}: ${passed}/${total} passing ===`, ""];
 
-  if (summary) {
-    lines.push(summary, "");
-  }
-
-  if (improvements.length) {
-    lines.push("IMPROVED:");
-    for (const imp of improvements) {
-      lines.push(`  + ${imp.test} — was ${imp.was}, now ${imp.now}`);
+  // Compute improvements and regressions if we have a previous run
+  if (previous?.results) {
+    const prevMap = new Map<string, boolean>();
+    for (const r of previous.results) {
+      const key = r.name ?? r.tc_id ?? "";
+      if (key) prevMap.set(key, r.passed ?? false);
     }
-    lines.push("");
-  }
 
-  if (regressions.length) {
-    lines.push("!! REGRESSIONS (fix broke something that was working):");
-    for (const reg of regressions) {
-      lines.push(`  ! ${reg.test} — was ${reg.was}, now ${reg.now}`);
-      if (reg.diagnosis) lines.push(`    Diagnosis: ${reg.diagnosis}`);
+    const improvements: string[] = [];
+    const regressions: string[] = [];
+
+    for (const r of results) {
+      const key = r.name ?? r.tc_id ?? "";
+      if (!key) continue;
+      const wasPassing = prevMap.get(key);
+      if (wasPassing === false && r.passed) {
+        improvements.push(`  + ${key} — was FAIL, now PASS`);
+      } else if (wasPassing === true && !r.passed) {
+        regressions.push(`  ! ${key} — was PASS, now FAIL`);
+      }
     }
-    lines.push("");
+
+    if (improvements.length) {
+      lines.push("IMPROVED:");
+      lines.push(...improvements, "");
+    }
+    if (regressions.length) {
+      lines.push("!! REGRESSIONS (fix broke something that was working):");
+      lines.push(...regressions, "");
+    }
   }
 
-  if (remaining.length) {
+  // Show remaining failures
+  const failures = results.filter((r) => !r.passed);
+  if (failures.length) {
     lines.push("STILL FAILING:");
-    for (const fail of remaining) {
-      lines.push(`  x ${fail.test}`);
-      if (fail.diagnosis) lines.push(`    Diagnosis: ${fail.diagnosis}`);
+    for (const f of failures) {
+      const name = f.name ?? f.tc_id ?? "unknown";
+      if (f.error) {
+        lines.push(`  x ${name}: ${f.error}`);
+      } else {
+        lines.push(`  x ${name}: expected ${f.expected ?? "unknown"}, got ${f.actual ?? "error"}`);
+      }
     }
     lines.push("");
   }
 
-  if (passed === total) {
+  // Next steps
+  if (passed === total && total > 0) {
     lines.push("All tests passing! Call aethis_publish to publish.");
-  } else if (regressions.length) {
-    lines.push(
-      "Regressions detected. The previous guidance may have been too broad. " +
-        "Consider narrowing it or adding more specific guidance, then call " +
-        "aethis_generate_and_test again.",
-    );
-  } else if (remaining.length) {
+  } else if (failures.length) {
     lines.push(
       "To fix remaining failures:\n" +
         "  - If the diagnosis points to a source text issue, call aethis_generate_and_test again\n" +
@@ -138,6 +161,10 @@ export function createToolHandlers(client: AethisClient) {
   const REQUIRED_TC_KEYS = new Set(["name", "field_values", "expected_outcome"]);
   const VALID_OUTCOMES = new Set(["eligible", "not_eligible", "undetermined"]);
 
+  // Track test results per project for diff detection across iterations
+  const previousTestResults = new Map<string, TestRunResult>();
+  const iterationCounts = new Map<string, number>();
+
   return {
     // -- Decision tools --
 
@@ -150,11 +177,19 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_decide(args: { bundle_id: string; field_values: Record<string, unknown> }): Promise<ToolResult> {
+    async aethis_decide(args: {
+      bundle_id: string;
+      field_values: Record<string, unknown>;
+      include_trace?: boolean;
+      include_explanation?: boolean;
+    }): Promise<ToolResult> {
       const idErr = validateId(args.bundle_id, "bundle_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.decide(args.bundle_id, args.field_values);
+        const result = await client.decide(args.bundle_id, args.field_values, {
+          includeTrace: args.include_trace,
+          includeExplanation: args.include_explanation,
+        });
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -222,13 +257,98 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    // -- Authoring tools --
-
-    async aethis_generate(args: { project_id: string }): Promise<ToolResult> {
+    async aethis_list_bundles(args: { project_id: string }): Promise<ToolResult> {
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.generate(args.project_id);
+        const result = await client.listBundles(args.project_id);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    // -- Test case tools --
+
+    async aethis_list_tests(args: { project_id: string }): Promise<ToolResult> {
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.listTests(args.project_id);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_get_test(args: { project_id: string; tc_id: string }): Promise<ToolResult> {
+      const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.getTest(args.project_id, args.tc_id);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_update_test(args: {
+      project_id: string;
+      tc_id: string;
+      name?: string;
+      field_values?: Record<string, unknown>;
+      expected_outcome?: string;
+    }): Promise<ToolResult> {
+      const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
+      if (idErr) return err(idErr);
+      const updates: Record<string, unknown> = {};
+      if (args.name !== undefined) updates.name = args.name;
+      if (args.field_values !== undefined) updates.field_values = args.field_values;
+      if (args.expected_outcome !== undefined) {
+        if (!VALID_OUTCOMES.has(args.expected_outcome)) {
+          return err(`Error: invalid expected_outcome '${args.expected_outcome}'. Must be: eligible, not_eligible, or undetermined.`);
+        }
+        updates.expected_outcome = args.expected_outcome;
+      }
+      if (Object.keys(updates).length === 0) {
+        return err("Error: at least one field to update must be provided (name, field_values, or expected_outcome).");
+      }
+      try {
+        const result = await client.updateTest(args.project_id, args.tc_id, updates);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_delete_test(args: { project_id: string; tc_id: string }): Promise<ToolResult> {
+      const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.deleteTest(args.project_id, args.tc_id);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    // -- Management tools --
+
+    async aethis_archive_project(args: { project_id: string }): Promise<ToolResult> {
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.archiveProject(args.project_id);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_archive_bundle(args: { bundle_id: string }): Promise<ToolResult> {
+      const idErr = validateId(args.bundle_id, "bundle_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.archiveBundle(args.bundle_id);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    // -- Authoring tools --
+
+    async aethis_generate(args: { project_id: string; openai_key?: string }): Promise<ToolResult> {
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.generate(args.project_id, args.openai_key);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -288,16 +408,20 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_generate_and_test(args: { project_id: string }): Promise<ToolResult> {
+    async aethis_generate_and_test(args: { project_id: string; openai_key?: string }): Promise<ToolResult> {
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.generateAndTest(args.project_id) as GenerateAndTestResult;
-        return ok(formatGenerateAndTestResult(result));
+        const result = await client.generateAndTest(args.project_id, args.openai_key) as TestRunResult;
+        const prev = previousTestResults.get(args.project_id) ?? null;
+        const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
+        iterationCounts.set(args.project_id, iteration);
+        previousTestResults.set(args.project_id, result);
+        return ok(formatTestResults(result, prev, iteration));
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_refine(args: { project_id: string; feedback?: string }): Promise<ToolResult> {
+    async aethis_refine(args: { project_id: string; feedback?: string; openai_key?: string }): Promise<ToolResult> {
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -305,13 +429,18 @@ export function createToolHandlers(client: AethisClient) {
         if (feedback) {
           await client.addGuidance(args.project_id, args.feedback!);
         }
-        const result = await client.generateAndTest(args.project_id) as GenerateAndTestResult;
+        const result = await client.generateAndTest(args.project_id, args.openai_key) as TestRunResult;
+        const prev = previousTestResults.get(args.project_id) ?? null;
+        const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
+        iterationCounts.set(args.project_id, iteration);
+        previousTestResults.set(args.project_id, result);
+
         let prefix = "";
         if (feedback) {
           const truncated = feedback.length > 100 ? feedback.slice(0, 100) + "..." : feedback;
           prefix = `Guidance added: "${truncated}"\n\n`;
         }
-        return ok(prefix + formatGenerateAndTestResult(result));
+        return ok(prefix + formatTestResults(result, prev, iteration));
       } catch (e) { return apiError(e); }
     },
 
@@ -319,11 +448,11 @@ export function createToolHandlers(client: AethisClient) {
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        const testResult = await client.runTests(args.project_id) as Record<string, unknown>;
-        const total = (testResult.total ?? 0) as number;
-        const passed = (testResult.passed ?? 0) as number;
-        const failed = (testResult.failed ?? 0) as number;
-        const errors = (testResult.errors ?? 0) as number;
+        const testResult = await client.runTests(args.project_id) as TestRunResult;
+        const total = testResult.total ?? 0;
+        const passed = testResult.passed ?? 0;
+        const failed = testResult.failed ?? 0;
+        const errors = testResult.errors ?? 0;
 
         if ((failed > 0 || errors > 0) && !args.force) {
           const lines = [
@@ -331,14 +460,14 @@ export function createToolHandlers(client: AethisClient) {
             "",
             "Failing tests:",
           ];
-          const results = (testResult.results ?? []) as Array<Record<string, unknown>>;
+          const results = testResult.results ?? [];
           for (const r of results) {
             if (!r.passed) {
               lines.push(`  x ${r.name}: expected ${r.expected}, got ${r.actual ?? "error"}`);
             }
           }
           lines.push("", "Fix failures with aethis_generate_and_test or aethis_refine,");
-          lines.push("or call aethis_publish with force=True to override.");
+          lines.push("or call aethis_publish with force=true to override.");
           return err(lines.join("\n"));
         }
 
@@ -376,10 +505,12 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_decide",
-    "Evaluate eligibility against a published rule bundle. Returns eligible/ineligible/undetermined. When undetermined, includes next_question and optimal_path.",
+    "Evaluate eligibility against a published rule bundle. Returns eligible/not_eligible/undetermined with optional trace and explanation. When undetermined, includes next_question and optimal_path.",
     {
       bundle_id: z.string().describe("The ID of the published rule bundle"),
       field_values: z.record(z.string(), z.unknown()).describe("Input field values (see aethis_schema for required fields)"),
+      include_trace: z.boolean().optional().describe("Include the full evaluation trace showing how each rule was evaluated"),
+      include_explanation: z.boolean().optional().describe("Include human-readable rule explanations with source citations"),
     },
     (args) => handlers.aethis_decide(args),
   );
@@ -415,9 +546,73 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
+    "aethis_list_bundles",
+    "List all rule bundles for a project, including version history. Shows bundle ID, status (active/archived), version, field count, and rule count.",
+    { project_id: z.string().describe("The project ID") },
+    (args) => handlers.aethis_list_bundles(args),
+  );
+
+  server.tool(
+    "aethis_list_tests",
+    "List all golden test cases for a project. Shows test name, input field values, and expected outcome for each case.",
+    { project_id: z.string().describe("The project ID") },
+    (args) => handlers.aethis_list_tests(args),
+  );
+
+  server.tool(
+    "aethis_get_test",
+    "Get a single test case by ID.",
+    {
+      project_id: z.string().describe("The project ID"),
+      tc_id: z.string().describe("The test case ID (e.g., tc_abc123)"),
+    },
+    (args) => handlers.aethis_get_test(args),
+  );
+
+  server.tool(
+    "aethis_update_test",
+    "Update a test case. Only provided fields are changed — omit fields to keep their current value.",
+    {
+      project_id: z.string().describe("The project ID"),
+      tc_id: z.string().describe("The test case ID to update"),
+      name: z.string().optional().describe("New test case name"),
+      field_values: z.record(z.string(), z.unknown()).optional().describe("New input field values"),
+      expected_outcome: z.string().optional().describe("New expected outcome (eligible, not_eligible, or undetermined)"),
+    },
+    (args) => handlers.aethis_update_test(args),
+  );
+
+  server.tool(
+    "aethis_delete_test",
+    "Delete a test case from a project. This is permanent.",
+    {
+      project_id: z.string().describe("The project ID"),
+      tc_id: z.string().describe("The test case ID to delete"),
+    },
+    (args) => handlers.aethis_delete_test(args),
+  );
+
+  server.tool(
+    "aethis_archive_project",
+    "Archive a project. Archived projects are preserved but excluded from listing. This is permanent.",
+    { project_id: z.string().describe("The project ID to archive") },
+    (args) => handlers.aethis_archive_project(args),
+  );
+
+  server.tool(
+    "aethis_archive_bundle",
+    "Archive a rule bundle. Archived bundles are preserved but excluded from /decide resolution. This is permanent.",
+    { bundle_id: z.string().describe("The bundle ID to archive") },
+    (args) => handlers.aethis_archive_bundle(args),
+  );
+
+  server.tool(
     "aethis_generate",
     "Trigger rule generation for a project. Queues an async job. Poll with aethis_project_status to check progress.",
-    { project_id: z.string().describe("The project ID to generate rules for") },
+    {
+      project_id: z.string().describe("The project ID to generate rules for"),
+      openai_key: z.string().optional().describe("Your OpenAI API key for LLM generation costs (required, pass-through, never stored)"),
+    },
     (args) => handlers.aethis_generate(args),
   );
 
@@ -446,8 +641,11 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_generate_and_test",
-    "Generate rules from source text and run all test cases. Returns pass/fail with diagnostics, regression detection, and suggested next steps. Takes 60-120 seconds.",
-    { project_id: z.string().describe("The project ID") },
+    "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Takes 60-120 seconds.",
+    {
+      project_id: z.string().describe("The project ID"),
+      openai_key: z.string().optional().describe("Your OpenAI API key for LLM generation costs (required, pass-through, never stored)"),
+    },
     (args) => handlers.aethis_generate_and_test(args),
   );
 
@@ -457,6 +655,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       project_id: z.string().describe("The project ID"),
       feedback: z.string().optional().describe("Optional correction or domain knowledge to add before regenerating"),
+      openai_key: z.string().optional().describe("Your OpenAI API key for LLM generation costs (required, pass-through, never stored)"),
     },
     (args) => handlers.aethis_refine(args),
   );
@@ -484,14 +683,14 @@ async function main(): Promise<void> {
   const handlers = createToolHandlers(client);
 
   const server = new McpServer(
-    { name: "aethis", version: "0.1.0" },
+    { name: "aethis", version: PKG_VERSION },
     {
       instructions:
         "Aethis is an AI platform for regulated eligibility checks. " +
+        "Use aethis_list_projects to discover available projects, and aethis_list_bundles to see published bundles. " +
         "Use aethis_schema to discover what input fields a rule bundle requires, " +
-        "then aethis_decide to evaluate eligibility, and aethis_explain for " +
-        "human-readable rule descriptions. " +
-        "Use aethis_list_projects to discover available projects and bundles. " +
+        "then aethis_decide to evaluate eligibility (with optional include_trace and include_explanation for provenance), " +
+        "and aethis_explain for human-readable rule descriptions. " +
         "To author new rules: aethis_create_ruleset (with test cases first — TDD), " +
         "then aethis_generate_and_test to iterate, and aethis_publish when passing.",
     },

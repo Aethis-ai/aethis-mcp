@@ -1,3 +1,28 @@
 node_modules/
 dist/
 *.tsbuildinfo
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+
+# Python leftovers
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# npm
+*.tgz
+
+# Coverage
+coverage/
