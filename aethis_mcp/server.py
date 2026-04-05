@@ -2,13 +2,36 @@
 
 from __future__ import annotations
 
-import atexit
+import asyncio
 import json
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastmcp import FastMCP
 
 from aethis_mcp.client import AethisAPIError, AethisClient
+
+_client_instance: AethisClient | None = None
+_client_lock = asyncio.Lock()
+
+
+async def _client() -> AethisClient:
+    global _client_instance
+    if _client_instance is None:
+        async with _client_lock:
+            if _client_instance is None:  # double-check after acquiring lock
+                _client_instance = AethisClient()
+    return _client_instance
+
+
+@asynccontextmanager
+async def _lifespan(app):
+    yield
+    global _client_instance
+    if _client_instance is not None:
+        await _client_instance.aclose()
+        _client_instance = None
+
 
 mcp = FastMCP(
     "Aethis",
@@ -21,22 +44,20 @@ mcp = FastMCP(
         "To author new rules: `aethis_create_ruleset` (with test cases first — TDD), "
         "then `aethis_generate_and_test` to iterate, and `aethis_publish` when passing."
     ),
+    lifespan=_lifespan,
 )
-
-_shared_client: AethisClient | None = None
-
-
-def _client() -> AethisClient:
-    global _shared_client
-    if _shared_client is None:
-        _shared_client = AethisClient()
-        atexit.register(_shared_client.close)
-    return _shared_client
 
 
 def _fmt(data: dict | list) -> str:
     """Format API response as indented JSON for LLM readability."""
     return json.dumps(data, indent=2, default=str)
+
+
+def _validate_id(value: str, label: str) -> str | None:
+    """Return an error string if *value* is empty/whitespace, else None."""
+    if not value or not value.strip():
+        return f"Error: {label} must not be empty."
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +66,7 @@ def _fmt(data: dict | list) -> str:
 
 
 @mcp.tool()
-def aethis_schema(
+async def aethis_schema(
     bundle_id: Annotated[str, "The ID of the published rule bundle"],
 ) -> str:
     """Get the input fields required for an eligibility check.
@@ -54,15 +75,18 @@ def aethis_schema(
     allowed values. Use this before calling aethis_decide to know what
     field_values to provide.
     """
+    if err := _validate_id(bundle_id, "bundle_id"):
+        return err
     try:
-        result = _client().get_schema(bundle_id)
+        client = await _client()
+        result = await client.get_schema(bundle_id)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: API request failed (HTTP {e.status_code})"
+        return f"Error: {e.detail} (HTTP {e.status_code})"
 
 
 @mcp.tool()
-def aethis_decide(
+async def aethis_decide(
     bundle_id: Annotated[str, "The ID of the published rule bundle"],
     field_values: Annotated[dict, "Input field values (see aethis_schema for required fields)"],
 ) -> str:
@@ -75,15 +99,18 @@ def aethis_decide(
     - next_question: the optimised best question to ask next
     - optimal_path: the full remaining question path to eligibility
     """
+    if err := _validate_id(bundle_id, "bundle_id"):
+        return err
     try:
-        result = _client().decide(bundle_id, field_values)
+        client = await _client()
+        result = await client.decide(bundle_id, field_values)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: API request failed (HTTP {e.status_code})"
+        return f"Error: {e.detail} (HTTP {e.status_code})"
 
 
 @mcp.tool()
-def aethis_next_question(
+async def aethis_next_question(
     bundle_id: Annotated[str, "The ID of the published rule bundle"],
     field_values: Annotated[dict, "Answers collected so far (can be empty dict for first question)"],
 ) -> str:
@@ -99,14 +126,17 @@ def aethis_next_question(
     3. Add their answer to field_values and call again
     4. Repeat until decision is 'eligible' or 'not_eligible'
     """
+    if err := _validate_id(bundle_id, "bundle_id"):
+        return err
     try:
-        result = _client().decide(bundle_id, field_values)
+        client = await _client()
+        result = await client.decide(bundle_id, field_values)
         decision = result.get("decision")
 
         if decision == "eligible":
-            return f"Decision: eligible. No more questions needed."
+            return "Decision: eligible. No more questions needed."
         if decision == "not_eligible":
-            return f"Decision: not eligible. No more questions needed."
+            return "Decision: not eligible. No more questions needed."
 
         # Undetermined — format next question prominently
         nq = result.get("next_question")
@@ -125,11 +155,11 @@ def aethis_next_question(
             lines.append(f"\nAll missing fields: {', '.join(result['missing_fields'])}")
         return "\n".join(lines)
     except AethisAPIError as e:
-        return f"Error: API request failed (HTTP {e.status_code})"
+        return f"Error: {e.detail} (HTTP {e.status_code})"
 
 
 @mcp.tool()
-def aethis_explain(
+async def aethis_explain(
     bundle_id: Annotated[str, "The ID of the published rule bundle"],
 ) -> str:
     """Get human-readable descriptions of the rules in a bundle.
@@ -137,11 +167,14 @@ def aethis_explain(
     Returns natural-language explanations of what the rule bundle checks,
     including criteria groups, requirements, and exception paths.
     """
+    if err := _validate_id(bundle_id, "bundle_id"):
+        return err
     try:
-        result = _client().explain(bundle_id)
+        client = await _client()
+        result = await client.explain(bundle_id)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: API request failed (HTTP {e.status_code})"
+        return f"Error: {e.detail} (HTTP {e.status_code})"
 
 
 # ---------------------------------------------------------------------------
@@ -150,21 +183,22 @@ def aethis_explain(
 
 
 @mcp.tool()
-def aethis_list_projects() -> str:
+async def aethis_list_projects() -> str:
     """List all projects in the current tenant.
 
     Returns project IDs, names, domains, and latest bundle information.
     Use this to discover available bundles for aethis_schema / aethis_decide.
     """
     try:
-        result = _client().list_projects()
+        client = await _client()
+        result = await client.list_projects()
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: API request failed (HTTP {e.status_code})"
+        return f"Error: {e.detail} (HTTP {e.status_code})"
 
 
 @mcp.tool()
-def aethis_project_status(
+async def aethis_project_status(
     project_id: Annotated[str, "The project ID"],
 ) -> str:
     """Check the status of a project and its latest generation job.
@@ -172,20 +206,23 @@ def aethis_project_status(
     Returns project state, latest bundle ID, and generation job progress
     (queued/running/success/failed).
     """
+    if err := _validate_id(project_id, "project_id"):
+        return err
     try:
-        result = _client().get_status(project_id)
+        client = await _client()
+        result = await client.get_status(project_id)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: API request failed (HTTP {e.status_code})"
+        return f"Error: {e.detail} (HTTP {e.status_code})"
 
 
 # ---------------------------------------------------------------------------
-# Authoring tool
+# Authoring tools
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
-def aethis_generate(
+async def aethis_generate(
     project_id: Annotated[str, "The project ID to generate rules for"],
 ) -> str:
     """Trigger rule generation for a project.
@@ -194,11 +231,14 @@ def aethis_generate(
     guidance hints, and test cases to synthesize a rule bundle.
     Poll with aethis_project_status to check progress.
     """
+    if err := _validate_id(project_id, "project_id"):
+        return err
     try:
-        result = _client().generate(project_id)
+        client = await _client()
+        result = await client.generate(project_id)
         return _fmt(result)
     except AethisAPIError as e:
-        return f"Error: API request failed (HTTP {e.status_code})"
+        return f"Error: {e.detail} (HTTP {e.status_code})"
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +250,7 @@ _VALID_OUTCOMES = {"eligible", "not_eligible", "undetermined"}
 
 
 @mcp.tool()
-def aethis_create_ruleset(
+async def aethis_create_ruleset(
     name: Annotated[str, "Human-readable name for the ruleset"],
     section_id: Annotated[str, "Unique section identifier (e.g., 'flight_readiness')"],
     source_text: Annotated[str, "The source legislation, policy, or specification text"],
@@ -239,27 +279,27 @@ def aethis_create_ruleset(
             return f"Error: Test case {i + 1} has invalid expected_outcome '{tc.get('expected_outcome')}'. Must be: eligible, not_eligible, or undetermined."
 
     try:
-        client = _client()
+        client = await _client()
 
         # Create project
-        project = client.create_project(name, section_id, domain)
+        project = await client.create_project(name, section_id, domain)
         project_id = project.get("project_id")
 
         # Upload source text
         filename = f"{section_id}.md"
-        client.upload_source_text(project_id, filename, source_text)
+        await client.upload_source_text(project_id, filename, source_text)
 
         # Add test cases
-        client.add_tests(project_id, test_cases)
+        await client.add_tests(project_id, test_cases)
 
         lines = [
-            f"Ruleset project created successfully.",
+            "Ruleset project created successfully.",
             f"  Project ID: {project_id}",
             f"  Section: {section_id}",
             f"  Source: {len(source_text)} characters uploaded as {filename}",
             f"  Tests: {len(test_cases)} test case(s) added",
-            f"",
-            f"Next step: Call aethis_generate_and_test(project_id=\"{project_id}\") to generate rules and run tests.",
+            "",
+            f'Next step: Call aethis_generate_and_test(project_id="{project_id}") to generate rules and run tests.',
         ]
         return "\n".join(lines)
 
@@ -268,7 +308,7 @@ def aethis_create_ruleset(
 
 
 @mcp.tool()
-def aethis_add_guidance(
+async def aethis_add_guidance(
     project_id: Annotated[str, "The project ID"],
     guidance_text: Annotated[str, "Domain knowledge or correction not present in the source text"],
 ) -> str:
@@ -281,18 +321,21 @@ def aethis_add_guidance(
 
     After adding guidance, call aethis_generate_and_test to regenerate with this context.
     """
+    if err := _validate_id(project_id, "project_id"):
+        return err
     try:
-        _client().add_guidance(project_id, guidance_text)
+        client = await _client()
+        await client.add_guidance(project_id, guidance_text)
         return (
             f"Guidance added to project {project_id}.\n"
-            f"Call aethis_generate_and_test(project_id=\"{project_id}\") to regenerate with this guidance applied."
+            f'Call aethis_generate_and_test(project_id="{project_id}") to regenerate with this guidance applied.'
         )
     except AethisAPIError as e:
         return f"Error: {e.detail} (HTTP {e.status_code})"
 
 
 @mcp.tool()
-def aethis_generate_and_test(
+async def aethis_generate_and_test(
     project_id: Annotated[str, "The project ID"],
 ) -> str:
     """Generate rules from source text and run all test cases.
@@ -305,8 +348,11 @@ def aethis_generate_and_test(
 
     Takes 60-120 seconds (rule generation is computationally intensive).
     """
+    if err := _validate_id(project_id, "project_id"):
+        return err
     try:
-        result = _client().generate_and_test(project_id)
+        client = await _client()
+        result = await client.generate_and_test(project_id)
         return _format_generate_and_test_result(result)
     except AethisAPIError as e:
         return f"Error: {e.detail} (HTTP {e.status_code})"
@@ -376,7 +422,7 @@ def _format_generate_and_test_result(result: dict) -> str:
 
 
 @mcp.tool()
-def aethis_refine(
+async def aethis_refine(
     project_id: Annotated[str, "The project ID"],
     feedback: Annotated[str, "Optional correction or domain knowledge to add before regenerating"] = "",
 ) -> str:
@@ -388,12 +434,14 @@ def aethis_refine(
     If no feedback, just regenerates (previous failure context is
     automatically included).
     """
+    if err := _validate_id(project_id, "project_id"):
+        return err
     try:
-        client = _client()
+        client = await _client()
         if feedback.strip():
-            client.add_guidance(project_id, feedback)
+            await client.add_guidance(project_id, feedback)
 
-        result = client.generate_and_test(project_id)
+        result = await client.generate_and_test(project_id)
         prefix = ""
         if feedback.strip():
             prefix = f"Guidance added: \"{feedback[:100]}{'...' if len(feedback) > 100 else ''}\"\n\n"
@@ -403,7 +451,7 @@ def aethis_refine(
 
 
 @mcp.tool()
-def aethis_publish(
+async def aethis_publish(
     project_id: Annotated[str, "The project ID"],
     force: Annotated[bool, "Publish even if tests are not all passing"] = False,
 ) -> str:
@@ -413,11 +461,13 @@ def aethis_publish(
     force=True. Publishing auto-deprecates any previous active bundle
     for the same section.
     """
+    if err := _validate_id(project_id, "project_id"):
+        return err
     try:
-        client = _client()
+        client = await _client()
 
         # Run tests first to check
-        test_result = client.run_tests(project_id)
+        test_result = await client.run_tests(project_id)
         total = test_result.get("total", 0)
         passed = test_result.get("passed", 0)
         failed = test_result.get("failed", 0)
@@ -438,13 +488,13 @@ def aethis_publish(
             return "\n".join(lines)
 
         # Publish
-        result = client.publish(project_id)
+        result = await client.publish(project_id)
         bundle_id = result.get("bundle_id", "unknown")
         version = result.get("version", "unknown")
         deprecated = result.get("deprecated_bundles", [])
 
         lines = [
-            f"Published successfully!",
+            "Published successfully!",
             f"  Bundle: {bundle_id}",
             f"  Version: {version}",
             f"  Tests: {passed}/{total} passing",
