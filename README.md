@@ -14,9 +14,13 @@ Aethis turns legislation, policy documents, and compliance rules into executable
 ## Install
 
 ```bash
-pip install aethis-mcp
-# or run directly
-uvx aethis-mcp
+npx aethis-mcp
+```
+
+Or install globally:
+
+```bash
+npm install -g aethis-mcp
 ```
 
 ## Configure
@@ -36,8 +40,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "aethis": {
-      "command": "uvx",
-      "args": ["aethis-mcp"],
+      "command": "npx",
+      "args": ["-y", "aethis-mcp"],
       "env": { "AETHIS_API_KEY": "ak_live_..." }
     }
   }
@@ -47,7 +51,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ### Claude Code
 
 ```bash
-claude mcp add aethis -- uvx aethis-mcp
+claude mcp add aethis -- npx -y aethis-mcp
 ```
 
 ### Cursor / Windsurf
@@ -58,8 +62,8 @@ Add to `.cursor/mcp.json` (or equivalent):
 {
   "mcpServers": {
     "aethis": {
-      "command": "uvx",
-      "args": ["aethis-mcp"],
+      "command": "npx",
+      "args": ["-y", "aethis-mcp"],
       "env": { "AETHIS_API_KEY": "ak_live_..." }
     }
   }
@@ -136,8 +140,9 @@ Claude: [calls aethis_refine with feedback about the 10-year service exemption]
 ```bash
 git clone https://github.com/aethis-ai/aethis-mcp.git
 cd aethis-mcp
-uv sync --dev
-uv run pytest tests/ -v
+npm install
+npm test
+npm run build
 ```
 
 ## License
