@@ -554,7 +554,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_list_tests",
-    "List all golden test cases for a project. Shows test name, input field values, and expected outcome for each case.",
+    "List all test cases for a project. Shows test name, input field values, and expected outcome for each case.",
     { project_id: z.string().describe("The project ID") },
     (args) => handlers.aethis_list_tests(args),
   );

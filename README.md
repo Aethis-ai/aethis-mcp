@@ -23,7 +23,7 @@ LLMs hallucinate policy. Aethis compiles it into logic that returns the same ans
 claude mcp add aethis -e AETHIS_API_KEY=<your-key> -- npx -y aethis-mcp
 ```
 
-The examples below use the **Spacecraft Crew Certification Act 2049** — a synthetic statute modelled on UK primary legislation that ships as a public demo bundle. Every decision is **deterministic**: no language model is involved at decision time. Rules are compiled from the source legislation into formal logic, fully tested, then evaluated by a constraint engine. Same inputs, same answer, every time.
+The examples below use the **Spacecraft Crew Certification Act 2049** — a synthetic statute modelled on UK primary legislation that ships as a public demo bundle. Every decision is **deterministic**: no language model is involved at decision time. Rules are compiled from the source legislation into formal logic, fully tested, then evaluated by the eligibility engine. Same inputs, same answer, every time.
 
 ### The source legislation
 
@@ -106,7 +106,7 @@ Every decision traces back to the exact section and clause in the source legisla
 
 ### Optimal path to eligible — conversational flow
 
-The engine doesn't just evaluate — it finds the **shortest path to a decision**. It asks questions in priority order, most discriminating first, and short-circuits the moment a decision is reachable.
+The eligibility engine doesn't just evaluate — it finds the **shortest path to a decision**. It asks questions in priority order, most discriminating first, and short-circuits the moment a decision is reachable.
 
 > Walk me through a crew certification eligibility check.
 
@@ -144,7 +144,7 @@ One question. The engine knew that a Vogon is disqualified under Section 3 regar
 Source text ──→ LLM compiles to rules ──→ Published rule bundle
                 (authoring time only)           │
                                                 ▼
-                                      Constraint engine evaluates
+                                      Eligibility engine evaluates
                                       (deterministic, no LLM)
                                                 │
                                                 ▼
@@ -166,7 +166,7 @@ The LLM is used once, at authoring time. After that, every decision is pure logi
 |-------|-------|-------------|
 | **Decision** | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain` | Evaluate eligibility, inspect fields, conversational checks, rule explanations |
 | **Discovery** | `aethis_list_projects`, `aethis_project_status`, `aethis_list_bundles` | Find projects, check generation progress, browse bundle versions |
-| **Test cases** | `aethis_list_tests`, `aethis_get_test`, `aethis_update_test`, `aethis_delete_test` | Full CRUD on golden test cases |
+| **Test cases** | `aethis_list_tests`, `aethis_get_test`, `aethis_update_test`, `aethis_delete_test` | Full CRUD on test cases |
 | **Management** | `aethis_archive_project`, `aethis_archive_bundle` | Archive projects and bundles (permanent) |
 | **Authoring** | `aethis_create_bundle`, `aethis_generate_and_test`, `aethis_add_guidance`, `aethis_refine`, `aethis_publish` | Create, iterate, and publish rule bundles (TDD workflow) |
 | **Low-level** | `aethis_generate` | Async generation with manual polling |
