@@ -75,7 +75,7 @@ MOCK_GENERATE = {
 # -- Tool registration -------------------------------------------------------
 
 class TestToolRegistration:
-    def test_all_seven_tools_registered(self):
+    def test_all_twelve_tools_registered(self):
         tools = run(mcp.list_tools())
         names = {t.name for t in tools}
         assert names == {
@@ -86,6 +86,11 @@ class TestToolRegistration:
             "aethis_list_projects",
             "aethis_project_status",
             "aethis_generate",
+            "aethis_create_ruleset",
+            "aethis_add_guidance",
+            "aethis_generate_and_test",
+            "aethis_refine",
+            "aethis_publish",
         }
 
     def test_tools_have_descriptions(self):
