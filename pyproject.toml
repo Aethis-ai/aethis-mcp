@@ -9,10 +9,29 @@ description = "MCP server for the Aethis developer API — eligibility checks vi
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
+authors = [
+    { name = "Aethis", email = "eng@aethis.ai" },
+]
+keywords = ["mcp", "eligibility", "rules-engine", "compliance", "aethis", "llm-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "fastmcp>=2.0,<4",
     "httpx>=0.27,<1",
 ]
+
+[project.urls]
+Homepage = "https://aethis.ai"
+Repository = "https://github.com/aethis-ai/aethis-mcp"
+Issues = "https://github.com/aethis-ai/aethis-mcp/issues"
 
 [project.scripts]
 aethis-mcp = "aethis_mcp.server:main"

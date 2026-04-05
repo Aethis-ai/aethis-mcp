@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -72,6 +72,14 @@ MOCK_GENERATE = {
 }
 
 
+def _make_mock_client(**overrides) -> AsyncMock:
+    """Create an AsyncMock client with sensible defaults."""
+    client = AsyncMock(spec=AethisClient)
+    for attr, value in overrides.items():
+        getattr(client, attr).return_value = value
+    return client
+
+
 # -- Tool registration -------------------------------------------------------
 
 class TestToolRegistration:
@@ -104,8 +112,7 @@ class TestToolRegistration:
 class TestSchema:
     @patch("aethis_mcp.server._client")
     def test_returns_schema_json(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.get_schema.return_value = MOCK_SCHEMA
+        client = _make_mock_client(get_schema=MOCK_SCHEMA)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_schema", {"bundle_id": "b_123"}))
@@ -116,20 +123,25 @@ class TestSchema:
 
     @patch("aethis_mcp.server._client")
     def test_handles_api_error(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
+        client = AsyncMock(spec=AethisClient)
         client.get_schema.side_effect = AethisAPIError(404, "Bundle not found")
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_schema", {"bundle_id": "bad"}))
-        assert "Error" in result.content[0].text
-        assert "404" in result.content[0].text
+        text = result.content[0].text
+        assert "Error" in text
+        assert "404" in text
+        assert "Bundle not found" in text
+
+    def test_rejects_empty_bundle_id(self):
+        result = run(mcp.call_tool("aethis_schema", {"bundle_id": ""}))
+        assert "must not be empty" in result.content[0].text
 
 
 class TestDecide:
     @patch("aethis_mcp.server._client")
     def test_returns_outcome(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.decide.return_value = MOCK_DECIDE
+        client = _make_mock_client(decide=MOCK_DECIDE)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_decide", {
@@ -141,7 +153,7 @@ class TestDecide:
 
     @patch("aethis_mcp.server._client")
     def test_handles_api_error(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
+        client = AsyncMock(spec=AethisClient)
         client.decide.side_effect = AethisAPIError(422, "Missing required field: age")
         mock_factory.return_value = client
 
@@ -149,14 +161,15 @@ class TestDecide:
             "bundle_id": "b_123",
             "field_values": {},
         }))
-        assert "422" in result.content[0].text
+        text = result.content[0].text
+        assert "422" in text
+        assert "Missing required field" in text
 
 
 class TestNextQuestion:
     @patch("aethis_mcp.server._client")
     def test_undetermined_shows_next_question(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.decide.return_value = MOCK_DECIDE_UNDETERMINED
+        client = _make_mock_client(decide=MOCK_DECIDE_UNDETERMINED)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_next_question", {
@@ -171,8 +184,7 @@ class TestNextQuestion:
 
     @patch("aethis_mcp.server._client")
     def test_eligible_returns_done(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.decide.return_value = {"decision": "eligible"}
+        client = _make_mock_client(decide={"decision": "eligible"})
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_next_question", {
@@ -187,8 +199,7 @@ class TestNextQuestion:
 class TestExplain:
     @patch("aethis_mcp.server._client")
     def test_returns_rules(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.explain.return_value = MOCK_EXPLAIN
+        client = _make_mock_client(explain=MOCK_EXPLAIN)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_explain", {"bundle_id": "b_123"}))
@@ -201,8 +212,7 @@ class TestExplain:
 class TestListProjects:
     @patch("aethis_mcp.server._client")
     def test_returns_projects(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.list_projects.return_value = MOCK_PROJECTS
+        client = _make_mock_client(list_projects=MOCK_PROJECTS)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_list_projects", {}))
@@ -214,8 +224,7 @@ class TestListProjects:
 class TestProjectStatus:
     @patch("aethis_mcp.server._client")
     def test_returns_status(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.get_status.return_value = MOCK_STATUS
+        client = _make_mock_client(get_status=MOCK_STATUS)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_project_status", {"project_id": "p_1"}))
@@ -228,8 +237,7 @@ class TestProjectStatus:
 class TestGenerate:
     @patch("aethis_mcp.server._client")
     def test_returns_job_info(self, mock_factory):
-        client = MagicMock(spec=AethisClient)
-        client.generate.return_value = MOCK_GENERATE
+        client = _make_mock_client(generate=MOCK_GENERATE)
         mock_factory.return_value = client
 
         result = run(mcp.call_tool("aethis_generate", {"project_id": "p_1"}))
@@ -244,3 +252,12 @@ class TestClientInit:
         monkeypatch.delenv("AETHIS_API_KEY", raising=False)
         with pytest.raises(AethisAPIError, match="AETHIS_API_KEY"):
             AethisClient()
+
+    def test_rejects_http_for_remote_host(self):
+        with pytest.raises(AethisAPIError, match="Refusing to use HTTP"):
+            AethisClient._validate_base_url("http://evil.example.com")
+
+    def test_allows_http_for_localhost(self):
+        # Should not raise
+        AethisClient._validate_base_url("http://localhost:8000")
+        AethisClient._validate_base_url("http://127.0.0.1:8000")
