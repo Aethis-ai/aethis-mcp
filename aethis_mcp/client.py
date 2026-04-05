@@ -84,3 +84,41 @@ class AethisClient:
 
     def generate(self, project_id: str) -> dict:
         return self._request("POST", f"/api/v1/public/projects/{project_id}/generate")
+
+    # -- Authoring API --
+
+    def create_project(self, name: str, section_id: str, domain: str = "") -> dict:
+        return self._request("POST", "/api/v1/public/projects/", json={
+            "name": name,
+            "section_id": section_id,
+            "domain": domain,
+        })
+
+    def upload_source_text(self, project_id: str, filename: str, content: str) -> dict:
+        """Upload source text as an in-memory file (no filesystem path needed)."""
+        files = [("files", (filename, content.encode("utf-8"), "text/plain"))]
+        return self._request("POST", f"/api/v1/public/projects/{project_id}/sources", files=files)
+
+    def add_guidance(self, project_id: str, guidance_text: str) -> dict:
+        return self._request("POST", f"/api/v1/public/projects/{project_id}/guidance", json={
+            "guidance_text": guidance_text,
+        })
+
+    def add_tests(self, project_id: str, test_cases: list[dict]) -> dict:
+        return self._request("POST", f"/api/v1/public/projects/{project_id}/tests", json={
+            "test_cases": test_cases,
+        })
+
+    def run_tests(self, project_id: str) -> dict:
+        return self._request("POST", f"/api/v1/public/projects/{project_id}/test-run")
+
+    def publish(self, project_id: str) -> dict:
+        return self._request("POST", f"/api/v1/public/projects/{project_id}/publish")
+
+    def generate_and_test(self, project_id: str) -> dict:
+        """Generate rules and run tests. May take 60-120s."""
+        return self._request(
+            "POST",
+            f"/api/v1/public/projects/{project_id}/generate-and-test",
+            timeout=httpx.Timeout(connect=5, read=180, write=10, pool=5),
+        )
