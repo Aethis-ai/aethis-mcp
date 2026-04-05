@@ -63,7 +63,7 @@ Add to `.cursor/mcp.json`:
 |------|-------------|
 | `aethis_schema` | Get input fields required for an eligibility check |
 | `aethis_decide` | Evaluate eligibility against a published rule bundle |
-| `aethis_next_question` | Get the Z3-optimized next question to ask (conversational loop) |
+| `aethis_next_question` | Get the optimal next question to ask (conversational loop) |
 | `aethis_explain` | Get human-readable rule descriptions |
 | `aethis_list_projects` | List all projects in the current tenant |
 | `aethis_project_status` | Check project status and generation progress |

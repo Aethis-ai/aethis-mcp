@@ -13,7 +13,7 @@ from aethis_mcp.client import AethisAPIError, AethisClient
 mcp = FastMCP(
     "Aethis",
     instructions=(
-        "Aethis is a neuro-symbolic AI platform for regulated eligibility checks. "
+        "Aethis is an AI platform for regulated eligibility checks. "
         "Use `aethis_schema` to discover what input fields a rule bundle requires, "
         "then `aethis_decide` to evaluate eligibility, and `aethis_explain` for "
         "human-readable rule descriptions. "
@@ -70,7 +70,7 @@ def aethis_decide(
     Returns the eligibility outcome (eligible/ineligible/undetermined).
 
     When the outcome is 'undetermined', the response includes:
-    - next_question: the Z3-optimized best question to ask next
+    - next_question: the optimised best question to ask next
     - optimal_path: the full remaining question path to eligibility
     """
     try:
@@ -87,9 +87,9 @@ def aethis_next_question(
 ) -> str:
     """Get the optimal next question to ask for an eligibility check.
 
-    Uses Z3 constraint optimization to determine the single best question
-    to ask next, given the answers so far. Also returns the full remaining
-    path (all questions still needed, sorted by priority).
+    Determines the single best question to ask next, given the answers
+    so far. Also returns the full remaining path (all questions still
+    needed, sorted by priority).
 
     Use this in a conversational loop:
     1. Call with empty field_values to get the first question
