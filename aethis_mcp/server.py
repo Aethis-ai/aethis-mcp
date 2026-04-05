@@ -355,7 +355,7 @@ def _format_generate_and_test_result(result: dict) -> str:
 
     # Suggest next steps
     if passed == total:
-        lines.append(f"All tests passing! Call aethis_publish(project_id=\"{result.get('project_id', project_id)}\") to publish.")
+        lines.append("All tests passing! Call aethis_publish to publish.")
     elif regressions:
         lines.append(
             "Regressions detected. The previous guidance may have been too broad. "
