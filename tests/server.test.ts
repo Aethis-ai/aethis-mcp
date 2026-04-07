@@ -46,6 +46,8 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
       total: 1, passed: 1, failed: 0, errors: 0, results: [],
     }),
     publish: vi.fn().mockResolvedValue({ bundle_id: "b_1", version: "v1", deprecated_bundles: [] }),
+    hasApiKey: true,
+    setApiKey: vi.fn(),
     retryDelayMs: 0,
     pollIntervalMs: 0,
     pollTimeoutMs: 1000,

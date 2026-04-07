@@ -32,13 +32,23 @@ function errorResponse(status: number, detail: string, headers: Record<string, s
 // ---------------------------------------------------------------------------
 
 describe("AethisClient construction", () => {
-  it("throws if AETHIS_API_KEY is missing", () => {
-    expect(() => new AethisClient("", "https://api.aethis.ai")).toThrow(AethisAPIError);
-    expect(() => new AethisClient("", "https://api.aethis.ai")).toThrow(/API key/i);
+  it("accepts empty API key for public endpoints", () => {
+    expect(() => new AethisClient("", "https://api.aethis.ai")).not.toThrow();
   });
 
-  it("throws if AETHIS_API_KEY is whitespace-only", () => {
-    expect(() => new AethisClient("   ", "https://api.aethis.ai")).toThrow(AethisAPIError);
+  it("reports hasApiKey correctly", () => {
+    const noKey = new AethisClient("", "https://api.aethis.ai");
+    expect(noKey.hasApiKey).toBe(false);
+
+    const withKey = new AethisClient("ak_test", "https://api.aethis.ai");
+    expect(withKey.hasApiKey).toBe(true);
+  });
+
+  it("allows setting API key after construction", () => {
+    const client = new AethisClient("", "https://api.aethis.ai");
+    expect(client.hasApiKey).toBe(false);
+    client.setApiKey("ak_test");
+    expect(client.hasApiKey).toBe(true);
   });
 
   it("throws if remote URL uses HTTP", () => {
@@ -69,11 +79,19 @@ describe("AethisClient requests", () => {
     client = new AethisClient("ak_test", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
   });
 
-  it("sends X-API-Key header", async () => {
+  it("sends X-API-Key header when key is set", async () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({ result: true }));
     await client.listProjects();
     const [, init] = fetchSpy.mock.calls[0];
     expect(init.headers["X-API-Key"]).toBe("ak_test");
+  });
+
+  it("omits X-API-Key header when key is empty", async () => {
+    const noKeyClient = new AethisClient("", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ bundles: [] }));
+    await noKeyClient.decide("b_123", {});
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["X-API-Key"]).toBeUndefined();
   });
 
   it("returns parsed JSON on success", async () => {

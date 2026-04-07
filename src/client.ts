@@ -33,16 +33,13 @@ export interface AethisClientOptions {
 
 export class AethisClient {
   private readonly baseUrl: string;
-  private readonly apiKey: string;
+  private apiKey: string;
   private readonly fetchFn: FetchFn;
   readonly retryDelayMs: number;
   readonly pollIntervalMs: number;
   readonly pollTimeoutMs: number;
 
   constructor(apiKey: string, baseUrl: string, options?: AethisClientOptions) {
-    if (!apiKey?.trim()) {
-      throw new AethisAPIError(401, "API key is required. Set AETHIS_API_KEY environment variable.");
-    }
     this.validateBaseUrl(baseUrl);
     this.apiKey = apiKey;
     this.baseUrl = baseUrl.replace(/\/+$/, "");
@@ -50,6 +47,14 @@ export class AethisClient {
     this.retryDelayMs = options?.retryDelayMs ?? 1000;
     this.pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.pollTimeoutMs = options?.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
+  }
+
+  get hasApiKey(): boolean {
+    return !!this.apiKey?.trim();
+  }
+
+  setApiKey(key: string): void {
+    this.apiKey = key;
   }
 
   private validateBaseUrl(url: string): void {
@@ -72,7 +77,7 @@ export class AethisClient {
         const init: RequestInit = {
           method,
           headers: {
-            "X-API-Key": this.apiKey,
+            ...(this.apiKey ? { "X-API-Key": this.apiKey } : {}),
             ...(openaiKey ? { "X-OpenAI-Key": openaiKey } : {}),
             ...(body !== undefined && !(body instanceof FormData)
               ? { "Content-Type": "application/json" }

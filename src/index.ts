@@ -10,6 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { AethisClient, AethisAPIError } from "./client.js";
+import { resolveApiKey } from "./credentials.js";
 
 const require = createRequire(import.meta.url);
 const { version: PKG_VERSION } = require("../package.json") as { version: string };
@@ -152,6 +153,25 @@ export function formatTestResults(
 }
 
 // ---------------------------------------------------------------------------
+// Auth guard for authoring tools
+// ---------------------------------------------------------------------------
+
+async function requireAuth(client: AethisClient): Promise<ToolResult | null> {
+  if (client.hasApiKey) return null;
+  try {
+    const key = await resolveApiKey();
+    client.setApiKey(key);
+    return null;
+  } catch {
+    return err(
+      "Authentication required for this operation.\n" +
+        "Run 'aethis login' (CLI) or set AETHIS_API_KEY.\n" +
+        "Decision tools (aethis_decide, aethis_schema, aethis_explain) work without authentication.",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tool handler factory (testable without MCP transport)
 // ---------------------------------------------------------------------------
 
@@ -242,6 +262,8 @@ export function createToolHandlers(client: AethisClient) {
     // -- Discovery tools --
 
     async aethis_list_projects(_args: Record<string, never>): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       try {
         const result = await client.listProjects();
         return ok(fmt(result));
@@ -249,6 +271,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_project_status(args: { project_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -258,6 +282,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_list_bundles(args: { project_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -269,6 +295,8 @@ export function createToolHandlers(client: AethisClient) {
     // -- Test case tools --
 
     async aethis_list_tests(args: { project_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -278,6 +306,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_get_test(args: { project_id: string; tc_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
       if (idErr) return err(idErr);
       try {
@@ -293,6 +323,8 @@ export function createToolHandlers(client: AethisClient) {
       field_values?: Record<string, unknown>;
       expected_outcome?: string;
     }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
       if (idErr) return err(idErr);
       const updates: Record<string, unknown> = {};
@@ -314,6 +346,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_delete_test(args: { project_id: string; tc_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
       if (idErr) return err(idErr);
       try {
@@ -325,6 +359,8 @@ export function createToolHandlers(client: AethisClient) {
     // -- Management tools --
 
     async aethis_archive_project(args: { project_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -334,6 +370,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_archive_bundle(args: { bundle_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.bundle_id, "bundle_id");
       if (idErr) return err(idErr);
       try {
@@ -345,6 +383,8 @@ export function createToolHandlers(client: AethisClient) {
     // -- Authoring tools --
 
     async aethis_generate(args: { project_id: string; openai_key?: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -362,6 +402,8 @@ export function createToolHandlers(client: AethisClient) {
       test_cases: Array<Record<string, unknown>>;
       domain?: string;
     }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       if (!args.test_cases.length) {
         return err("Error: At least 1 test case is required. Rules authoring is test-driven — define expected outcomes first.");
       }
@@ -397,6 +439,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_add_guidance(args: { project_id: string; guidance_text: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -409,6 +453,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_generate_and_test(args: { project_id: string; openai_key?: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -422,6 +468,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_refine(args: { project_id: string; feedback?: string; openai_key?: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -445,6 +493,8 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_publish(args: { project_id: string; force?: boolean }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
@@ -676,8 +726,15 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  const apiKey = process.env.AETHIS_API_KEY ?? "";
   const baseUrl = process.env.AETHIS_BASE_URL ?? "https://api.aethis.ai";
+
+  // Try to resolve a key, but don't fail — decision tools work without auth
+  let apiKey = "";
+  try {
+    apiKey = await resolveApiKey();
+  } catch {
+    // No key found — authoring tools will prompt when called
+  }
 
   const client = new AethisClient(apiKey, baseUrl);
   const handlers = createToolHandlers(client);
