@@ -759,10 +759,12 @@ async function main(): Promise<void> {
   await server.connect(transport);
 }
 
-// Only run when executed directly (not when imported by tests)
+// Only run when executed directly (not when imported by tests).
+// Matches: node dist/index.js, tsx src/index.ts, npx aethis-mcp
 const isDirectRun =
   process.argv[1]?.endsWith("index.js") ||
-  process.argv[1]?.endsWith("index.ts");
+  process.argv[1]?.endsWith("index.ts") ||
+  process.argv[1]?.endsWith("aethis-mcp");
 
 if (isDirectRun) {
   main().catch((e) => {
