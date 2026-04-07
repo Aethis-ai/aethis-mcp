@@ -33,6 +33,7 @@ We tested frontier LLMs and the Aethis engine on 11 insurance coverage scenarios
 |--|----------|-------------|
 | **Aethis Engine** | **100% (11/11)** | — |
 | GPT-5.4 | 100% (11/11) | — |
+| Claude Opus 4.6 | 100% (11/11) | — |
 | Claude Sonnet 4.6 | 91% (10/11) | Misses nested exception override |
 | GPT-5.4-mini | 82% (9/11) | Misses exception + conditional gate |
 
