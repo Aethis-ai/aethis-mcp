@@ -29,15 +29,16 @@ Aethis compiles rules into formal logic at authoring time. At decision time, no 
 
 We tested frontier LLMs and the Aethis engine on 11 insurance coverage scenarios with a five-level exception chain — no pattern hints, full source text:
 
-| | Accuracy | Failure mode |
-|--|----------|-------------|
-| **Aethis Engine** | **100% (11/11)** | — |
-| GPT-5.4 | 100% (11/11) | — |
-| Claude Opus 4.6 | 100% (11/11) | — |
-| Claude Sonnet 4.6 | 91% (10/11) | Misses nested exception override |
-| GPT-5.4-mini | 82% (9/11) | Misses exception + conditional gate |
+| | Accuracy | Speed | Deterministic | Explainable | Suitable for regulated use |
+|--|----------|-------|:---:|:---:|:---:|
+| **Aethis Engine** | **100%** | **<5ms** | **Yes** | **Yes** | **Yes** |
+| GPT-5.4 | 100% | 2-5s | No | No | No |
+| Claude Opus 4.6 | 100% | 2-5s | No | No | No |
+| Claude Sonnet 4.6 | 91% | 1-3s | No | No | No |
+| GPT-5.4-mini | 82% | 1-2s | No | No | No |
+| GPT-5.3 (ChatGPT) | 27% | 2-5s | No | No | No |
 
-The engine matches the most capable flagship models and beats the models people actually deploy in production. It evaluates in <5ms, deterministically, with zero API cost.
+Flagship LLMs match the engine on accuracy — but accuracy is table stakes. In regulated workflows (financial services, insurance, immigration, healthcare), decisions must be **deterministic** (same answer every time), **explainable** (audit trail to source clause), and **non-stochastic** (no probabilistic model in the decision path). LLMs fail all three requirements regardless of accuracy.
 
 ### Where LLMs fail
 
