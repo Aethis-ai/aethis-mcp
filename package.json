@@ -4,7 +4,7 @@
   "description": "MCP server for the Aethis developer API — eligibility checks via Claude, Cursor, Windsurf",
   "type": "module",
   "bin": {
-    "aethis-mcp": "./dist/index.js"
+    "aethis-mcp": "dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,7 +31,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aethis-ai/aethis-mcp.git"
+    "url": "git+https://github.com/aethis-ai/aethis-mcp.git"
   },
   "homepage": "https://aethis.ai",
   "bugs": {
