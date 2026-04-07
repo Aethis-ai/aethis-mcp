@@ -110,6 +110,8 @@ Full benchmark data and reproduction script: [aethis-examples/construction-all-r
 - Rules involve nested exceptions, conditional thresholds, or override chains
 - "95% accurate" is not good enough
 - You need the same answer every time, not just most of the time
+- **You're making decisions at scale** — the engine evaluates in under 5ms per decision (1000x faster than an LLM call). A batch of 10,000 evaluations completes in seconds, not hours
+- **Your agent needs to ask the right questions** — the engine computes the optimal next question to ask given what it already knows, finding the shortest path to a decision. Two applicants with different facts get different question sequences — the engine adapts in real time
 
 **Domains:** Loan eligibility, insurance underwriting, immigration compliance, HR policy, benefits qualification, medical device clearance, trade compliance — any domain where rules are written in legislation or policy documents.
 
@@ -280,14 +282,21 @@ aethis_decide(bundle_id, fields)  → eligible / not_eligible / undetermined
 
 Pass `include_trace: true` for the full evaluation trace with source citations.
 
-### Conversational eligibility
+### Conversational eligibility — optimal question routing
+
+The engine doesn't just evaluate — it tells your agent what to ask next. Given the facts collected so far, it computes the single most informative question and returns the shortest remaining path to a decision.
 
 ```
-aethis_next_question(bundle_id, {})                     → "What is the applicant's species?"
-aethis_next_question(bundle_id, {species: "Vogon"})     → Decision: not eligible. No more questions needed.
+aethis_next_question(bundle_id, {})
+→ "What is the applicant's species?" (10 questions remaining)
+
+aethis_next_question(bundle_id, {species: "Vogon"})
+→ Decision: not eligible. No more questions needed.
 ```
 
-Questions come in priority order. The engine short-circuits as soon as a decision is reachable.
+One fact was enough. A Vogon is disqualified immediately — the engine doesn't ask about flight hours, medical certs, or towel compliance. A different applicant might need 5 questions. Another might need 8. The engine adapts the path based on the answers it receives, always choosing the question that resolves the most uncertainty.
+
+This means your agent can run a guided assessment — asking only the questions that matter, in the order that matters — and reach a provable decision in the fewest possible steps.
 
 ### Author rules
 
