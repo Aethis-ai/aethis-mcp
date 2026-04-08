@@ -382,13 +382,14 @@ export function createToolHandlers(client: AethisClient) {
 
     // -- Authoring tools --
 
-    async aethis_generate(args: { project_id: string; openai_key?: string }): Promise<ToolResult> {
+    async aethis_generate(args: { project_id: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.generate(args.project_id, args.openai_key);
+        const llmKey = args.anthropic_key || args.openai_key;
+        const result = await client.generate(args.project_id, llmKey);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -452,13 +453,14 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_generate_and_test(args: { project_id: string; openai_key?: string }): Promise<ToolResult> {
+    async aethis_generate_and_test(args: { project_id: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.generateAndTest(args.project_id, args.openai_key) as TestRunResult;
+        const llmKey = args.anthropic_key || args.openai_key;
+        const result = await client.generateAndTest(args.project_id, llmKey) as TestRunResult;
         const prev = previousTestResults.get(args.project_id) ?? null;
         const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
         iterationCounts.set(args.project_id, iteration);
@@ -467,17 +469,18 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_refine(args: { project_id: string; feedback?: string; openai_key?: string }): Promise<ToolResult> {
+    async aethis_refine(args: { project_id: string; feedback?: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
+        const llmKey = args.anthropic_key || args.openai_key;
         const feedback = args.feedback?.trim() ?? "";
         if (feedback) {
           await client.addGuidance(args.project_id, args.feedback!);
         }
-        const result = await client.generateAndTest(args.project_id, args.openai_key) as TestRunResult;
+        const result = await client.generateAndTest(args.project_id, llmKey) as TestRunResult;
         const prev = previousTestResults.get(args.project_id) ?? null;
         const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
         iterationCounts.set(args.project_id, iteration);
@@ -661,7 +664,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Trigger rule generation for a project. Queues an async job. Poll with aethis_project_status to check progress.",
     {
       project_id: z.string().describe("The project ID to generate rules for"),
-      openai_key: z.string().optional().describe("Your OpenAI API key for LLM generation costs (required, pass-through, never stored)"),
+      anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM generation costs (required, pass-through, never stored)"),
     },
     (args) => handlers.aethis_generate(args),
   );
@@ -694,7 +697,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Takes 60-120 seconds.",
     {
       project_id: z.string().describe("The project ID"),
-      openai_key: z.string().optional().describe("Your OpenAI API key for LLM generation costs (required, pass-through, never stored)"),
+      anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM generation costs (required, pass-through, never stored)"),
     },
     (args) => handlers.aethis_generate_and_test(args),
   );
@@ -705,7 +708,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       project_id: z.string().describe("The project ID"),
       feedback: z.string().optional().describe("Optional correction or domain knowledge to add before regenerating"),
-      openai_key: z.string().optional().describe("Your OpenAI API key for LLM generation costs (required, pass-through, never stored)"),
+      anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM generation costs (required, pass-through, never stored)"),
     },
     (args) => handlers.aethis_refine(args),
   );

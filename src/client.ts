@@ -67,7 +67,7 @@ export class AethisClient {
     }
   }
 
-  private async request(method: string, path: string, body?: unknown, openaiKey?: string): Promise<unknown> {
+  private async request(method: string, path: string, body?: unknown, llmKey?: string): Promise<unknown> {
     const url = `${this.baseUrl}${path}`;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -78,7 +78,7 @@ export class AethisClient {
           method,
           headers: {
             ...(this.apiKey ? { "X-API-Key": this.apiKey } : {}),
-            ...(openaiKey ? { "X-OpenAI-Key": openaiKey } : {}),
+            ...(llmKey ? { "X-Anthropic-Key": llmKey, "X-OpenAI-Key": llmKey } : {}),
             ...(body !== undefined && !(body instanceof FormData)
               ? { "Content-Type": "application/json" }
               : {}),
@@ -173,8 +173,8 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/status`);
   }
 
-  async generate(projectId: string, openaiKey?: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, undefined, openaiKey);
+  async generate(projectId: string, llmKey?: string): Promise<unknown> {
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, undefined, llmKey);
   }
 
   async listBundles(projectId: string): Promise<unknown> {
@@ -243,14 +243,16 @@ export class AethisClient {
    * Generate rules then poll until complete, then run tests.
    * Mirrors the CLI's generate --poll + test workflow.
    */
-  async generateAndTest(projectId: string, openaiKey?: string): Promise<unknown> {
+  async generateAndTest(projectId: string, llmKey?: string): Promise<unknown> {
     // 1. Trigger generation
-    const job = await this.generate(projectId, openaiKey) as Record<string, unknown>;
+    const job = await this.generate(projectId, llmKey) as Record<string, unknown>;
     const jobId = job.job_id as string;
 
     // 2. Poll until done
     const deadline = Date.now() + this.pollTimeoutMs;
     let bundleId: string | undefined;
+
+    let lastDetail = "";
 
     while (Date.now() < deadline) {
       const status = await this.getStatus(projectId) as Record<string, unknown>;
@@ -258,13 +260,32 @@ export class AethisClient {
 
       if (jobData) {
         const jobStatus = jobData.status as string;
+
+        // Log progress changes to stderr so the MCP client can surface them
+        const pct = (jobData.progress_percent as number) ?? 0;
+        const detail = (jobData.progress_detail as string) ?? "";
+        if (detail && detail !== lastDetail) {
+          lastDetail = detail;
+          process.stderr.write(`[aethis] ${pct}% — ${detail}\n`);
+        }
+
         if (jobStatus === "success") {
           bundleId = (status.latest_bundle_id ?? jobData.result_bundle_id) as string | undefined;
           break;
         }
         if (jobStatus === "failed") {
-          const errorMsg = (jobData.error_message ?? "unknown error") as string;
-          throw new AethisAPIError(500, `Generation failed (job ${jobId}): ${errorMsg}`);
+          const errorMsg = (jobData.error_message as string) || "";
+          let diagnostic: string;
+          if (!errorMsg) {
+            diagnostic = `Generation failed (job ${jobId}) with no error details. Check server logs or retry.`;
+          } else if (/API key|Authentication|AuthenticationError/i.test(errorMsg)) {
+            diagnostic = `Generation failed: ${errorMsg}`;
+          } else if (/rate.?limit/i.test(errorMsg)) {
+            diagnostic = `Generation failed: ${errorMsg} Wait a moment and retry.`;
+          } else {
+            diagnostic = `Generation failed (job ${jobId}): ${errorMsg}`;
+          }
+          throw new AethisAPIError(500, diagnostic);
         }
       }
 

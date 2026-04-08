@@ -188,7 +188,7 @@ Every decision traces back to the exact section and clause in the source legisla
 ## Author your own rules
 
 > [!NOTE]
-> Authoring requires an API key and an OpenAI key. API key access is rolling out now — [register interest](https://aethis.ai/dashboard). Decision tools (above) work without any keys.
+> Authoring requires an API key and an Anthropic key. API key access is rolling out now — [register interest](https://aethis.ai/dashboard). Decision tools (above) work without any keys.
 
 Aethis is not just a decision engine — it lets your agent compile legislation into executable logic. Paste a policy document, write test cases, and iterate until the rules pass.
 
@@ -254,7 +254,7 @@ Returns a `bundle_id` — ready to use with `aethis_decide`.
 > **Test-driven iteration:** Aethis generates rules from your source text and guidance — not from your tests. Tests validate the output and show you what guidance to add next. Better tests = faster convergence on correct rules.
 
 > [!IMPORTANT]
-> **OpenAI key required for authoring.** Rule generation uses OpenAI LLM calls. Pass your key as `openai_key` on `aethis_generate_and_test`, `aethis_refine`, or `aethis_generate`. The key is used for the request only and **never stored**. Decision tools do not use OpenAI.
+> **Anthropic key required for authoring.** Rule generation uses Anthropic LLM calls. Pass your key as `anthropic_key` on `aethis_generate_and_test`, `aethis_refine`, or `aethis_generate`. The key is used for the request only and **never stored**. Decision tools do not use Anthropic.
 
 ---
 
@@ -348,7 +348,7 @@ Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
 | Error | Cause | Fix |
 |-------|-------|-----|
 | "API key is required" | `AETHIS_API_KEY` not set (authoring tools only) | Configure in MCP client settings (not shell profile). Decision tools don't need a key |
-| "X-OpenAI-Key header is required" | Missing OpenAI key on generation | Pass `openai_key` parameter on authoring tools |
+| "X-Anthropic-Key header is required" | Missing Anthropic key on generation | Pass `anthropic_key` parameter on authoring tools |
 | "Bundle not found" (404) | Wrong ID or archived | Use `aethis_list_projects` → `aethis_list_bundles` |
 | "Rate limit exceeded" (429) | Daily limit hit | Client retries automatically. Contact [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
 | "Cannot publish: tests failing" | Tests don't pass | Fix with `aethis_refine`, or `force=true` to override |
