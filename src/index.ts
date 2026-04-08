@@ -665,6 +665,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       project_id: z.string().describe("The project ID to generate rules for"),
       anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM generation costs (required, pass-through, never stored)"),
+      openai_key: z.string().optional().describe("Deprecated — use anthropic_key. Accepted for backwards compatibility."),
     },
     (args) => handlers.aethis_generate(args),
   );
@@ -698,6 +699,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       project_id: z.string().describe("The project ID"),
       anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM generation costs (required, pass-through, never stored)"),
+      openai_key: z.string().optional().describe("Deprecated — use anthropic_key. Accepted for backwards compatibility."),
     },
     (args) => handlers.aethis_generate_and_test(args),
   );
@@ -709,6 +711,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
       project_id: z.string().describe("The project ID"),
       feedback: z.string().optional().describe("Optional correction or domain knowledge to add before regenerating"),
       anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM generation costs (required, pass-through, never stored)"),
+      openai_key: z.string().optional().describe("Deprecated — use anthropic_key. Accepted for backwards compatibility."),
     },
     (args) => handlers.aethis_refine(args),
   );

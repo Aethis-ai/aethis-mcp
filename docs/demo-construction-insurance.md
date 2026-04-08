@@ -15,7 +15,7 @@ The exception chain:
 > Unless the defect was **known prior** — pioneer override is blocked (Clause 9A(1)).
 > Unless there's an **engineer assessment** — the block is lifted (Clause 9A(2)).
 
-GPT-5.3, the model behind ChatGPT, scores **27% on this exception chain** — three correct answers out of eleven. ([Full benchmark](https://github.com/Aethis-ai/aethis-examples))
+GPT-5.3, a production-tier OpenAI model, scores **64% on this exception chain** — seven correct answers out of eleven, with all failures on multi-level exception scenarios. GPT-5.4, a frontier model, drops to the same 63% when reasoning effort is reduced. ([Full benchmark](https://github.com/Aethis-ai/aethis-examples))
 
 ---
 
