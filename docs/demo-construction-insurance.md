@@ -4,7 +4,7 @@
 
 ## The source material
 
-A London market Construction All Risks (CAR) policy endorsement with a five-level nested exception chain for defect exclusions. This is modelled on real DE3/DE5 clause structures used for major infrastructure projects.
+A **synthetic** Construction All Risks (CAR) policy endorsement with a five-level nested exception chain for defect exclusions. The wording is modelled on real London market DE3/DE5 clause structures used for major infrastructure projects, but is not actual policy language. Full methodology and caveats: Simpson (2026), "Confidently Wrong: Exception Chain Collapse in Frontier LLM Rule Evaluation."
 
 The exception chain:
 
@@ -15,7 +15,7 @@ The exception chain:
 > Unless the defect was **known prior** — pioneer override is blocked (Clause 9A(1)).
 > Unless there's an **engineer assessment** — the block is lifted (Clause 9A(2)).
 
-GPT-5.3, a production-tier OpenAI model, scores **64% on this exception chain** — seven correct answers out of eleven, with all failures on multi-level exception scenarios. GPT-5.4, a frontier model, drops to the same 63% when reasoning effort is reduced. ([Full benchmark](https://github.com/Aethis-ai/aethis-examples))
+GPT-5.3, a production-tier OpenAI model, scores **64% on this exception chain** — seven correct answers out of eleven, with all failures on multi-level exception scenarios. GPT-5.4, a frontier model, drops to the same 64% when reasoning effort is reduced. ([Full benchmark](https://github.com/Aethis-ai/aethis-examples))
 
 ---
 
@@ -236,7 +236,7 @@ Every rule traces back to a specific clause in the policy wording.
 
 ## The comparison
 
-Live benchmark results (April 2026) — same source text, same test cases, same prompt. Reproducible via:
+Live benchmark results (April 2026) — same synthetic source text, same test cases, same generic prompt. Single run per model per scenario (N=1); temperature=0 for non-reasoning models. GPT-5.4 low-reasoning test conducted separately via API with `reasoning_effort="low"`. Reproducible via:
 
 ```bash
 uv run llm_comparison.py construction-all-risks/ \
@@ -252,16 +252,16 @@ uv run llm_comparison.py construction-all-risks/ \
 | GPT-5.4 | default (high reasoning) | 10/11 (91%) | 1 false negative on enhanced access |
 | Claude Sonnet 4.6 | default | 10/11 (91%) | 1 parse error |
 | GPT-5.3 | default | 7/11 (64%) | 4 false negatives on exception chains |
-| **GPT-5.4** | **low reasoning** | **7/11 (63%)** | **Same failures as GPT-5.3** |
+| **GPT-5.4** | **low reasoning** | **7/11 (64%)** | **Same failures as GPT-5.3** |
 
-The most telling result: **GPT-5.4 at low reasoning effort drops from 91% to 63%** — matching GPT-5.3's score exactly. All four new failures are false negatives on exception chain scenarios (enhanced cover, pioneer override, depth-5 unblock). The accuracy depends entirely on how much compute the model spends on reasoning. Opus 4.6 doesn't degrade even at maximum temperature.
+**GPT-5.4 at low reasoning effort drops from 91% to 64%** — matching GPT-5.3's score, with the same four scenarios failing (enhanced cover, pioneer override, depth-5 unblock). On this benchmark, accuracy appears dependent on how much reasoning compute the model allocates. Opus 4.6 doesn't degrade even at maximum temperature.
 
 In production, you can't guarantee that every API call uses maximum reasoning effort. You can't guarantee the model version won't change. You can't guarantee the same answer on retry. These aren't hypothetical risks — they're measurable in this benchmark.
 
 | Property | Aethis Engine | Best LLM |
 |----------|:---:|:---:|
 | Deterministic | Yes | No |
-| Reasoning-effort invariant | Yes | No (91% → 63% on GPT-5.4) |
+| Reasoning-effort invariant | Yes | No (91% → 64% on GPT-5.4) |
 | Latency | < 5ms | 2-5s |
 | Audit trail | Full provenance | Post-hoc rationalisation |
 | Model deprecation risk | None | Version-dependent |
