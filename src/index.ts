@@ -453,6 +453,97 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_discover_fields(args: { project_id: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        const llmKey = args.anthropic_key || args.openai_key;
+        const result = await client.discoverFields(args.project_id, llmKey) as Record<string, unknown>;
+        const fields = (result.fields ?? []) as Array<Record<string, unknown>>;
+        const score = (result.completeness_score ?? 0) as number;
+        const iteration = (result.iteration ?? 1) as number;
+        const recommendation = (result.recommendation ?? "unknown") as string;
+        const missing = (result.missing_pathways ?? []) as string[];
+        const gaps = (result.critical_gaps ?? []) as string[];
+
+        const lines: string[] = [
+          `=== Field Discovery — Iteration ${iteration} ===`,
+          `Completeness: ${(score * 100).toFixed(0)}% | Recommendation: ${recommendation}`,
+          "",
+          `Discovered ${fields.length} field(s):`,
+        ];
+
+        for (const f of fields) {
+          const type = f.field_type ?? "unknown";
+          const enumVals = f.enum_values as string[] | undefined;
+          let line = `  ${f.key} (${type})`;
+          if (enumVals?.length) line += ` — values: ${enumVals.join(", ")}`;
+          if (f.description) line += ` — ${f.description}`;
+          lines.push(line);
+        }
+
+        if (missing.length) {
+          lines.push("", "Missing pathways:");
+          for (const m of missing) lines.push(`  - ${m}`);
+        }
+        if (gaps.length) {
+          lines.push("", "Critical gaps:");
+          for (const g of gaps) lines.push(`  - ${g}`);
+        }
+
+        lines.push("");
+        if (recommendation === "stop") {
+          lines.push("Fields look complete. Write test cases using the field names above, then call aethis_generate_and_test.");
+        } else {
+          lines.push(
+            "To improve completeness, call aethis_refine_fields with guidance about the missing pathways,",
+            `or proceed to write test cases using these field names.`,
+          );
+        }
+
+        return ok(lines.join("\n"));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_refine_fields(args: { project_id: string; feedback: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        // Add guidance with field_extraction process type
+        await client.addGuidance(args.project_id, args.feedback, "field_extraction");
+
+        // Re-run discovery
+        const llmKey = args.anthropic_key || args.openai_key;
+        const result = await client.discoverFields(args.project_id, llmKey) as Record<string, unknown>;
+        const fields = (result.fields ?? []) as Array<Record<string, unknown>>;
+        const score = (result.completeness_score ?? 0) as number;
+
+        const truncated = args.feedback.length > 100 ? args.feedback.slice(0, 100) + "..." : args.feedback;
+        const lines = [
+          `Guidance added: "${truncated}"`,
+          "",
+          `=== Field Discovery — Iteration ${result.iteration} ===`,
+          `Completeness: ${(score * 100).toFixed(0)}% | ${fields.length} field(s)`,
+        ];
+
+        for (const f of fields) {
+          lines.push(`  ${f.key} (${f.field_type})`);
+        }
+
+        const missing = (result.missing_pathways ?? []) as string[];
+        if (missing.length) {
+          lines.push("", "Still missing:");
+          for (const m of missing) lines.push(`  - ${m}`);
+        }
+
+        return ok(lines.join("\n"));
+      } catch (e) { return apiError(e); }
+    },
+
     async aethis_generate_and_test(args: { project_id: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -694,6 +785,29 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
+    "aethis_discover_fields",
+    "Discover input fields from the project's source text. Returns field names, types, descriptions, and completeness assessment. Run this BEFORE writing test cases to ensure field names are consistent. Call repeatedly with aethis_refine_fields to improve completeness.",
+    {
+      project_id: z.string().describe("The project ID"),
+      anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM field extraction (required, pass-through, never stored)"),
+      openai_key: z.string().optional().describe("Deprecated — use anthropic_key. Accepted for backwards compatibility."),
+    },
+    (args) => handlers.aethis_discover_fields(args),
+  );
+
+  server.tool(
+    "aethis_refine_fields",
+    "Add guidance to improve field discovery, then re-discover. Use when fields are missing, misnamed, or enum values are incomplete. Adds a field_extraction guidance hint and re-runs discovery.",
+    {
+      project_id: z.string().describe("The project ID"),
+      feedback: z.string().describe("Guidance about missing or incorrect fields (e.g., 'Section 7 implies a criminal record check')"),
+      anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM field extraction (required, pass-through, never stored)"),
+      openai_key: z.string().optional().describe("Deprecated — use anthropic_key. Accepted for backwards compatibility."),
+    },
+    (args) => handlers.aethis_refine_fields(args),
+  );
+
+  server.tool(
     "aethis_generate_and_test",
     "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Takes 60-120 seconds.",
     {
@@ -739,12 +853,23 @@ Ask the user for:
 - What the eligibility check should determine
 - At least 2-3 example scenarios with expected outcomes (eligible / not_eligible / undetermined)
 
-## Step 2 — Create the bundle
+## Step 2 — Create the bundle and discover fields
 Call aethis_create_bundle with:
 - name: Human-readable name (e.g., "UK Skilled Worker Visa Eligibility")
 - section_id: Snake_case identifier (e.g., "skilled_worker_visa")
 - source_text: The full legislation or policy text
-- test_cases: Array of scenarios — each needs name, field_values, expected_outcome
+- test_cases: Empty array (test cases come AFTER field discovery)
+
+Then call aethis_discover_fields to extract input fields from the source text. The engine returns:
+- Field names, types, descriptions, and questions
+- A completeness score (0-1) and missing pathways
+- A recommendation: "continue" (discover more) or "stop" (fields look complete)
+
+If fields are missing or misnamed, call aethis_refine_fields with targeted feedback.
+Repeat until the completeness score is satisfactory.
+
+## Step 3 — Write test cases using discovered field names
+Now write test cases using the EXACT field names returned by field discovery. This ensures field names match what the engine understands.
 
 Write test cases like unit tests:
 - Cover the happy path (clearly eligible)
@@ -752,12 +877,14 @@ Write test cases like unit tests:
 - Cover edge cases (boundary values, exceptions, exemptions)
 - Use "undetermined" when fields are missing and the outcome genuinely can't be determined
 
-## Step 3 — Generate and test
-Call aethis_generate_and_test with the project_id from step 2.
+Add test cases via aethis_update_test or by calling aethis_create_bundle again.
+
+## Step 4 — Generate and test
+Call aethis_generate_and_test with the project_id.
 This takes 60-120 seconds. The engine compiles source text into formal rules via LLM, then runs all test cases.
 Review results carefully — output shows PASS/FAIL per test and highlights IMPROVED/REGRESSED vs prior iterations.
 
-## Step 4 — Iterate with guidance
+## Step 5 — Iterate with guidance
 If tests fail, diagnose WHY and call aethis_refine with targeted feedback:
 - Good: "Section 3(2)(a) creates an exception for applicants who entered before 2020 — the generated rules treat this as a general requirement instead"
 - Good: "The 'continuous_residence' field should accept values in years, not days"
@@ -766,7 +893,7 @@ If tests fail, diagnose WHY and call aethis_refine with targeted feedback:
 
 Each aethis_refine call adds guidance AND regenerates. Review results after each iteration.
 
-## Step 5 — Publish
+## Step 6 — Publish
 When all tests pass, call aethis_publish. This validates tests pass, activates the bundle for decide calls, and auto-deprecates the previous version.
 
 ## Tips
@@ -865,7 +992,7 @@ async function main(): Promise<void> {
         "Aethis is an AI platform for regulated eligibility checks.",
         "",
         "## Workflows",
-        "**Author rules** (TDD): aethis_create_bundle (test cases required) → aethis_generate_and_test (60-120s) → aethis_refine (if failures) → aethis_publish",
+        "**Author rules** (TDD): aethis_create_bundle → aethis_discover_fields → write tests with discovered field names → aethis_generate_and_test (60-120s) → aethis_refine (if failures) → aethis_publish",
         "**Evaluate eligibility**: aethis_schema (discover fields) → aethis_decide (with optional include_trace/include_explanation)",
         "**Conversational check**: aethis_next_question iteratively with growing field_values until decision reached",
         "**Discover**: aethis_list_projects → aethis_list_bundles",

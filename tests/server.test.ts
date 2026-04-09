@@ -39,6 +39,13 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     updateTest: vi.fn().mockResolvedValue({ tc_id: "tc_1", name: "updated", field_values: {}, expected_outcome: "eligible" }),
     deleteTest: vi.fn().mockResolvedValue({ deleted: "tc_1" }),
     addGuidance: vi.fn().mockResolvedValue({ hint_id: "h_1" }),
+    discoverFields: vi.fn().mockResolvedValue({
+      project_id: "p_1", iteration: 1, fields: [
+        { key: "applicant.age", field_type: "integer", description: "Age", question: "How old?", enum_values: null, weight: 1 },
+      ],
+      completeness_score: 0.75, missing_pathways: ["spouse pathway"], critical_gaps: [],
+      recommendation: "continue", is_complete: false,
+    }),
     generateAndTest: vi.fn().mockResolvedValue({
       bundle_id: "b_1",
       total: 1, passed: 1, failed: 0, errors: 0,
@@ -67,10 +74,10 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 19 tool handlers", () => {
+  it("returns all 21 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(19);
+    expect(names).toHaveLength(21);
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
     expect(names).toContain("aethis_next_question");
@@ -90,6 +97,8 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_get_test");
     expect(names).toContain("aethis_update_test");
     expect(names).toContain("aethis_delete_test");
+    expect(names).toContain("aethis_discover_fields");
+    expect(names).toContain("aethis_refine_fields");
   });
 });
 
@@ -718,6 +727,64 @@ describe("formatTestResults", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Field discovery tools
+// ---------------------------------------------------------------------------
+
+describe("aethis_discover_fields", () => {
+  it("returns field list and completeness score", async () => {
+    const client = mockClient();
+    const h = createToolHandlers(client);
+    const result = await h.aethis_discover_fields({ project_id: "p_1" });
+    const t = text(result);
+    expect(t).toContain("Field Discovery");
+    expect(t).toContain("applicant.age");
+    expect(t).toContain("75%");
+    expect(t).toContain("spouse pathway");
+  });
+
+  it("suggests refine when recommendation is continue", async () => {
+    const client = mockClient();
+    const h = createToolHandlers(client);
+    const result = await h.aethis_discover_fields({ project_id: "p_1" });
+    const t = text(result);
+    expect(t).toContain("aethis_refine_fields");
+  });
+
+  it("suggests test cases when recommendation is stop", async () => {
+    const client = mockClient({
+      discoverFields: vi.fn().mockResolvedValue({
+        project_id: "p_1", iteration: 2, fields: [
+          { key: "applicant.age", field_type: "integer", description: "Age" },
+        ],
+        completeness_score: 0.92, missing_pathways: [], critical_gaps: [],
+        recommendation: "stop", is_complete: true,
+      }),
+    });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_discover_fields({ project_id: "p_1" });
+    const t = text(result);
+    expect(t).toContain("test cases");
+    expect(t).toContain("aethis_generate_and_test");
+  });
+});
+
+describe("aethis_refine_fields", () => {
+  it("adds guidance and re-discovers", async () => {
+    const client = mockClient();
+    const h = createToolHandlers(client);
+    const result = await h.aethis_refine_fields({
+      project_id: "p_1",
+      feedback: "Section 7 implies a criminal record check",
+    });
+    const t = text(result);
+    expect(t).toContain("Guidance added");
+    expect(t).toContain("criminal record");
+    expect((client.addGuidance as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("p_1", "Section 7 implies a criminal record check", "field_extraction");
+    expect((client.discoverFields as ReturnType<typeof vi.fn>)).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // MCP Prompts
 // ---------------------------------------------------------------------------
 
@@ -728,15 +795,20 @@ describe("AUTHOR_PROMPT", () => {
     expect(AUTHOR_PROMPT).toContain("Step 3");
     expect(AUTHOR_PROMPT).toContain("Step 4");
     expect(AUTHOR_PROMPT).toContain("Step 5");
+    expect(AUTHOR_PROMPT).toContain("Step 6");
   });
 
   it("references key tools in correct order", () => {
     const createIdx = AUTHOR_PROMPT.indexOf("aethis_create_bundle");
+    const discoverIdx = AUTHOR_PROMPT.indexOf("aethis_discover_fields");
     const genIdx = AUTHOR_PROMPT.indexOf("aethis_generate_and_test");
-    const refineIdx = AUTHOR_PROMPT.indexOf("aethis_refine");
+    // Match "aethis_refine" for rule refinement (Step 5), not "aethis_refine_fields"
+    const refineMatch = AUTHOR_PROMPT.match(/aethis_refine(?!_fields)/);
+    const refineIdx = refineMatch ? refineMatch.index! : -1;
     const publishIdx = AUTHOR_PROMPT.indexOf("aethis_publish");
     expect(createIdx).toBeGreaterThan(-1);
-    expect(genIdx).toBeGreaterThan(createIdx);
+    expect(discoverIdx).toBeGreaterThan(createIdx);
+    expect(genIdx).toBeGreaterThan(discoverIdx);
     expect(refineIdx).toBeGreaterThan(genIdx);
     expect(publishIdx).toBeGreaterThan(refineIdx);
   });

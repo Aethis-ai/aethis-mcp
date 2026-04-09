@@ -228,10 +228,14 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/sources`, form);
   }
 
-  async addGuidance(projectId: string, guidanceText: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/guidance`, {
-      guidance_text: guidanceText,
-    });
+  async addGuidance(projectId: string, guidanceText: string, processType?: string): Promise<unknown> {
+    const body: Record<string, string> = { guidance_text: guidanceText };
+    if (processType) body.process_type = processType;
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/guidance`, body);
+  }
+
+  async discoverFields(projectId: string, llmKey?: string): Promise<unknown> {
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, {}, llmKey);
   }
 
   async addTests(projectId: string, testCases: unknown[]): Promise<unknown> {
