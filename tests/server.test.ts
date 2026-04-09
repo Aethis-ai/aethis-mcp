@@ -11,6 +11,8 @@ import type { AethisClient } from "../src/client.js";
 import {
   createToolHandlers,
   formatTestResults,
+  AUTHOR_PROMPT,
+  decidePromptText,
   type ToolHandlers,
 } from "../src/index.js";
 
@@ -712,5 +714,65 @@ describe("formatTestResults", () => {
     expect(t).toContain("c2");
     expect(t).toContain("REGRESSION");
     expect(t).toContain("c1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MCP Prompts
+// ---------------------------------------------------------------------------
+
+describe("AUTHOR_PROMPT", () => {
+  it("contains the TDD workflow steps", () => {
+    expect(AUTHOR_PROMPT).toContain("Step 1");
+    expect(AUTHOR_PROMPT).toContain("Step 2");
+    expect(AUTHOR_PROMPT).toContain("Step 3");
+    expect(AUTHOR_PROMPT).toContain("Step 4");
+    expect(AUTHOR_PROMPT).toContain("Step 5");
+  });
+
+  it("references key tools in correct order", () => {
+    const createIdx = AUTHOR_PROMPT.indexOf("aethis_create_bundle");
+    const genIdx = AUTHOR_PROMPT.indexOf("aethis_generate_and_test");
+    const refineIdx = AUTHOR_PROMPT.indexOf("aethis_refine");
+    const publishIdx = AUTHOR_PROMPT.indexOf("aethis_publish");
+    expect(createIdx).toBeGreaterThan(-1);
+    expect(genIdx).toBeGreaterThan(createIdx);
+    expect(refineIdx).toBeGreaterThan(genIdx);
+    expect(publishIdx).toBeGreaterThan(refineIdx);
+  });
+
+  it("includes good and bad guidance examples", () => {
+    expect(AUTHOR_PROMPT).toContain("Good:");
+    expect(AUTHOR_PROMPT).toContain("Bad:");
+  });
+});
+
+describe("decidePromptText", () => {
+  it("without bundle_id suggests discovery", () => {
+    const text = decidePromptText();
+    expect(text).toContain("aethis_list_projects");
+    expect(text).toContain("aethis_list_bundles");
+  });
+
+  it("with bundle_id skips discovery", () => {
+    const text = decidePromptText("b_abc123");
+    expect(text).toContain("b_abc123");
+    expect(text).toContain("aethis_schema");
+    expect(text).not.toContain("Start by helping the user find");
+  });
+
+  it("covers both quick decision and conversational patterns", () => {
+    const text = decidePromptText();
+    expect(text).toContain("Quick Decision");
+    expect(text).toContain("Conversational Eligibility");
+    expect(text).toContain("aethis_next_question");
+    expect(text).toContain("aethis_decide");
+  });
+
+  it("documents all three outcome types", () => {
+    const text = decidePromptText();
+    expect(text).toContain("eligible");
+    expect(text).toContain("not_eligible");
+    expect(text).toContain("undetermined");
   });
 });

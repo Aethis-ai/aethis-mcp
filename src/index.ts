@@ -728,6 +728,119 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
 }
 
 // ---------------------------------------------------------------------------
+// MCP prompt content
+// ---------------------------------------------------------------------------
+
+export const AUTHOR_PROMPT = `You are guiding the user through authoring eligibility rules on the Aethis platform using a TDD workflow.
+
+## Step 1 — Gather requirements
+Ask the user for:
+- The source text (legislation, policy document, or regulation)
+- What the eligibility check should determine
+- At least 2-3 example scenarios with expected outcomes (eligible / not_eligible / undetermined)
+
+## Step 2 — Create the bundle
+Call aethis_create_bundle with:
+- name: Human-readable name (e.g., "UK Skilled Worker Visa Eligibility")
+- section_id: Snake_case identifier (e.g., "skilled_worker_visa")
+- source_text: The full legislation or policy text
+- test_cases: Array of scenarios — each needs name, field_values, expected_outcome
+
+Write test cases like unit tests:
+- Cover the happy path (clearly eligible)
+- Cover clear rejection (missing requirement)
+- Cover edge cases (boundary values, exceptions, exemptions)
+- Use "undetermined" when fields are missing and the outcome genuinely can't be determined
+
+## Step 3 — Generate and test
+Call aethis_generate_and_test with the project_id from step 2.
+This takes 60-120 seconds. The engine compiles source text into formal rules via LLM, then runs all test cases.
+Review results carefully — output shows PASS/FAIL per test and highlights IMPROVED/REGRESSED vs prior iterations.
+
+## Step 4 — Iterate with guidance
+If tests fail, diagnose WHY and call aethis_refine with targeted feedback:
+- Good: "Section 3(2)(a) creates an exception for applicants who entered before 2020 — the generated rules treat this as a general requirement instead"
+- Good: "The 'continuous_residence' field should accept values in years, not days"
+- Bad: "Make the tests pass" (too vague — the engine can't learn from this)
+- Bad: "Fix it" (guidance must reference the source material)
+
+Each aethis_refine call adds guidance AND regenerates. Review results after each iteration.
+
+## Step 5 — Publish
+When all tests pass, call aethis_publish. This validates tests pass, activates the bundle for decide calls, and auto-deprecates the previous version.
+
+## Tips
+- Check existing projects first with aethis_list_projects — the user may want to iterate on an existing project
+- Source text quality matters: include the actual legislative text, not summaries
+- Guidance is additive: each hint accumulates across iterations
+- Let the engine infer field names from source text — only add guidance if names are awkward
+- Don't over-specify: only add guidance when the engine gets something wrong`;
+
+export function decidePromptText(bundleId?: string): string {
+  const bundleHint = bundleId
+    ? `The user wants to evaluate bundle "${bundleId}". Start by calling aethis_schema with this bundle_id.`
+    : "Start by helping the user find their bundle: call aethis_list_projects, then aethis_list_bundles for the relevant project.";
+
+  return `You are guiding the user through evaluating eligibility using the Aethis platform.
+
+${bundleHint}
+
+## Quick Decision
+1. Call aethis_schema to see required input fields, their types, and allowed values.
+2. Call aethis_decide with the field values. Use include_trace: true for debugging and include_explanation: true for human-readable reasoning.
+
+## Conversational Eligibility (Optimal Questioning)
+For interactive eligibility checks where you don't have all inputs upfront:
+1. Call aethis_next_question with the bundle_id and an empty field_values: {}
+2. The engine returns the optimal next question — the one that eliminates the most branches
+3. Ask the user, collect the answer, call aethis_next_question again with updated field_values
+4. Repeat until the engine returns a decision instead of a question
+5. This minimizes the number of questions asked — the engine skips irrelevant branches automatically
+
+## Interpreting Results
+- eligible: All requirements satisfied
+- not_eligible: One or more requirements definitively failed
+- undetermined: Not enough information to decide — use aethis_next_question to find what's needed
+- Trace: Shows each rule's status and which source clause it derives from
+- Explanation: Human-readable description of what the rules check
+
+## Key Facts
+- Decisions are deterministic: same inputs always produce the same output
+- Decisions are fast (<5ms) — no LLM at inference time, pure constraint evaluation
+- The decision API needs no authentication — only the bundle_id is required
+- Use aethis_explain to show users what rules apply before they start`;
+}
+
+// ---------------------------------------------------------------------------
+// MCP prompt registration
+// ---------------------------------------------------------------------------
+
+function registerPrompts(server: McpServer): void {
+  server.prompt(
+    "aethis-author",
+    "Step-by-step guide to authoring eligibility rules from legislation or policy text (TDD workflow)",
+    () => ({
+      messages: [{
+        role: "user" as const,
+        content: { type: "text" as const, text: AUTHOR_PROMPT },
+      }],
+    }),
+  );
+
+  server.prompt(
+    "aethis-decide",
+    "Evaluate eligibility against a published bundle, or run a conversational eligibility check",
+    { bundle_id: z.string().optional().describe("Bundle ID to evaluate against (discovers available bundles if omitted)") },
+    (args) => ({
+      messages: [{
+        role: "user" as const,
+        content: { type: "text" as const, text: decidePromptText(args.bundle_id) },
+      }],
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -748,18 +861,31 @@ async function main(): Promise<void> {
   const server = new McpServer(
     { name: "aethis", version: PKG_VERSION },
     {
-      instructions:
-        "Aethis is an AI platform for regulated eligibility checks. " +
-        "Use aethis_list_projects to discover available projects, and aethis_list_bundles to see published bundles. " +
-        "Use aethis_schema to discover what input fields a rule bundle requires, " +
-        "then aethis_decide to evaluate eligibility (with optional include_trace and include_explanation for provenance), " +
-        "and aethis_explain for human-readable rule descriptions. " +
-        "To author new rules: aethis_create_bundle (with test cases first — TDD), " +
-        "then aethis_generate_and_test to iterate, and aethis_publish when passing.",
+      instructions: [
+        "Aethis is an AI platform for regulated eligibility checks.",
+        "",
+        "## Workflows",
+        "**Author rules** (TDD): aethis_create_bundle (test cases required) → aethis_generate_and_test (60-120s) → aethis_refine (if failures) → aethis_publish",
+        "**Evaluate eligibility**: aethis_schema (discover fields) → aethis_decide (with optional include_trace/include_explanation)",
+        "**Conversational check**: aethis_next_question iteratively with growing field_values until decision reached",
+        "**Discover**: aethis_list_projects → aethis_list_bundles",
+        "",
+        "## Key Principles",
+        "- Tests come FIRST — define expected outcomes before generating rules",
+        "- Guidance must reference specific source text — vague feedback like 'fix it' won't help",
+        "- Decision tools (aethis_decide, aethis_schema, aethis_explain, aethis_next_question) need no authentication",
+        "- Authoring tools need an API key (AETHIS_API_KEY or 'aethis login')",
+        "- Decisions are deterministic, <5ms, no LLM at inference time — all rules are pre-compiled",
+        "",
+        "## Prompts",
+        "Use the 'aethis-author' prompt for a step-by-step rule authoring guide.",
+        "Use the 'aethis-decide' prompt for a decision workflow guide.",
+      ].join("\n"),
     },
   );
 
   registerTools(server, handlers);
+  registerPrompts(server);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

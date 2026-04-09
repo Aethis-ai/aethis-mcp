@@ -271,6 +271,15 @@ Returns a `bundle_id` — ready to use with `aethis_decide`.
 | **Management** | `aethis_archive_project`, `aethis_archive_bundle` | Archive projects and bundles (permanent) |
 | **Low-level** | `aethis_generate` | Async generation with manual polling |
 
+### Prompts
+
+MCP prompts are pre-built workflow guides that compatible clients (Claude Desktop, Cursor, VS Code Copilot) can surface as selectable templates.
+
+| Prompt | Description |
+|--------|-------------|
+| `aethis-author` | Step-by-step TDD workflow: gather requirements → create bundle → generate → refine → publish |
+| `aethis-decide` | Decision workflow: find bundle → get schema → evaluate (quick or conversational). Accepts optional `bundle_id` argument |
+
 ---
 
 ## Workflows
@@ -368,7 +377,7 @@ Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
 git clone https://github.com/aethis-ai/aethis-mcp.git
 cd aethis-mcp
 npm install
-npm test       # 90 tests
+npm test       # 107 tests
 npm run build
 ```
 
