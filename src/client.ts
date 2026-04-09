@@ -6,6 +6,9 @@ export class AethisAPIError extends Error {
   constructor(
     public readonly statusCode: number,
     public readonly detail: string,
+    public readonly reasonCode?: string,
+    public readonly action?: string,
+    public readonly missingPermissions: string[] = [],
   ) {
     super(`HTTP ${statusCode}: ${detail}`);
     this.name = "AethisAPIError";
@@ -111,13 +114,37 @@ export class AethisClient {
       if (!resp.ok) {
         const text = await resp.text().catch(() => "");
         let detail: string;
+        let reasonCode: string | undefined;
+        let action: string | undefined;
+        let missingPermissions: string[] = [];
         try {
           const json = JSON.parse(text) as Record<string, unknown>;
-          detail = (json.detail as string) ?? text;
+          const rawDetail = json.detail;
+          if (typeof rawDetail === "string") {
+            detail = rawDetail;
+          } else if (rawDetail && typeof rawDetail === "object") {
+            const payload = rawDetail as Record<string, unknown>;
+            reasonCode = typeof payload.reason_code === "string" ? payload.reason_code : undefined;
+            action = typeof payload.action === "string" ? payload.action : undefined;
+            missingPermissions = Array.isArray(payload.missing_permissions)
+              ? payload.missing_permissions.filter((v): v is string => typeof v === "string")
+              : [];
+            const message = typeof payload.message === "string"
+              ? payload.message
+              : typeof payload.error === "string"
+                ? payload.error
+                : `HTTP ${resp.status}`;
+            const missing = missingPermissions.length > 0 ? ` missing=${missingPermissions.join(",")}` : "";
+            const reason = reasonCode ? ` reason=${reasonCode}` : "";
+            const act = action ? ` action=${action}` : "";
+            detail = `${message}${reason}${act}${missing}`;
+          } else {
+            detail = text || `HTTP ${resp.status}`;
+          }
         } catch {
           detail = text || `HTTP ${resp.status}`;
         }
-        throw new AethisAPIError(resp.status, detail);
+        throw new AethisAPIError(resp.status, detail, reasonCode, action, missingPermissions);
       }
 
       if (resp.status === 204) return {};

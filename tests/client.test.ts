@@ -130,6 +130,37 @@ describe("AethisClient requests", () => {
     fetchSpy.mockResolvedValueOnce(errorResponse(500, "Internal server error"));
     await expect(client.getSchema("b_123")).rejects.toThrow(AethisAPIError);
   });
+
+  it("parses structured authz deny payloads", async () => {
+    const payload = {
+      detail: {
+        reason_code: "denied_missing_permission",
+        action: "project.write",
+        missing_permissions: ["projects:write"],
+        message: "Forbidden",
+      },
+    };
+    const resp = {
+      ok: false,
+      status: 403,
+      headers: new Headers(),
+      json: async () => payload,
+      text: async () => JSON.stringify(payload),
+    } as unknown as Response;
+    fetchSpy.mockResolvedValueOnce(resp).mockResolvedValueOnce(resp);
+
+    await expect(client.getStatus("p_1")).rejects.toThrow(AethisAPIError);
+    try {
+      await client.getStatus("p_1");
+    } catch (e) {
+      const err = e as AethisAPIError;
+      expect(err.statusCode).toBe(403);
+      expect(err.reasonCode).toBe("denied_missing_permission");
+      expect(err.action).toBe("project.write");
+      expect(err.missingPermissions).toEqual(["projects:write"]);
+      expect(err.detail).toContain("reason=denied_missing_permission");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
