@@ -308,7 +308,7 @@ export class AethisClient {
     }
 
     if (!bundleId) {
-      throw new AethisAPIError(504, `Generation timed out after ${this.pollTimeoutMs / 1000}s. Use aethis_project_status to check progress.`);
+      throw new AethisAPIError(504, `Generation timed out after ${this.pollTimeoutMs / 1000}s. The generation may still be running server-side. Retry after a delay.`);
     }
 
     // 3. Run tests

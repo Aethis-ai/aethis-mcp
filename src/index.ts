@@ -708,23 +708,12 @@ Ask the user for:
 - What the eligibility check should determine
 - At least 2-3 example scenarios with expected outcomes (eligible / not_eligible / undetermined)
 
-## Step 2 — Create the bundle and discover fields
+## Step 2 — Create the bundle with test cases
 Call aethis_create_bundle with:
 - name: Human-readable name (e.g., "UK Skilled Worker Visa Eligibility")
 - section_id: Snake_case identifier (e.g., "skilled_worker_visa")
 - source_text: The full legislation or policy text
-- test_cases: Empty array (test cases come AFTER field discovery)
-
-Then call aethis_discover_fields to extract input fields from the source text. The engine returns:
-- Field names, types, descriptions, and questions
-- A completeness score (0-1) and missing pathways
-- A recommendation: "continue" (discover more) or "stop" (fields look complete)
-
-If fields are missing or misnamed, call aethis_refine_fields with targeted feedback.
-Repeat until the completeness score is satisfactory.
-
-## Step 3 — Write test cases using discovered field names
-Now write test cases using the EXACT field names returned by field discovery. This ensures field names match what the engine understands.
+- test_cases: At least 2-3 scenarios from the user's requirements. Use field names inferred from the source text.
 
 Write test cases like unit tests:
 - Cover the happy path (clearly eligible)
@@ -732,7 +721,16 @@ Write test cases like unit tests:
 - Cover edge cases (boundary values, exceptions, exemptions)
 - Use "undetermined" when fields are missing and the outcome genuinely can't be determined
 
-Add test cases via aethis_update_test or by calling aethis_create_bundle again.
+## Step 3 — Discover and align fields
+Call aethis_discover_fields to extract input fields from the source text. The engine returns:
+- Field names, types, descriptions, and questions
+- A completeness score (0-1) and missing pathways
+- A recommendation: "continue" (discover more) or "stop" (fields look complete)
+
+If fields are missing or misnamed, call aethis_refine_fields with targeted feedback.
+Repeat until the completeness score is satisfactory.
+
+If discovered field names differ from the names used in test cases, update the test cases locally and call aethis_create_bundle again with corrected test cases.
 
 ## Step 4 — Generate and test
 Call aethis_generate_and_test with the project_id.
