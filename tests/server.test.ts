@@ -26,18 +26,12 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     getSchema: vi.fn().mockResolvedValue({ bundle_id: "b_123", fields: [] }),
     explain: vi.fn().mockResolvedValue({ rules: [] }),
     listProjects: vi.fn().mockResolvedValue([]),
-    getStatus: vi.fn().mockResolvedValue({ project_id: "p_1" }),
-    generate: vi.fn().mockResolvedValue({ job_id: "j_1", status: "queued" }),
     listBundles: vi.fn().mockResolvedValue([]),
     archiveProject: vi.fn().mockResolvedValue({ message: "Archived" }),
     archiveBundle: vi.fn().mockResolvedValue({ message: "Archived" }),
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_abc" }),
     uploadSourceText: vi.fn().mockResolvedValue({ uploaded: 1 }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
-    listTests: vi.fn().mockResolvedValue([]),
-    getTest: vi.fn().mockResolvedValue({ tc_id: "tc_1", name: "c1", field_values: {}, expected_outcome: "eligible" }),
-    updateTest: vi.fn().mockResolvedValue({ tc_id: "tc_1", name: "updated", field_values: {}, expected_outcome: "eligible" }),
-    deleteTest: vi.fn().mockResolvedValue({ deleted: "tc_1" }),
     addGuidance: vi.fn().mockResolvedValue({ hint_id: "h_1" }),
     discoverFields: vi.fn().mockResolvedValue({
       project_id: "p_1", iteration: 1, fields: [
@@ -74,29 +68,23 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 21 tool handlers", () => {
+  it("returns all 15 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(21);
+    expect(names).toHaveLength(15);
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
     expect(names).toContain("aethis_next_question");
     expect(names).toContain("aethis_explain");
     expect(names).toContain("aethis_list_projects");
-    expect(names).toContain("aethis_project_status");
     expect(names).toContain("aethis_list_bundles");
     expect(names).toContain("aethis_archive_project");
     expect(names).toContain("aethis_archive_bundle");
-    expect(names).toContain("aethis_generate");
     expect(names).toContain("aethis_create_bundle");
     expect(names).toContain("aethis_add_guidance");
     expect(names).toContain("aethis_generate_and_test");
     expect(names).toContain("aethis_refine");
     expect(names).toContain("aethis_publish");
-    expect(names).toContain("aethis_list_tests");
-    expect(names).toContain("aethis_get_test");
-    expect(names).toContain("aethis_update_test");
-    expect(names).toContain("aethis_delete_test");
     expect(names).toContain("aethis_discover_fields");
     expect(names).toContain("aethis_refine_fields");
   });
@@ -242,24 +230,6 @@ describe("aethis_list_projects", () => {
   });
 });
 
-describe("aethis_project_status", () => {
-  it("returns status JSON", async () => {
-    const client = mockClient({
-      getStatus: vi.fn().mockResolvedValue({ project_id: "p_1", job: { status: "success" } }),
-    });
-    const h = createToolHandlers(client);
-    const result = await h.aethis_project_status({ project_id: "p_1" });
-    const data = JSON.parse(text(result));
-    expect(data.job.status).toBe("success");
-  });
-
-  it("rejects empty project_id", async () => {
-    const h = createToolHandlers(mockClient());
-    const result = await h.aethis_project_status({ project_id: "" });
-    expect(text(result)).toMatch(/must not be empty/i);
-  });
-});
-
 describe("aethis_list_bundles", () => {
   it("returns bundles JSON", async () => {
     const client = mockClient({
@@ -277,90 +247,6 @@ describe("aethis_list_bundles", () => {
   it("rejects empty project_id", async () => {
     const h = createToolHandlers(mockClient());
     const result = await h.aethis_list_bundles({ project_id: "" });
-    expect(text(result)).toMatch(/must not be empty/i);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test case tools
-// ---------------------------------------------------------------------------
-
-describe("aethis_list_tests", () => {
-  it("returns test cases JSON", async () => {
-    const client = mockClient({
-      listTests: vi.fn().mockResolvedValue([
-        { tc_id: "tc_1", name: "c1", field_values: { age: 30 }, expected_outcome: "eligible" },
-      ]),
-    });
-    const h = createToolHandlers(client);
-    const result = await h.aethis_list_tests({ project_id: "p_1" });
-    const data = JSON.parse(text(result));
-    expect(data).toHaveLength(1);
-    expect(data[0].name).toBe("c1");
-    expect(data[0].field_values.age).toBe(30);
-  });
-
-  it("rejects empty project_id", async () => {
-    const h = createToolHandlers(mockClient());
-    const result = await h.aethis_list_tests({ project_id: "" });
-    expect(text(result)).toMatch(/must not be empty/i);
-  });
-});
-
-describe("aethis_get_test", () => {
-  it("returns single test case", async () => {
-    const client = mockClient({
-      getTest: vi.fn().mockResolvedValue({ tc_id: "tc_1", name: "c1", field_values: {}, expected_outcome: "eligible" }),
-    });
-    const h = createToolHandlers(client);
-    const result = await h.aethis_get_test({ project_id: "p_1", tc_id: "tc_1" });
-    const data = JSON.parse(text(result));
-    expect(data.tc_id).toBe("tc_1");
-  });
-
-  it("rejects empty tc_id", async () => {
-    const h = createToolHandlers(mockClient());
-    const result = await h.aethis_get_test({ project_id: "p_1", tc_id: "" });
-    expect(text(result)).toMatch(/must not be empty/i);
-  });
-});
-
-describe("aethis_update_test", () => {
-  it("updates and returns result", async () => {
-    const updateFn = vi.fn().mockResolvedValue({ tc_id: "tc_1", name: "renamed", field_values: {}, expected_outcome: "eligible" });
-    const client = mockClient({ updateTest: updateFn });
-    const h = createToolHandlers(client);
-    const result = await h.aethis_update_test({ project_id: "p_1", tc_id: "tc_1", name: "renamed" });
-    expect(text(result)).toContain("renamed");
-    expect(updateFn).toHaveBeenCalledWith("p_1", "tc_1", { name: "renamed" });
-  });
-
-  it("rejects invalid expected_outcome", async () => {
-    const h = createToolHandlers(mockClient());
-    const result = await h.aethis_update_test({ project_id: "p_1", tc_id: "tc_1", expected_outcome: "maybe" });
-    expect(text(result)).toContain("invalid");
-  });
-
-  it("rejects update with no fields", async () => {
-    const h = createToolHandlers(mockClient());
-    const result = await h.aethis_update_test({ project_id: "p_1", tc_id: "tc_1" });
-    expect(text(result)).toContain("at least one field");
-  });
-});
-
-describe("aethis_delete_test", () => {
-  it("deletes and returns confirmation", async () => {
-    const client = mockClient({
-      deleteTest: vi.fn().mockResolvedValue({ deleted: "tc_1" }),
-    });
-    const h = createToolHandlers(client);
-    const result = await h.aethis_delete_test({ project_id: "p_1", tc_id: "tc_1" });
-    expect(text(result)).toContain("tc_1");
-  });
-
-  it("rejects empty tc_id", async () => {
-    const h = createToolHandlers(mockClient());
-    const result = await h.aethis_delete_test({ project_id: "p_1", tc_id: "" });
     expect(text(result)).toMatch(/must not be empty/i);
   });
 });
@@ -406,18 +292,6 @@ describe("aethis_archive_bundle", () => {
 // ---------------------------------------------------------------------------
 // Authoring tools
 // ---------------------------------------------------------------------------
-
-describe("aethis_generate", () => {
-  it("returns job info JSON", async () => {
-    const client = mockClient({
-      generate: vi.fn().mockResolvedValue({ job_id: "j_1", status: "queued" }),
-    });
-    const h = createToolHandlers(client);
-    const result = await h.aethis_generate({ project_id: "p_1" });
-    const data = JSON.parse(text(result));
-    expect(data.status).toBe("queued");
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Intelligent authoring tools

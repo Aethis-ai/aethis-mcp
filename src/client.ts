@@ -244,22 +244,6 @@ export class AethisClient {
     });
   }
 
-  async listTests(projectId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`);
-  }
-
-  async getTest(projectId: string, tcId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests/${encodeURIComponent(tcId)}`);
-  }
-
-  async updateTest(projectId: string, tcId: string, updates: Record<string, unknown>): Promise<unknown> {
-    return this.request("PUT", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests/${encodeURIComponent(tcId)}`, updates);
-  }
-
-  async deleteTest(projectId: string, tcId: string): Promise<unknown> {
-    return this.request("DELETE", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests/${encodeURIComponent(tcId)}`);
-  }
-
   async runTests(projectId: string): Promise<unknown> {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/test-run`);
   }
@@ -324,7 +308,7 @@ export class AethisClient {
     }
 
     if (!bundleId) {
-      throw new AethisAPIError(504, `Generation timed out after ${this.pollTimeoutMs / 1000}s. Use aethis_project_status to check progress.`);
+      throw new AethisAPIError(504, `Generation timed out after ${this.pollTimeoutMs / 1000}s. The generation may still be running server-side. Retry after a delay.`);
     }
 
     // 3. Run tests

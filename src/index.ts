@@ -270,17 +270,6 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_project_status(args: { project_id: string }): Promise<ToolResult> {
-      const authErr = await requireAuth(client);
-      if (authErr) return authErr;
-      const idErr = validateId(args.project_id, "project_id");
-      if (idErr) return err(idErr);
-      try {
-        const result = await client.getStatus(args.project_id);
-        return ok(fmt(result));
-      } catch (e) { return apiError(e); }
-    },
-
     async aethis_list_bundles(args: { project_id: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -288,70 +277,6 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.listBundles(args.project_id);
-        return ok(fmt(result));
-      } catch (e) { return apiError(e); }
-    },
-
-    // -- Test case tools --
-
-    async aethis_list_tests(args: { project_id: string }): Promise<ToolResult> {
-      const authErr = await requireAuth(client);
-      if (authErr) return authErr;
-      const idErr = validateId(args.project_id, "project_id");
-      if (idErr) return err(idErr);
-      try {
-        const result = await client.listTests(args.project_id);
-        return ok(fmt(result));
-      } catch (e) { return apiError(e); }
-    },
-
-    async aethis_get_test(args: { project_id: string; tc_id: string }): Promise<ToolResult> {
-      const authErr = await requireAuth(client);
-      if (authErr) return authErr;
-      const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
-      if (idErr) return err(idErr);
-      try {
-        const result = await client.getTest(args.project_id, args.tc_id);
-        return ok(fmt(result));
-      } catch (e) { return apiError(e); }
-    },
-
-    async aethis_update_test(args: {
-      project_id: string;
-      tc_id: string;
-      name?: string;
-      field_values?: Record<string, unknown>;
-      expected_outcome?: string;
-    }): Promise<ToolResult> {
-      const authErr = await requireAuth(client);
-      if (authErr) return authErr;
-      const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
-      if (idErr) return err(idErr);
-      const updates: Record<string, unknown> = {};
-      if (args.name !== undefined) updates.name = args.name;
-      if (args.field_values !== undefined) updates.field_values = args.field_values;
-      if (args.expected_outcome !== undefined) {
-        if (!VALID_OUTCOMES.has(args.expected_outcome)) {
-          return err(`Error: invalid expected_outcome '${args.expected_outcome}'. Must be: eligible, not_eligible, or undetermined.`);
-        }
-        updates.expected_outcome = args.expected_outcome;
-      }
-      if (Object.keys(updates).length === 0) {
-        return err("Error: at least one field to update must be provided (name, field_values, or expected_outcome).");
-      }
-      try {
-        const result = await client.updateTest(args.project_id, args.tc_id, updates);
-        return ok(fmt(result));
-      } catch (e) { return apiError(e); }
-    },
-
-    async aethis_delete_test(args: { project_id: string; tc_id: string }): Promise<ToolResult> {
-      const authErr = await requireAuth(client);
-      if (authErr) return authErr;
-      const idErr = validateId(args.project_id, "project_id") ?? validateId(args.tc_id, "tc_id");
-      if (idErr) return err(idErr);
-      try {
-        const result = await client.deleteTest(args.project_id, args.tc_id);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -381,18 +306,6 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     // -- Authoring tools --
-
-    async aethis_generate(args: { project_id: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
-      const authErr = await requireAuth(client);
-      if (authErr) return authErr;
-      const idErr = validateId(args.project_id, "project_id");
-      if (idErr) return err(idErr);
-      try {
-        const llmKey = args.anthropic_key || args.openai_key;
-        const result = await client.generate(args.project_id, llmKey);
-        return ok(fmt(result));
-      } catch (e) { return apiError(e); }
-    },
 
     // -- Intelligent authoring tools --
 
@@ -683,57 +596,10 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
-    "aethis_project_status",
-    "Check the status of a project and its latest generation job (queued/running/success/failed).",
-    { project_id: z.string().describe("The project ID") },
-    (args) => handlers.aethis_project_status(args),
-  );
-
-  server.tool(
     "aethis_list_bundles",
     "List all rule bundles for a project, including version history. Shows bundle ID, status (active/archived), version, field count, and rule count.",
     { project_id: z.string().describe("The project ID") },
     (args) => handlers.aethis_list_bundles(args),
-  );
-
-  server.tool(
-    "aethis_list_tests",
-    "List all test cases for a project. Shows test name, input field values, and expected outcome for each case.",
-    { project_id: z.string().describe("The project ID") },
-    (args) => handlers.aethis_list_tests(args),
-  );
-
-  server.tool(
-    "aethis_get_test",
-    "Get a single test case by ID.",
-    {
-      project_id: z.string().describe("The project ID"),
-      tc_id: z.string().describe("The test case ID (e.g., tc_abc123)"),
-    },
-    (args) => handlers.aethis_get_test(args),
-  );
-
-  server.tool(
-    "aethis_update_test",
-    "Update a test case. Only provided fields are changed — omit fields to keep their current value.",
-    {
-      project_id: z.string().describe("The project ID"),
-      tc_id: z.string().describe("The test case ID to update"),
-      name: z.string().optional().describe("New test case name"),
-      field_values: z.record(z.string(), z.unknown()).optional().describe("New input field values"),
-      expected_outcome: z.string().optional().describe("New expected outcome (eligible, not_eligible, or undetermined)"),
-    },
-    (args) => handlers.aethis_update_test(args),
-  );
-
-  server.tool(
-    "aethis_delete_test",
-    "Delete a test case from a project. This is permanent.",
-    {
-      project_id: z.string().describe("The project ID"),
-      tc_id: z.string().describe("The test case ID to delete"),
-    },
-    (args) => handlers.aethis_delete_test(args),
   );
 
   server.tool(
@@ -748,17 +614,6 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Archive a rule bundle. Archived bundles are preserved but excluded from /decide resolution. This is permanent.",
     { bundle_id: z.string().describe("The bundle ID to archive") },
     (args) => handlers.aethis_archive_bundle(args),
-  );
-
-  server.tool(
-    "aethis_generate",
-    "Trigger rule generation for a project. Queues an async job. Poll with aethis_project_status to check progress.",
-    {
-      project_id: z.string().describe("The project ID to generate rules for"),
-      anthropic_key: z.string().optional().describe("Your Anthropic API key for LLM generation costs (required, pass-through, never stored)"),
-      openai_key: z.string().optional().describe("Deprecated — use anthropic_key. Accepted for backwards compatibility."),
-    },
-    (args) => handlers.aethis_generate(args),
   );
 
   server.tool(
@@ -853,23 +708,12 @@ Ask the user for:
 - What the eligibility check should determine
 - At least 2-3 example scenarios with expected outcomes (eligible / not_eligible / undetermined)
 
-## Step 2 — Create the bundle and discover fields
+## Step 2 — Create the bundle with test cases
 Call aethis_create_bundle with:
 - name: Human-readable name (e.g., "UK Skilled Worker Visa Eligibility")
 - section_id: Snake_case identifier (e.g., "skilled_worker_visa")
 - source_text: The full legislation or policy text
-- test_cases: Empty array (test cases come AFTER field discovery)
-
-Then call aethis_discover_fields to extract input fields from the source text. The engine returns:
-- Field names, types, descriptions, and questions
-- A completeness score (0-1) and missing pathways
-- A recommendation: "continue" (discover more) or "stop" (fields look complete)
-
-If fields are missing or misnamed, call aethis_refine_fields with targeted feedback.
-Repeat until the completeness score is satisfactory.
-
-## Step 3 — Write test cases using discovered field names
-Now write test cases using the EXACT field names returned by field discovery. This ensures field names match what the engine understands.
+- test_cases: At least 2-3 scenarios from the user's requirements. Use field names inferred from the source text.
 
 Write test cases like unit tests:
 - Cover the happy path (clearly eligible)
@@ -877,7 +721,16 @@ Write test cases like unit tests:
 - Cover edge cases (boundary values, exceptions, exemptions)
 - Use "undetermined" when fields are missing and the outcome genuinely can't be determined
 
-Add test cases via aethis_update_test or by calling aethis_create_bundle again.
+## Step 3 — Discover and align fields
+Call aethis_discover_fields to extract input fields from the source text. The engine returns:
+- Field names, types, descriptions, and questions
+- A completeness score (0-1) and missing pathways
+- A recommendation: "continue" (discover more) or "stop" (fields look complete)
+
+If fields are missing or misnamed, call aethis_refine_fields with targeted feedback.
+Repeat until the completeness score is satisfactory.
+
+If discovered field names differ from the names used in test cases, update the test cases locally and call aethis_create_bundle again with corrected test cases.
 
 ## Step 4 — Generate and test
 Call aethis_generate_and_test with the project_id.

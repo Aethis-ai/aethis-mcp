@@ -254,22 +254,20 @@ Returns a `bundle_id` — ready to use with `aethis_decide`.
 > **Test-driven iteration:** Aethis generates rules from your source text and guidance — not from your tests. Tests validate the output and show you what guidance to add next. Better tests = faster convergence on correct rules.
 
 > [!IMPORTANT]
-> **Anthropic key required for authoring.** Rule generation uses Anthropic LLM calls. Pass your key as `anthropic_key` on `aethis_generate_and_test`, `aethis_refine`, or `aethis_generate`. The key is used for the request only and **never stored**. Decision tools do not use Anthropic.
+> **Anthropic key required for authoring.** Rule generation uses Anthropic LLM calls. Pass your key as `anthropic_key` on `aethis_generate_and_test` or `aethis_refine`. The key is used for the request only and **never stored**. Decision tools do not use Anthropic.
 
 ---
 
 ## Tools
 
-19 tools in six groups. Most agents use Decision (2 calls). Authors use the full Authoring workflow.
+15 tools in four groups. Most agents use Decision (2 calls). Authors use the full Authoring workflow.
 
 | Group | Tools | What they do |
 |-------|-------|-------------|
 | **Decision** | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain` | Evaluate eligibility, inspect fields, conversational checks, rule explanations |
-| **Authoring** | `aethis_create_bundle`, `aethis_generate_and_test`, `aethis_add_guidance`, `aethis_refine`, `aethis_publish` | Create, iterate, and publish rule bundles (TDD workflow) |
-| **Discovery** | `aethis_list_projects`, `aethis_project_status`, `aethis_list_bundles` | Find projects, check generation progress, browse bundle versions |
-| **Test cases** | `aethis_list_tests`, `aethis_get_test`, `aethis_update_test`, `aethis_delete_test` | Full CRUD on test cases |
+| **Authoring** | `aethis_create_bundle`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_add_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish` | Create, iterate, and publish rule bundles (TDD workflow) |
+| **Discovery** | `aethis_list_projects`, `aethis_list_bundles` | Find projects, browse bundle versions |
 | **Management** | `aethis_archive_project`, `aethis_archive_bundle` | Archive projects and bundles (permanent) |
-| **Low-level** | `aethis_generate` | Async generation with manual polling |
 
 ### Prompts
 
@@ -361,7 +359,7 @@ Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
 | "Bundle not found" (404) | Wrong ID or archived | Use `aethis_list_projects` → `aethis_list_bundles` |
 | "Rate limit exceeded" (429) | Daily limit hit | Client retries automatically. Contact [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
 | "Cannot publish: tests failing" | Tests don't pass | Fix with `aethis_refine`, or `force=true` to override |
-| Generation timeout | Large source document | Check `aethis_project_status`. Client waits up to 5 min |
+| Generation timeout | Large source document | Client waits up to 5 min. Retry after a delay |
 
 ---
 
