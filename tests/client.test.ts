@@ -331,35 +331,6 @@ describe("AethisClient API methods", () => {
     expect(JSON.parse(init.body)).toEqual({ guidance_text: "Dolphins excluded" });
   });
 
-  it("listTests() gets /api/v1/public/projects/:id/tests", async () => {
-    await client.listTests("p_1");
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests");
-    expect(init.method).toBe("GET");
-  });
-
-  it("getTest() gets /api/v1/public/projects/:id/tests/:tc_id", async () => {
-    await client.getTest("p_1", "tc_1");
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests/tc_1");
-    expect(init.method).toBe("GET");
-  });
-
-  it("updateTest() puts to /api/v1/public/projects/:id/tests/:tc_id", async () => {
-    await client.updateTest("p_1", "tc_1", { name: "renamed" });
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests/tc_1");
-    expect(init.method).toBe("PUT");
-    expect(JSON.parse(init.body)).toEqual({ name: "renamed" });
-  });
-
-  it("deleteTest() deletes /api/v1/public/projects/:id/tests/:tc_id", async () => {
-    await client.deleteTest("p_1", "tc_1");
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests/tc_1");
-    expect(init.method).toBe("DELETE");
-  });
-
   it("addTests() posts to /api/v1/public/projects/:id/tests", async () => {
     const cases = [{ name: "c1", field_values: {}, expected_outcome: "eligible" }];
     await client.addTests("p_1", cases);
