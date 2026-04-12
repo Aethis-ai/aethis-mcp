@@ -259,6 +259,17 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_source(args: { bundle_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.bundle_id, "bundle_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.getSource(args.bundle_id);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
     // -- Discovery tools --
 
     async aethis_list_projects(_args: Record<string, never>): Promise<ToolResult> {
@@ -590,6 +601,13 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
+    "aethis_source",
+    "Get the generated Python DSL source code for a bundle. Internal only — requires bundles:source scope.",
+    { bundle_id: z.string().describe("The ID of the published rule bundle") },
+    (args) => handlers.aethis_source(args),
+  );
+
+  server.tool(
     "aethis_list_projects",
     "List all projects in the current tenant. Returns project IDs, names, domains, and latest bundle information.",
     () => handlers.aethis_list_projects({}),
@@ -631,7 +649,7 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_add_guidance",
-    "Add subject-matter-expert guidance to a project. Use for domain knowledge not in the source text. Then call aethis_generate_and_test to regenerate.",
+    "Add a guidance hint to a project. Use for domain knowledge not in the source text. Then call aethis_generate_and_test to regenerate.",
     {
       project_id: z.string().describe("The project ID"),
       guidance_text: z.string().describe("Domain knowledge or correction not present in the source text"),

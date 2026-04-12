@@ -184,6 +184,10 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/explain`);
   }
 
+  async getSource(bundleId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/source`);
+  }
+
   // -- Bundle management --
 
   async archiveBundle(bundleId: string): Promise<unknown> {
