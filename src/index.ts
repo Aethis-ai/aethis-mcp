@@ -153,6 +153,60 @@ export function formatTestResults(
 }
 
 // ---------------------------------------------------------------------------
+// Format explain-failure response as human-readable text
+// ---------------------------------------------------------------------------
+
+function formatExplainFailure(result: Record<string, unknown>): string {
+  const actual = result.actual_outcome as string;
+  const expected = result.expected_outcome as string;
+  const isFailure = result.is_failure as boolean;
+  const diagnosis = result.diagnosis as string;
+  const dslHint = result.dsl_hint as string | null;
+  const criteria = (result.criteria as Record<string, unknown>[]) ?? [];
+  const groupStatuses = result.group_statuses as Record<string, string> | null;
+
+  const lines: string[] = [];
+  lines.push(`Outcome: ${actual} (expected: ${expected}) — ${isFailure ? "FAIL" : "PASS"}`);
+  lines.push("");
+  lines.push("DIAGNOSIS:");
+  lines.push(diagnosis);
+
+  if (dslHint) {
+    lines.push("");
+    lines.push("DSL HINT:");
+    lines.push(dslHint);
+  }
+
+  if (groupStatuses && Object.keys(groupStatuses).length > 0) {
+    lines.push("");
+    lines.push("GROUP STATUSES:");
+    for (const [group, status] of Object.entries(groupStatuses)) {
+      lines.push(`  ${group}: ${status}`);
+    }
+  }
+
+  if (criteria.length > 0) {
+    lines.push("");
+    lines.push("CRITERIA:");
+    for (const c of criteria) {
+      const flags: string[] = [];
+      if (c.waivable) flags.push("waivable");
+      if (c.review_required) flags.push("review_required");
+      if (c.is_complex_requirement) flags.push("complex_requirement");
+      const flagStr = flags.length ? ` [${flags.join(", ")}]` : "";
+      lines.push(`• ${c.criterion_id} (group: ${c.group})${flagStr}`);
+      lines.push(`  ${c.title}`);
+      lines.push(`  Rule: ${c.rule_text}`);
+      if (c.source_refs) {
+        lines.push(`  Source: ${(c.source_refs as string[]).join(", ")}`);
+      }
+    }
+  }
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Auth guard for authoring tools
 // ---------------------------------------------------------------------------
 
@@ -256,6 +310,25 @@ export function createToolHandlers(client: AethisClient) {
       try {
         const result = await client.explain(args.bundle_id);
         return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_explain_failure(args: {
+      bundle_id: string;
+      field_values: Record<string, unknown>;
+      expected_outcome: "eligible" | "not_eligible" | "undetermined";
+      test_name?: string;
+    }): Promise<ToolResult> {
+      const idErr = validateId(args.bundle_id, "bundle_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.explainFailure(
+          args.bundle_id,
+          args.field_values,
+          args.expected_outcome,
+          args.test_name,
+        ) as Record<string, unknown>;
+        return ok(formatExplainFailure(result));
       } catch (e) { return apiError(e); }
     },
 
@@ -613,6 +686,18 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Get human-readable descriptions of the rules in a bundle, including criteria groups, requirements, and exception paths.",
     { bundle_id: z.string().describe("The ID of the published rule bundle") },
     (args) => handlers.aethis_explain(args),
+  );
+
+  server.tool(
+    "aethis_explain_failure",
+    "Diagnose why a bundle produced an unexpected outcome for specific test inputs. Use during rule authoring when a test fails — returns the diagnosis, criteria with DSL metadata (waivable, review_required), and a targeted hint for fixing the rule.",
+    {
+      bundle_id: z.string().describe("The ID of the rule bundle to diagnose"),
+      field_values: z.record(z.string(), z.unknown()).describe("The test input values that produced the unexpected outcome"),
+      expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("The outcome you expected from this input"),
+      test_name: z.string().optional().describe("Name of the failing test case (included in the diagnosis for context)"),
+    },
+    (args) => handlers.aethis_explain_failure(args),
   );
 
   server.tool(

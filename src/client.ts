@@ -184,6 +184,23 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/explain`);
   }
 
+  async explainFailure(
+    bundleId: string,
+    fieldValues: Record<string, unknown>,
+    expectedOutcome: string,
+    testName?: string,
+  ): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/explain-failure`,
+      {
+        field_values: fieldValues,
+        expected_outcome: expectedOutcome,
+        ...(testName ? { test_name: testName } : {}),
+      },
+    );
+  }
+
   async getSource(bundleId: string): Promise<unknown> {
     return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/source`);
   }
