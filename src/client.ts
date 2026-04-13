@@ -238,6 +238,10 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/guidance`, body);
   }
 
+  async listGuidance(projectId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/guidance`);
+  }
+
   async discoverFields(projectId: string, llmKey?: string): Promise<unknown> {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, {}, llmKey);
   }

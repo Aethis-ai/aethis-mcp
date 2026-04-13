@@ -363,6 +363,21 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_list_guidance(args: { project_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        const hints = await client.listGuidance(args.project_id) as Array<Record<string, unknown>>;
+        if (!hints.length) return ok("No guidance hints added to this project yet.");
+        const lines = hints.map((h, i) =>
+          `${i + 1}. [${h.source ?? "human"}] ${h.guidance_text}\n   (hint_id: ${h.hint_id}, active: ${h.active})`
+        );
+        return ok(`Guidance hints for project ${args.project_id} (${hints.length} total):\n\n${lines.join("\n\n")}`);
+      } catch (e) { return apiError(e); }
+    },
+
     async aethis_add_guidance(args: { project_id: string; guidance_text: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -645,6 +660,13 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
       domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
     },
     (args) => handlers.aethis_create_bundle(args),
+  );
+
+  server.tool(
+    "aethis_list_guidance",
+    "List all guidance hints accumulated for a project. Shows the text, source, and active status of each hint. Use before adding new guidance to avoid duplicates.",
+    { project_id: z.string().describe("The project ID") },
+    (args) => handlers.aethis_list_guidance(args),
   );
 
   server.tool(
