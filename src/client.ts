@@ -273,8 +273,9 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/test-run`);
   }
 
-  async publish(projectId: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/publish`);
+  async publish(projectId: string, label?: string): Promise<unknown> {
+    const body = label !== undefined ? { label } : undefined;
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/publish`, body);
   }
 
   // -- Compound operations --
