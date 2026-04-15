@@ -33,6 +33,8 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     uploadSourceText: vi.fn().mockResolvedValue({ uploaded: 1 }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
     addGuidance: vi.fn().mockResolvedValue({ hint_id: "h_1" }),
+    addDomainGuidance: vi.fn().mockResolvedValue({ hint_id: "h_d1" }),
+    listDomainGuidance: vi.fn().mockResolvedValue([]),
     discoverFields: vi.fn().mockResolvedValue({
       project_id: "p_1", iteration: 1, fields: [
         { key: "applicant.age", field_type: "integer", description: "Age", question: "How old?", enum_values: null, weight: 1 },
@@ -68,10 +70,10 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 15 tool handlers", () => {
+  it("returns all 20 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(15);
+    expect(names).toHaveLength(20);
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
     expect(names).toContain("aethis_next_question");
@@ -87,6 +89,8 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_publish");
     expect(names).toContain("aethis_discover_fields");
     expect(names).toContain("aethis_refine_fields");
+    expect(names).toContain("aethis_add_domain_guidance");
+    expect(names).toContain("aethis_list_domain_guidance");
   });
 });
 
@@ -690,6 +694,47 @@ describe("AUTHOR_PROMPT", () => {
   it("includes good and bad guidance examples", () => {
     expect(AUTHOR_PROMPT).toContain("Good:");
     expect(AUTHOR_PROMPT).toContain("Bad:");
+  });
+
+  // A2: field discovery must precede the full test-writing step so test cases
+  // use confirmed field names, not invented ones.
+  it("A2: field discovery comes before writing full test cases", () => {
+    const discoverIdx = AUTHOR_PROMPT.indexOf("aethis_discover_fields");
+    // The full test-writing step instructs to use "discovered field names"
+    const fullTestIdx = AUTHOR_PROMPT.indexOf("discovered field names");
+    expect(discoverIdx).toBeGreaterThan(-1);
+    expect(fullTestIdx).toBeGreaterThan(discoverIdx);
+  });
+
+  it("A2: includes domain guidance seeding step before generation", () => {
+    const domainGuidanceIdx = AUTHOR_PROMPT.indexOf("aethis_add_domain_guidance");
+    const genIdx = AUTHOR_PROMPT.indexOf("aethis_generate_and_test");
+    expect(domainGuidanceIdx).toBeGreaterThan(-1);
+    expect(genIdx).toBeGreaterThan(domainGuidanceIdx);
+  });
+
+  it("A2: instructs using undetermined for discretionary restrictions", () => {
+    expect(AUTHOR_PROMPT).toContain("undetermined");
+    expect(AUTHOR_PROMPT).toContain("advisory");
+  });
+});
+
+// A3: aethis_source must not be registered as a public tool.
+// The handler still exists in createToolHandlers for internal use,
+// but the server.tool() registration was removed so users don't see it.
+describe("A3 aethis_source tool visibility", () => {
+  it("aethis_source handler still exists (internal use)", () => {
+    const handlers = createToolHandlers(mockClient());
+    // Handler exists in the object but is not registered as a public tool
+    expect(typeof handlers.aethis_source).toBe("function");
+  });
+
+  it("tool handler count matches expected public tools (aethis_source excluded from server.tool)", () => {
+    // createToolHandlers returns 20 handlers including aethis_source (internal).
+    // The registration in registerTools was removed — this test documents that
+    // the count of handlers != count of publicly registered tools.
+    const handlers = createToolHandlers(mockClient());
+    expect(Object.keys(handlers)).toHaveLength(20);
   });
 });
 

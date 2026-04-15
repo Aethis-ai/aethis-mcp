@@ -259,6 +259,17 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/guidance`);
   }
 
+  async addDomainGuidance(domain: string, guidanceText: string, processType?: string, notes?: string): Promise<unknown> {
+    const body: Record<string, string> = { guidance_text: guidanceText };
+    if (processType) body.process_type = processType;
+    if (notes) body.notes = notes;
+    return this.request("POST", `/api/v1/public/domains/${encodeURIComponent(domain)}/guidance`, body);
+  }
+
+  async listDomainGuidance(domain: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/domains/${encodeURIComponent(domain)}/guidance`);
+  }
+
   async discoverFields(projectId: string, llmKey?: string): Promise<unknown> {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, {}, llmKey);
   }

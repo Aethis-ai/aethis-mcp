@@ -451,17 +451,39 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_add_guidance(args: { project_id: string; guidance_text: string }): Promise<ToolResult> {
+    async aethis_add_guidance(args: { project_id: string; guidance_text: string; process_type?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        await client.addGuidance(args.project_id, args.guidance_text);
+        await client.addGuidance(args.project_id, args.guidance_text, args.process_type);
         return ok(
           `Guidance added to project ${args.project_id}.\n` +
             `Call aethis_generate_and_test(project_id="${args.project_id}") to regenerate with this guidance applied.`,
         );
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_add_domain_guidance(args: { domain: string; guidance_text: string; process_type?: string; notes?: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.domain, "domain");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.addDomainGuidance(args.domain, args.guidance_text, args.process_type, args.notes);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_list_domain_guidance(args: { domain: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.domain, "domain");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.listDomainGuidance(args.domain);
+        return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
 
@@ -704,13 +726,6 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
-    "aethis_source",
-    "Get the generated Python DSL source code for a bundle. Internal only — requires bundles:source scope.",
-    { bundle_id: z.string().describe("The ID of the published rule bundle") },
-    (args) => handlers.aethis_source(args),
-  );
-
-  server.tool(
     "aethis_list_projects",
     "List all projects in the current tenant. Returns project IDs, names, domains, and latest bundle information.",
     () => handlers.aethis_list_projects({}),
@@ -763,8 +778,42 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       project_id: z.string().describe("The project ID"),
       guidance_text: z.string().describe("Domain knowledge or correction not present in the source text"),
+      process_type: z.enum(["rule_generation", "field_extraction"])
+        .default("rule_generation")
+        .optional()
+        .describe(
+          "Which authoring phase this hint targets. " +
+          "Use 'field_extraction' for field design principles (e.g. raw-facts principle, solicitor navigation). " +
+          "Defaults to 'rule_generation'."
+        ),
     },
     (args) => handlers.aethis_add_guidance(args),
+  );
+
+  server.tool(
+    "aethis_add_domain_guidance",
+    "Add a guidance hint at domain level — applies to ALL projects in the domain, not just one project. " +
+    "Use for cross-section principles: solicitor navigation, discretion model, raw-facts principle. " +
+    "These hints are retrieved automatically during generation for any project in the domain.",
+    {
+      domain: z.string().describe("Domain identifier (e.g. 'uk_citizenship')"),
+      guidance_text: z.string().describe("The guidance hint text"),
+      process_type: z.enum(["rule_generation", "field_extraction"])
+        .default("rule_generation")
+        .optional()
+        .describe("Which authoring phase this hint targets"),
+      notes: z.string().optional().describe("SME commentary or legislation provenance. Never sent to LLM."),
+    },
+    (args) => handlers.aethis_add_domain_guidance(args),
+  );
+
+  server.tool(
+    "aethis_list_domain_guidance",
+    "List all active guidance hints for a domain. Returns cross-section hints that apply to all projects in the domain.",
+    {
+      domain: z.string().describe("Domain identifier (e.g. 'uk_citizenship')"),
+    },
+    (args) => handlers.aethis_list_domain_guidance(args),
   );
 
   server.tool(
@@ -835,23 +884,19 @@ export const AUTHOR_PROMPT = `You are guiding the user through authoring eligibi
 Ask the user for:
 - The source text (legislation, policy document, or regulation)
 - What the eligibility check should determine
-- At least 2-3 example scenarios with expected outcomes (eligible / not_eligible / undetermined)
+- The domain this section belongs to (e.g., "uk_citizenship", "skilled_worker_visa")
 
-## Step 2 — Create the bundle with test cases
+## Step 2 — Create the bundle (source text only, minimal tests)
 Call aethis_create_bundle with:
 - name: Human-readable name (e.g., "UK Skilled Worker Visa Eligibility")
 - section_id: Snake_case identifier (e.g., "skilled_worker_visa")
 - source_text: The full legislation or policy text
-- test_cases: At least 2-3 scenarios from the user's requirements. Use field names inferred from the source text.
+- test_cases: 1-2 placeholder tests using APPROXIMATE field names (will be corrected after field discovery)
 
-Write test cases like unit tests:
-- Cover the happy path (clearly eligible)
-- Cover clear rejection (missing requirement)
-- Cover edge cases (boundary values, exceptions, exemptions)
-- Use "undetermined" when fields are missing and the outcome genuinely can't be determined
+This creates a project context. Field names will be confirmed in Step 3.
 
-## Step 3 — Discover and align fields
-Call aethis_discover_fields to extract input fields from the source text. The engine returns:
+## Step 3 — Discover the field vocabulary
+Call aethis_discover_fields with the project_id. The engine extracts:
 - Field names, types, descriptions, and questions
 - A completeness score (0-1) and missing pathways
 - A recommendation: "continue" (discover more) or "stop" (fields look complete)
@@ -859,30 +904,50 @@ Call aethis_discover_fields to extract input fields from the source text. The en
 If fields are missing or misnamed, call aethis_refine_fields with targeted feedback.
 Repeat until the completeness score is satisfactory.
 
-If discovered field names differ from the names used in test cases, update the test cases locally and call aethis_create_bundle again with corrected test cases.
+**Important:** Note the exact field names returned — test cases MUST use these names.
 
-## Step 4 — Generate and test
+## Step 4 — Write test cases using discovered field names
+Now that you have the correct field vocabulary, write the full test suite:
+- Cover the happy path (clearly eligible)
+- Cover clear rejection (missing requirement)
+- Cover edge cases (boundary values, exceptions, exemptions)
+- Use "undetermined" when fields are absent and caseworker discretion applies
+- Use "undetermined" (NOT "not_eligible") for advisory restrictions that aren't statutory bars
+
+Update the bundle with the full test suite by calling aethis_create_bundle again with the complete test_cases list.
+
+## Step 5 — Seed domain guidance (recommended)
+If domain-level guidance exists (e.g., cross-section principles), import it before generating:
+- Call aethis_add_domain_guidance for each principle that should apply across sections in this domain
+- Use process_type: "field_extraction" for field vocabulary principles
+- Use process_type: "rule_generation" for outcome and discretion principles
+
+This improves first-pass quality and reduces iterations.
+
+## Step 6 — Generate and test
 Call aethis_generate_and_test with the project_id.
 This takes 60-120 seconds. The engine compiles source text into formal rules via LLM, then runs all test cases.
 Review results carefully — output shows PASS/FAIL per test and highlights IMPROVED/REGRESSED vs prior iterations.
 
-## Step 5 — Iterate with guidance
+## Step 7 — Iterate with guidance
 If tests fail, diagnose WHY and call aethis_refine with targeted feedback:
 - Good: "Section 3(2)(a) creates an exception for applicants who entered before 2020 — the generated rules treat this as a general requirement instead"
 - Good: "The 'continuous_residence' field should accept values in years, not days"
+- Good: "has_pending_charges=true → undetermined (not not_eligible) — this is advisory guidance, not a statutory bar"
 - Bad: "Make the tests pass" (too vague — the engine can't learn from this)
 - Bad: "Fix it" (guidance must reference the source material)
 
 Each aethis_refine call adds guidance AND regenerates. Review results after each iteration.
 
-## Step 6 — Publish
+## Step 8 — Publish
 When all tests pass, call aethis_publish. This validates tests pass, activates the bundle for decide calls, and auto-deprecates the previous version.
 
 ## Tips
 - Check existing projects first with aethis_list_projects — the user may want to iterate on an existing project
 - Source text quality matters: include the actual legislative text, not summaries
+- Field names MUST come from aethis_discover_fields — never invent names before running discovery
 - Guidance is additive: each hint accumulates across iterations
-- Let the engine infer field names from source text — only add guidance if names are awkward
+- Proactive guidance before the first generate call dramatically improves first-pass quality
 - Don't over-specify: only add guidance when the engine gets something wrong`;
 
 export function decidePromptText(bundleId?: string): string {
