@@ -270,6 +270,19 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/domains/${encodeURIComponent(domain)}/guidance`);
   }
 
+  async discoverSections(
+    domain: string,
+    sources: Array<{ name: string; content: string }>,
+    llmKey?: string,
+  ): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/v1/public/domains/${encodeURIComponent(domain)}/sections/discover`,
+      { sources },
+      llmKey,
+    );
+  }
+
   async discoverFields(projectId: string, llmKey?: string): Promise<unknown> {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, {}, llmKey);
   }

@@ -487,6 +487,92 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_discover_sections(args: {
+      domain: string;
+      sources: Array<{ name: string; content: string }>;
+      anthropic_key?: string;
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.domain, "domain");
+      if (idErr) return err(idErr);
+      if (!args.sources?.length) return err("sources must contain at least one item");
+      try {
+        const result = await client.discoverSections(args.domain, args.sources, args.anthropic_key) as Record<string, unknown>;
+        const sections = (result.sections ?? []) as Array<Record<string, unknown>>;
+        const confidence = (result.confidence ?? 0) as number;
+        const notes = (result.analysis_notes ?? "") as string;
+
+        const lines: string[] = [
+          `=== Section Discovery — ${args.domain} ===`,
+          `Found ${sections.length} section(s) | Confidence: ${(confidence * 100).toFixed(0)}%`,
+          "",
+        ];
+
+        for (const s of sections) {
+          lines.push(`${s.name} — ${s.title}`);
+          lines.push(`  ${s.description}`);
+          const kw = (s.keywords as string[] | undefined)?.join(", ");
+          if (kw) lines.push(`  Keywords: ${kw}`);
+          lines.push(`  Priority: ${s.priority}`);
+          lines.push(`  Reasoning: ${s.reasoning}`);
+          lines.push("");
+        }
+
+        if (notes) lines.push(`Analysis: ${notes}`, "");
+
+        lines.push(
+          "Review these sections against your source legislation.",
+          "If sections are missing or incorrectly split, call aethis_refine_sections.",
+          "Once sections look correct, create a project for each section with aethis_create_bundle.",
+        );
+
+        return ok(lines.join("\n"));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_refine_sections(args: {
+      domain: string;
+      feedback: string;
+      sources: Array<{ name: string; content: string }>;
+      anthropic_key?: string;
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.domain, "domain");
+      if (idErr) return err(idErr);
+      if (!args.feedback?.trim()) return err("feedback is required");
+      if (!args.sources?.length) return err("sources must contain at least one item");
+      try {
+        // Step 1: Persist feedback as a section_discovery guidance hint
+        await client.addDomainGuidance(args.domain, args.feedback, "section_discovery");
+        // Step 2: Re-run discovery with the same sources — new hint is auto-loaded
+        const result = await client.discoverSections(args.domain, args.sources, args.anthropic_key) as Record<string, unknown>;
+        const sections = (result.sections ?? []) as Array<Record<string, unknown>>;
+        const confidence = (result.confidence ?? 0) as number;
+
+        const lines: string[] = [
+          `=== Section Discovery (refined) — ${args.domain} ===`,
+          `Guidance added: "${args.feedback.slice(0, 80)}${args.feedback.length > 80 ? "…" : ""}"`,
+          `Found ${sections.length} section(s) | Confidence: ${(confidence * 100).toFixed(0)}%`,
+          "",
+        ];
+
+        for (const s of sections) {
+          lines.push(`${s.name} — ${s.title}`);
+          lines.push(`  ${s.description}`);
+          lines.push("");
+        }
+
+        lines.push(
+          "If sections still need refinement, call aethis_refine_sections again.",
+          "Once correct, create a project for each section with aethis_create_bundle.",
+        );
+
+        return ok(lines.join("\n"));
+      } catch (e) { return apiError(e); }
+    },
+
     async aethis_discover_fields(args: { project_id: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -814,6 +900,42 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
       domain: z.string().describe("Domain identifier (e.g. 'uk_citizenship')"),
     },
     (args) => handlers.aethis_list_domain_guidance(args),
+  );
+
+  server.tool(
+    "aethis_discover_sections",
+    "Discover the logical sections of source legislation for a domain. " +
+    "Provide the raw text of your source documents (legislation, guidance notes, form instructions). " +
+    "The service analyses the content and identifies which sections should be authored as separate rule bundles. " +
+    "Run BEFORE creating projects — you need to know the sections before you can create one. " +
+    "Call aethis_refine_sections if sections are missing or incorrectly split.",
+    {
+      domain: z.string().describe("Domain identifier, e.g. 'uk_citizenship'"),
+      sources: z.array(z.object({
+        name: z.string().describe("Filename or short identifier, e.g. 'bna1981_schedule1.md'"),
+        content: z.string().describe("Raw source text (legislation, guidance, form instructions)"),
+      })).min(1).max(10).describe("Source documents to analyse. Provide the actual text content."),
+      anthropic_key: z.string().optional().describe("Your Anthropic API key (required for external users, pass-through, never stored)"),
+    },
+    (args) => handlers.aethis_discover_sections(args),
+  );
+
+  server.tool(
+    "aethis_refine_sections",
+    "Add guidance to improve section discovery, then re-discover sections. " +
+    "Use when sections are missing, incorrectly split, or named differently than expected. " +
+    "Saves the feedback as a domain-level guidance hint and immediately re-runs discovery so you can see the effect. " +
+    "Repeat until the section list matches your expectations.",
+    {
+      domain: z.string().describe("Domain identifier, e.g. 'uk_citizenship'"),
+      feedback: z.string().describe("What was wrong and how to fix it, e.g. 'The english language and life in the UK test should be separate sections'"),
+      sources: z.array(z.object({
+        name: z.string().describe("Filename or short identifier"),
+        content: z.string().describe("Raw source text (same documents as the initial discover call)"),
+      })).min(1).max(10).describe("The same source documents used in the initial aethis_discover_sections call"),
+      anthropic_key: z.string().optional().describe("Your Anthropic API key (required for external users, pass-through, never stored)"),
+    },
+    (args) => handlers.aethis_refine_sections(args),
   );
 
   server.tool(
