@@ -9,7 +9,7 @@ An MCP server that compiles legislation, policy, and regulation into determinist
 [![npm version](https://img.shields.io/npm/v/aethis-mcp.svg)](https://www.npmjs.com/package/aethis-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[The problem](#the-problem) | [Proof](#proof) | [When to use this](#when-to-use-this) | [Quick start](#quick-start) | [Author rules](#author-your-own-rules) | [Tools](#tools) | [Setup](#setup)
+[The problem](#the-problem) | [Proof](#proof) | [When to use this](#when-to-use-this) | [Quick start](#quick-start) | [Author rules](#author-your-own-rules) | [Tools](#tools) | [Workflows](#workflows) | [Setup](#setup) | [Troubleshooting](#troubleshooting)
 
 </div>
 
@@ -145,7 +145,12 @@ Source text ──→ LLM compiles to rules ──→ Test suite validates ─�
 
 ## Quick start
 
-No sign-up needed. Decision tools work immediately.
+**Two use cases — decide which is yours:**
+
+- **Evaluate existing rules** — a bundle already exists, you want to evaluate eligibility against it. No API key needed. Start with `aethis_decide` or `aethis_next_question`.
+- **Author new rules** — you have a policy document and want to compile it into logic. Requires an API key and Anthropic key. Start with `aethis_create_bundle` and follow the TDD workflow.
+
+No sign-up needed to evaluate. Decision tools work immediately.
 
 ```bash
 claude mcp add aethis -- npx -y aethis-mcp
@@ -198,6 +203,7 @@ Aethis is not just a decision engine — it lets your agent compile legislation 
 aethis_create_bundle({
   name: "Consumer Credit Pre-Qualification",
   section_id: "consumer-credit",
+  domain: "consumer_credit",                          // optional — groups related sections
   source_text: "Section 3: Adverse credit history\n(1) An applicant with adverse credit history...",
   test_cases: [
     { name: "Adverse credit — decline", field_values: { "credit.has_adverse_history": true }, expected_outcome: "not_eligible" },
@@ -208,6 +214,12 @@ aethis_create_bundle({
 ```
 
 Returns a `project_id`.
+
+> [!TIP]
+> **Discover field names before writing tests.** Call `aethis_discover_fields({ project_id })` after creating a bundle to get the exact field names the engine will use. Writing tests with invented field names causes silent mismatches. Run discover → write tests → generate.
+
+> [!TIP]
+> **Use `domain` to share guidance across sections.** If you have multiple related bundles (e.g. `residence`, `english_language`, `good_character` under `uk_citizenship`), set the same `domain` on each. Guidance added with `aethis_add_domain_guidance` for that domain applies automatically to all projects in it — no need to repeat cross-section principles on every bundle.
 
 ### Step 2: Generate and test
 
@@ -242,6 +254,46 @@ PASS  Good applicant — approve
 PASS  High DTI, existing customer — approve  (was: FAIL → now: PASS)
 ```
 
+You can also add guidance directly without regenerating, and inspect what's accumulated:
+
+```
+// Add targeted guidance for a specific failing test
+aethis_add_guidance({
+  project_id: "proj_abc123",
+  guidance_text: "When DTI > 45%, existing customers with 24+ months good standing are exempt (Section 10).",
+  process_type: "rule_generation"    // default; use "field_extraction" for field design principles
+})
+
+// Check what guidance is in place before adding more
+aethis_list_guidance({ project_id: "proj_abc123" })
+```
+
+For cross-section principles that apply to multiple bundles in the same domain:
+
+```
+// Add once — applies to all projects in the domain automatically
+aethis_add_domain_guidance({
+  domain: "consumer_credit",
+  guidance_text: "The system flags, never decides. Discretionary clauses ('we will consider', 'may be waived') must produce 'undetermined', not 'not_eligible'.",
+  process_type: "rule_generation",
+  notes: "Core discretion principle — do not remove."   // stored for SME context, never sent to LLM
+})
+
+aethis_list_domain_guidance({ domain: "consumer_credit" })
+```
+
+**Diagnosing a specific failure:**
+
+```
+aethis_explain_failure({
+  bundle_id: "consumer-credit:20250301-abc123",
+  field_values: { "credit.dti_percent": 55, "credit.is_existing_customer": true },
+  expected_outcome: "eligible",
+  test_name: "High DTI, existing customer — approve"
+})
+// Returns: criterion statuses, which rule failed, and a targeted fix hint
+```
+
 ### Step 4: Publish
 
 ```
@@ -256,16 +308,20 @@ Returns a `bundle_id` — ready to use with `aethis_decide`.
 > [!IMPORTANT]
 > **Anthropic key required for authoring.** Rule generation uses Anthropic LLM calls. Pass your key as `anthropic_key` on `aethis_generate_and_test` or `aethis_refine`. The key is used for the request only and **never stored**. Decision tools do not use Anthropic.
 
+> [!IMPORTANT]
+> **DATE fields use integer ordinals, not ISO strings.** Pass dates as Python `date.toordinal()` values (days since year 1). Example: `2025-04-13` = `739354`, `2026-04-13` = `739719`. Passing `"2025-04-13"` will fail with a type error. Quick conversion: `python3 -c "from datetime import date; print(date(2025, 4, 13).toordinal())"`.
+
+
 ---
 
 ## Tools
 
-15 tools in four groups. Most agents use Decision (2 calls). Authors use the full Authoring workflow.
+20 tools in four groups. Most agents use Decision (2 calls). Authors use the full Authoring workflow.
 
 | Group | Tools | What they do |
 |-------|-------|-------------|
-| **Decision** | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain` | Evaluate eligibility, inspect fields, conversational checks, rule explanations |
-| **Authoring** | `aethis_create_bundle`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_add_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish` | Create, iterate, and publish rule bundles (TDD workflow) |
+| **Decision** | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure` | Evaluate eligibility, inspect fields, conversational checks, rule explanations, diagnose failures |
+| **Authoring** | `aethis_create_bundle`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` | Create, iterate, and publish rule bundles (TDD workflow); manage project and domain guidance |
 | **Discovery** | `aethis_list_projects`, `aethis_list_bundles` | Find projects, browse bundle versions |
 | **Management** | `aethis_archive_project`, `aethis_archive_bundle` | Archive projects and bundles (permanent) |
 
@@ -289,7 +345,8 @@ aethis_schema(bundle_id)          → Learn what fields are needed
 aethis_decide(bundle_id, fields)  → eligible / not_eligible / undetermined
 ```
 
-Pass `include_trace: true` for the full evaluation trace with source citations.
+- `include_trace: true` — full evaluation trace with source citations for each criterion
+- `include_explanation: true` — human-readable rule descriptions (useful for surfacing to end users)
 
 ### Conversational eligibility — optimal question routing
 
@@ -306,6 +363,8 @@ aethis_next_question(bundle_id, {species: "Vogon"})
 One fact was enough. A Vogon is disqualified immediately — the engine doesn't ask about flight hours, medical certs, or towel compliance. A different applicant might need 5 questions. Another might need 8. The engine adapts the path based on the answers it receives, always choosing the question that resolves the most uncertainty.
 
 This means your agent can run a guided assessment — asking only the questions that matter, in the order that matters — and reach a provable decision in the fewest possible steps.
+
+The response includes `optimal_path` — the full ranked list of remaining questions. You don't need to ask all of them: call `aethis_next_question` again after each answer and the engine recomputes the shortest path from the updated state. Once a decision is reachable, `is_eligible` is returned and no further questions are needed.
 
 ### Author rules
 
@@ -359,7 +418,8 @@ Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
 | "Bundle not found" (404) | Wrong ID or archived | Use `aethis_list_projects` → `aethis_list_bundles` |
 | "Rate limit exceeded" (429) | Daily limit hit | Client retries automatically. Contact [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
 | "Cannot publish: tests failing" | Tests don't pass | Fix with `aethis_refine`, or `force=true` to override |
-| Generation timeout | Large source document | Client waits up to 5 min. Retry after a delay |
+| Generation timeout (504) | The client timed out waiting (normal for complex rules — generation can take 5–15 min server-side) | **The server continues generating after the timeout.** Wait 10–15 min, then call `aethis_list_bundles({ project_id })` to check if a new bundle appeared. If yes, call `aethis_publish`. If not, the server may still be running — wait and check again rather than re-triggering generation |
+| `"Expected an integer for <field>, got str"` | DATE field passed as ISO string | Pass as `date.toordinal()` integer — e.g. `739354` for 2025-04-13. Quick: `python3 -c "from datetime import date; print(date(2025,4,13).toordinal())"` |
 
 ---
 
