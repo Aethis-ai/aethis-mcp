@@ -664,6 +664,72 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_validate_fields(args: {
+      project_id: string;
+      expected_fields: Array<{ key: string; sort: string; enum_values?: string[] }>;
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      if (!args.expected_fields?.length) return err("expected_fields must contain at least one item");
+      try {
+        const result = await client.validateFields(args.project_id, args.expected_fields) as Record<string, unknown>;
+        const allMatch = result.all_match as boolean;
+        const matchCount = result.match_count as number;
+        const total = result.total_expected as number;
+        const missing = (result.missing ?? []) as string[];
+        const extra = (result.extra ?? []) as string[];
+        const typeMm = (result.type_mismatches ?? []) as Array<Record<string, string>>;
+        const enumMm = (result.enum_mismatches ?? []) as Array<Record<string, unknown>>;
+
+        const lines: string[] = [
+          `=== Field Validation ===`,
+          `Result: ${allMatch ? "PASS — all expected fields match" : "FAIL — mismatches found"}`,
+          `Matched: ${matchCount}/${total}`,
+          "",
+        ];
+
+        if (missing.length) {
+          lines.push("Missing fields (in expected spec, absent from discovered):");
+          for (const m of missing) lines.push(`  - ${m}`);
+          lines.push("");
+        }
+
+        if (typeMm.length) {
+          lines.push("Field type mismatches:");
+          for (const mm of typeMm) {
+            lines.push(`  - ${mm.key}: expected ${mm.expected_sort}, got ${mm.actual_sort}`);
+          }
+          lines.push("");
+        }
+
+        if (enumMm.length) {
+          lines.push("Enum value mismatches:");
+          for (const mm of enumMm) {
+            const exp = (mm.expected_values as string[]).join(", ");
+            const act = (mm.actual_values as string[]).join(", ");
+            lines.push(`  - ${mm.key}: expected [${exp}], got [${act}]`);
+          }
+          lines.push("");
+        }
+
+        if (extra.length) {
+          lines.push(`Extra discovered fields not in spec (${extra.length}) — informational:`);
+          for (const e of extra) lines.push(`  - ${e}`);
+          lines.push("");
+        }
+
+        if (!allMatch) {
+          lines.push("Run aethis_refine_fields with guidance about the missing or incorrect fields.");
+        } else {
+          lines.push("All expected fields are present. Proceed to write test cases and call aethis_generate_and_test.");
+        }
+
+        return ok(lines.join("\n"));
+      } catch (e) { return apiError(e); }
+    },
+
     async aethis_generate_and_test(args: { project_id: string; anthropic_key?: string; openai_key?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -959,6 +1025,25 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
       openai_key: z.string().optional().describe("Deprecated — use anthropic_key. Accepted for backwards compatibility."),
     },
     (args) => handlers.aethis_refine_fields(args),
+  );
+
+  server.tool(
+    "aethis_validate_fields",
+    "Assert that the discovered fields match an expected field specification. " +
+    "Returns a structured diff: missing fields, type mismatches, enum value mismatches, and extra fields. " +
+    "all_match=true only when there are no missing fields and no type or enum mismatches. " +
+    "Extra discovered fields do not affect all_match. " +
+    "Run after aethis_discover_fields to verify field coverage before writing test cases. " +
+    "If all_match=false, call aethis_refine_fields with guidance about the missing or incorrect fields.",
+    {
+      project_id: z.string().describe("The project ID"),
+      expected_fields: z.array(z.object({
+        key: z.string().describe("Expected field key, e.g. 'eng.selt_provider'"),
+        sort: z.string().describe("Expected field type: Bool, Int, Enum, Date, Duration, String"),
+        enum_values: z.array(z.string()).optional().describe("For Enum fields: the expected allowed values. Omit to skip enum value check."),
+      })).min(1).describe("The fields you expect to find in the discovered field set"),
+    },
+    (args) => handlers.aethis_validate_fields(args),
   );
 
   server.tool(

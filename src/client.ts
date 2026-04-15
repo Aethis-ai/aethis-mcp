@@ -287,6 +287,17 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, {}, llmKey);
   }
 
+  async validateFields(
+    projectId: string,
+    expectedFields: Array<{ key: string; sort: string; enum_values?: string[] }>,
+  ): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/validate`,
+      { expected_fields: expectedFields },
+    );
+  }
+
   async addTests(projectId: string, testCases: unknown[]): Promise<unknown> {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`, {
       test_cases: testCases,

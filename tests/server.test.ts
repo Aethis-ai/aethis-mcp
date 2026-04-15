@@ -70,10 +70,10 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 22 tool handlers", () => {
+  it("returns all 23 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(22);
+    expect(names).toHaveLength(23);
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
     expect(names).toContain("aethis_next_question");
@@ -89,6 +89,7 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_publish");
     expect(names).toContain("aethis_discover_fields");
     expect(names).toContain("aethis_refine_fields");
+    expect(names).toContain("aethis_validate_fields");
     expect(names).toContain("aethis_add_domain_guidance");
     expect(names).toContain("aethis_list_domain_guidance");
     expect(names).toContain("aethis_discover_sections");
@@ -732,11 +733,11 @@ describe("A3 aethis_source tool visibility", () => {
   });
 
   it("tool handler count matches expected public tools (aethis_source excluded from server.tool)", () => {
-    // createToolHandlers returns 22 handlers including aethis_source (internal).
+    // createToolHandlers returns 23 handlers including aethis_source (internal).
     // The registration in registerTools was removed — this test documents that
     // the count of handlers != count of publicly registered tools.
     const handlers = createToolHandlers(mockClient());
-    expect(Object.keys(handlers)).toHaveLength(22);
+    expect(Object.keys(handlers)).toHaveLength(23);
   });
 });
 
