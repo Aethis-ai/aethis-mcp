@@ -9,7 +9,7 @@ An MCP server that compiles legislation, policy, and regulation into determinist
 [![npm version](https://img.shields.io/npm/v/aethis-mcp.svg)](https://www.npmjs.com/package/aethis-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[The problem](#the-problem) | [Proof](#proof) | [When to use this](#when-to-use-this) | [Quick start](#quick-start) | [Author rules](#author-your-own-rules) | [Tools](#tools) | [Workflows](#workflows) | [Setup](#setup) | [Troubleshooting](#troubleshooting)
+[The problem](#the-problem) | [Proof](#proof) | [When to use this](#when-to-use-this) | [Quick start](#quick-start) | [Author rules](#author-your-own-rules) | [Tools](#tools) | [Workflows](#workflows) | [DSL capabilities](#dsl-capabilities) | [Setup](#setup) | [Troubleshooting](#troubleshooting)
 
 </div>
 
@@ -197,6 +197,79 @@ Every decision traces back to the exact section and clause in the source legisla
 
 Aethis is not just a decision engine — it lets your agent compile legislation into executable logic. Paste a policy document, write test cases, and iterate until the rules pass.
 
+### Three-phase authoring workflow
+
+Complex legislation that spans multiple sections needs a structured approach before you write rules. The three phases build on each other: discover the structure, nail the field vocabulary, then generate and test rules.
+
+> [!TIP]
+> **Simple single-section rules?** Skip Phases 1–2. Go straight to `aethis_create_bundle` → `aethis_discover_fields` → write tests → `aethis_generate_and_test`. The phase structure is for multi-section domains where getting the decomposition right matters.
+
+#### Phase 1 — Section discovery
+
+Use when you have complex legislation that needs to be split into separate, independently-evaluable sections.
+
+```
+aethis_discover_sections({
+  domain: "uk_fsm",
+  sources: [{ name: "fsm_legislation.md", content: "..." }]
+})
+→ Suggests: child_eligibility, household_qualifying_criteria, universal_infant_fsm
+
+aethis_validate_sections({
+  domain: "uk_fsm",
+  expected_sections: ["child_eligibility", "household_qualifying_criteria", "universal_infant_fsm"],
+  discovered_sections: [... result from above ...]
+})
+→ all_match: true
+```
+
+If sections don't match your expectation, refine and re-discover:
+
+```
+aethis_refine_sections({
+  domain: "uk_fsm",
+  feedback: "Universal Infant Free School Meals must be a separate section with no income test.",
+  sources: [...]
+})
+```
+
+#### Phase 2 — Field vocabulary
+
+Use before writing test cases to ensure the field names the engine produces match what you expect. If you skip this, you may write tests with invented field names that silently mismatch.
+
+```
+// Tell the engine what fields you expect (SME-defined spec):
+aethis_set_field_spec({
+  project_id: "proj_abc123",
+  expected_fields: [
+    { key: "child.age", sort: "Int" },
+    { key: "child.school_type", sort: "Enum", enum_values: ["state_funded", "independent"] }
+  ]
+})
+
+// Discover fields from source text — auto-validates against the spec:
+aethis_discover_fields({ project_id: "proj_abc123" })
+→ field list + validation_result if spec was set (shows missing/mismatched fields)
+
+// Refine if fields are wrong:
+aethis_refine_fields({
+  project_id: "proj_abc123",
+  feedback: "child.school_type should include 'home_educated' as a value"
+})
+
+// Explicit validation against spec:
+aethis_validate_fields({
+  project_id: "proj_abc123",
+  expected_fields: [...]
+})
+```
+
+#### Phase 3 — Generate and test
+
+What's documented below as Steps 1–4. Once sections are agreed and fields are validated, create bundles and run the TDD loop.
+
+---
+
 ### Step 1: Create
 
 ```
@@ -316,12 +389,13 @@ Returns a `bundle_id` — ready to use with `aethis_decide`.
 
 ## Tools
 
-20 tools in four groups. Most agents use Decision (2 calls). Authors use the full Authoring workflow.
+25 tools in four groups. Most agents use Decision (2 calls). Authors use the full Authoring workflow.
 
 | Group | Tools | What they do |
 |-------|-------|-------------|
 | **Decision** | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure` | Evaluate eligibility, inspect fields, conversational checks, rule explanations, diagnose failures |
-| **Authoring** | `aethis_create_bundle`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` | Create, iterate, and publish rule bundles (TDD workflow); manage project and domain guidance |
+| **Authoring — section & field phases** | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` | Decompose legislation into sections (Phase 1); establish and validate field vocabulary (Phase 2) |
+| **Authoring — rule generation** | `aethis_create_bundle`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` | Create, iterate, and publish rule bundles (TDD workflow); manage project and domain guidance |
 | **Discovery** | `aethis_list_projects`, `aethis_list_bundles` | Find projects, browse bundle versions |
 | **Management** | `aethis_archive_project`, `aethis_archive_bundle` | Archive projects and bundles (permanent) |
 
@@ -420,6 +494,48 @@ Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
 | "Cannot publish: tests failing" | Tests don't pass | Fix with `aethis_refine`, or `force=true` to override |
 | Generation timeout (504) | The client timed out waiting (normal for complex rules — generation can take 5–15 min server-side) | **The server continues generating after the timeout.** Wait 10–15 min, then call `aethis_list_bundles({ project_id })` to check if a new bundle appeared. If yes, call `aethis_publish`. If not, the server may still be running — wait and check again rather than re-triggering generation |
 | `"Expected an integer for <field>, got str"` | DATE field passed as ISO string | Pass as `date.toordinal()` integer — e.g. `739354` for 2025-04-13. Quick: `python3 -c "from datetime import date; print(date(2025,4,13).toordinal())"` |
+
+---
+
+<details>
+<summary><strong>DSL capabilities</strong></summary>
+
+### Supported field types
+
+| Type | Description |
+|------|-------------|
+| `Bool` | True / false |
+| `Int` | Integer (includes counts, money as pence, percentages as integers) |
+| `Enum` | Closed set of named values |
+| `Date` | Stored as integer ordinal (days since year 1). Pass via `date.toordinal()` |
+| `Duration` | Integer number of days |
+| `String` | Free text (use sparingly — prefer Enum for known value sets) |
+
+### Supported operators
+
+| Category | Operators |
+|----------|-----------|
+| Logic | AND, OR, NOT, IMPLIES |
+| Comparison | `=`, `≠`, `<`, `≤`, `>`, `≥` |
+| Membership | `IN` — field IN [v1, v2, ...] |
+| Arithmetic | `+` and `−` for Int/Date fields; `*` (multiply) for Int fields |
+| Aggregation | `min(a, b, ...)` and `max(a, b, ...)` — return the smallest/largest Int |
+
+### Helpers
+
+- `days_between(date_a, date_b)` — returns Int (number of days, `date_b − date_a`)
+- `min(a, b, ...)` — minimum of 2+ Int values
+- `max(a, b, ...)` — maximum of 2+ Int values
+- Constant arithmetic is folded at authoring time: `5 * 365` becomes `1825` in the compiled rule
+
+### Not supported
+
+- Division between runtime field values
+- Weighted scoring or probabilistic outcomes
+- Lists as field values (model as pre-aggregated Int or Bool fields instead)
+- More than 3 outcome tiers (`eligible` / `not_eligible` / `undetermined`)
+
+</details>
 
 ---
 
