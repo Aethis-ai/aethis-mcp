@@ -451,28 +451,79 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_add_guidance(args: { project_id: string; guidance_text: string; process_type?: string }): Promise<ToolResult> {
+    async aethis_add_guidance(args: { project_id: string; guidance_text: string; process_type?: string; adherence?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        await client.addGuidance(args.project_id, args.guidance_text, args.process_type);
+        await client.addGuidance(args.project_id, args.guidance_text, args.process_type, args.adherence);
         return ok(
-          `Guidance added to project ${args.project_id}.\n` +
+          `Guidance added to project ${args.project_id} (adherence: ${args.adherence ?? "guided"}).\n` +
             `Call aethis_generate_and_test(project_id="${args.project_id}") to regenerate with this guidance applied.`,
         );
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_add_domain_guidance(args: { domain: string; guidance_text: string; process_type?: string; notes?: string }): Promise<ToolResult> {
+    async aethis_add_domain_guidance(args: { domain: string; guidance_text: string; process_type?: string; notes?: string; adherence?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.domain, "domain");
       if (idErr) return err(idErr);
       try {
-        const result = await client.addDomainGuidance(args.domain, args.guidance_text, args.process_type, args.notes);
+        const result = await client.addDomainGuidance(args.domain, args.guidance_text, args.process_type, args.notes, args.adherence);
         return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_validate_sections(args: {
+      domain: string;
+      expected_sections: string[];
+      discovered_sections: string[];
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.domain, "domain");
+      if (idErr) return err(idErr);
+      if (!args.expected_sections?.length) return err("expected_sections must contain at least one item");
+      if (!args.discovered_sections?.length) return err("discovered_sections must contain at least one item");
+      try {
+        const result = await client.validateSections(args.domain, args.expected_sections, args.discovered_sections) as Record<string, unknown>;
+        const allMatch = result.all_match as boolean;
+        const matchCount = result.match_count as number;
+        const total = result.total as number;
+        const missing = (result.missing ?? []) as string[];
+        const extra = (result.extra ?? []) as string[];
+
+        const lines: string[] = [
+          `=== Section Validation — ${args.domain} ===`,
+          `Result: ${allMatch ? "PASS — all expected sections found" : "FAIL — mismatches found"}`,
+          `Matched: ${matchCount}/${total}`,
+          "",
+        ];
+
+        if (missing.length) {
+          lines.push("Missing sections (expected but not discovered):");
+          for (const m of missing) lines.push(`  - ${m}`);
+          lines.push("");
+        }
+
+        if (extra.length) {
+          lines.push(`Extra discovered sections not in spec (${extra.length}):`);
+          for (const e of extra) lines.push(`  - ${e}`);
+          lines.push("");
+        }
+
+        if (!allMatch) {
+          lines.push(
+            "To fix: call aethis_add_domain_guidance with adherence='exact' listing the sections that must be discovered,",
+            "then re-run aethis_discover_sections.",
+          );
+        } else {
+          lines.push("All expected sections were discovered. Proceed to create projects for each section.");
+        }
+
+        return ok(lines.join("\n"));
       } catch (e) { return apiError(e); }
     },
 
@@ -613,6 +664,26 @@ export function createToolHandlers(client: AethisClient) {
           for (const g of gaps) lines.push(`  - ${g}`);
         }
 
+        // Show auto-validation result if a field spec was set
+        const validation = result.validation_result as Record<string, unknown> | undefined | null;
+        if (validation) {
+          const vMatch = validation.all_match as boolean;
+          const vMissing = (validation.missing ?? []) as string[];
+          const vTypeMm = (validation.type_mismatches ?? []) as Array<Record<string, string>>;
+          lines.push("", `--- Field Spec Validation: ${vMatch ? "PASS" : "FAIL"} ---`);
+          if (vMissing.length) {
+            lines.push("Missing expected fields:");
+            for (const m of vMissing) lines.push(`  - ${m}`);
+          }
+          if (vTypeMm.length) {
+            lines.push("Type mismatches:");
+            for (const mm of vTypeMm) lines.push(`  - ${mm.key}: expected ${mm.expected_sort}, got ${mm.actual_sort}`);
+          }
+          if (!vMatch) {
+            lines.push("Guidance hints created automatically for mismatches — re-run aethis_discover_fields to apply them.");
+          }
+        }
+
         lines.push("");
         if (recommendation === "stop") {
           lines.push("Fields look complete. Write test cases using the field names above, then call aethis_generate_and_test.");
@@ -727,6 +798,34 @@ export function createToolHandlers(client: AethisClient) {
         }
 
         return ok(lines.join("\n"));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_set_field_spec(args: {
+      project_id: string;
+      expected_fields: Array<{ key: string; sort: string; enum_values?: string[] }>;
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      if (!args.expected_fields?.length) return err("expected_fields must contain at least one item");
+      try {
+        await client.setFieldSpec(args.project_id, args.expected_fields);
+        const fieldList = args.expected_fields.map((f) => {
+          const ev = f.enum_values?.length ? ` [${f.enum_values.join(", ")}]` : "";
+          return `  ${f.key} (${f.sort})${ev}`;
+        });
+        return ok(
+          [
+            `Field spec stored for project ${args.project_id}.`,
+            `${args.expected_fields.length} field(s) registered:`,
+            ...fieldList,
+            "",
+            "Future aethis_discover_fields calls will automatically validate against this spec.",
+            "Mismatches will generate guidance hints and appear in the validation_result block.",
+          ].join("\n"),
+        );
       } catch (e) { return apiError(e); }
     },
 
@@ -938,6 +1037,15 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
           "Use 'field_extraction' for field design principles (e.g. raw-facts principle, solicitor navigation). " +
           "Defaults to 'rule_generation'."
         ),
+      adherence: z.enum(["exact", "guided", "loose"])
+        .default("guided")
+        .optional()
+        .describe(
+          "How strictly the LLM must follow this hint. " +
+          "'exact' = must follow precisely, produce nothing beyond what is specified; " +
+          "'guided' = strong preference, may adapt if source text requires (default); " +
+          "'loose' = soft suggestion."
+        ),
     },
     (args) => handlers.aethis_add_guidance(args),
   );
@@ -946,7 +1054,8 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_add_domain_guidance",
     "Add a guidance hint at domain level — applies to ALL projects in the domain, not just one project. " +
     "Use for cross-section principles: solicitor navigation, discretion model, raw-facts principle. " +
-    "These hints are retrieved automatically during generation for any project in the domain.",
+    "These hints are retrieved automatically during generation for any project in the domain. " +
+    "Use adherence='exact' with process_type='section_discovery' to specify exactly which sections the SME wants — the LLM will follow them precisely.",
     {
       domain: z.string().describe("Domain identifier (e.g. 'uk_citizenship')"),
       guidance_text: z.string().describe("The guidance hint text"),
@@ -954,6 +1063,15 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
         .default("rule_generation")
         .optional()
         .describe("Which authoring phase this hint targets — rule_generation (default), field_extraction, or section_discovery"),
+      adherence: z.enum(["exact", "guided", "loose"])
+        .default("guided")
+        .optional()
+        .describe(
+          "How strictly the LLM must follow this hint. " +
+          "'exact' = must follow, produce nothing beyond what is specified (use for SME-defined section lists); " +
+          "'guided' = strong preference, may adapt if source text requires (default); " +
+          "'loose' = soft suggestion."
+        ),
       notes: z.string().optional().describe("SME commentary or legislation provenance. Never sent to LLM."),
     },
     (args) => handlers.aethis_add_domain_guidance(args),
@@ -1005,6 +1123,20 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
+    "aethis_validate_sections",
+    "Compare discovered sections against an expected specification. " +
+    "Returns missing sections (expected but not found) and extra sections (found but not expected). " +
+    "Call after aethis_discover_sections to check whether the LLM found all sections the SME expects. " +
+    "If sections are missing, call aethis_add_domain_guidance with adherence='exact' to enforce them.",
+    {
+      domain: z.string().describe("Domain identifier, e.g. 'uk_citizenship'"),
+      expected_sections: z.array(z.string()).min(1).describe("Section names/IDs the SME expects (snake_case, e.g. ['english_language', 'residence', 'good_character'])"),
+      discovered_sections: z.array(z.string()).min(1).describe("Section names/IDs returned by aethis_discover_sections"),
+    },
+    (args) => handlers.aethis_validate_sections(args),
+  );
+
+  server.tool(
     "aethis_discover_fields",
     "Discover input fields from the project's source text. Returns field names, types, descriptions, and completeness assessment. Run this BEFORE writing test cases to ensure field names are consistent. Call repeatedly with aethis_refine_fields to improve completeness.",
     {
@@ -1044,6 +1176,24 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
       })).min(1).describe("The fields you expect to find in the discovered field set"),
     },
     (args) => handlers.aethis_validate_fields(args),
+  );
+
+  server.tool(
+    "aethis_set_field_spec",
+    "Store the expected field specification for a project. " +
+    "Once set, every aethis_discover_fields call automatically validates discovered fields against this spec. " +
+    "Mismatches (missing fields, wrong types, wrong enum values) generate guidance hints automatically and appear in the validation_result block. " +
+    "Call this BEFORE running aethis_discover_fields when the SME has already defined the field vocabulary. " +
+    "The spec is persisted on the project and survives across sessions.",
+    {
+      project_id: z.string().describe("The project ID"),
+      expected_fields: z.array(z.object({
+        key: z.string().describe("Expected field key, e.g. 'eng.selt_provider'"),
+        sort: z.string().describe("Expected field type: Bool, Int, Enum, Date, Duration, String"),
+        enum_values: z.array(z.string()).optional().describe("For Enum fields: the expected allowed values. Omit to skip enum value check."),
+      })).min(1).describe("The fields the SME expects to be discovered for this project"),
+    },
+    (args) => handlers.aethis_set_field_spec(args),
   );
 
   server.tool(

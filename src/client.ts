@@ -249,9 +249,10 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/sources`, form);
   }
 
-  async addGuidance(projectId: string, guidanceText: string, processType?: string): Promise<unknown> {
+  async addGuidance(projectId: string, guidanceText: string, processType?: string, adherence?: string): Promise<unknown> {
     const body: Record<string, string> = { guidance_text: guidanceText };
     if (processType) body.process_type = processType;
+    if (adherence) body.adherence = adherence;
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/guidance`, body);
   }
 
@@ -259,11 +260,35 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/guidance`);
   }
 
-  async addDomainGuidance(domain: string, guidanceText: string, processType?: string, notes?: string): Promise<unknown> {
+  async addDomainGuidance(domain: string, guidanceText: string, processType?: string, notes?: string, adherence?: string): Promise<unknown> {
     const body: Record<string, string> = { guidance_text: guidanceText };
     if (processType) body.process_type = processType;
     if (notes) body.notes = notes;
+    if (adherence) body.adherence = adherence;
     return this.request("POST", `/api/v1/public/domains/${encodeURIComponent(domain)}/guidance`, body);
+  }
+
+  async validateSections(
+    domain: string,
+    expectedSections: string[],
+    discoveredSections: string[],
+  ): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/v1/public/domains/${encodeURIComponent(domain)}/sections/validate`,
+      { expected_sections: expectedSections, discovered_sections: discoveredSections },
+    );
+  }
+
+  async setFieldSpec(
+    projectId: string,
+    expectedFields: Array<{ key: string; sort: string; enum_values?: string[] }>,
+  ): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/spec`,
+      { expected_fields: expectedFields },
+    );
   }
 
   async listDomainGuidance(domain: string): Promise<unknown> {
