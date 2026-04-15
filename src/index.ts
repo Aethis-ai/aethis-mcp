@@ -950,10 +950,10 @@ function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       domain: z.string().describe("Domain identifier (e.g. 'uk_citizenship')"),
       guidance_text: z.string().describe("The guidance hint text"),
-      process_type: z.enum(["rule_generation", "field_extraction"])
+      process_type: z.enum(["rule_generation", "field_extraction", "section_discovery"])
         .default("rule_generation")
         .optional()
-        .describe("Which authoring phase this hint targets"),
+        .describe("Which authoring phase this hint targets — rule_generation (default), field_extraction, or section_discovery"),
       notes: z.string().optional().describe("SME commentary or legislation provenance. Never sent to LLM."),
     },
     (args) => handlers.aethis_add_domain_guidance(args),
