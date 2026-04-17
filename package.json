@@ -23,17 +23,22 @@
     "eligibility",
     "rules-engine",
     "compliance",
+    "regulations",
+    "audit-trail",
+    "deterministic",
     "aethis",
     "llm-tools",
+    "claude",
+    "cursor",
     "model-context-protocol"
   ],
+  "homepage": "https://docs.aethis.ai",
   "author": "Aethis <eng@aethis.ai>",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/aethis-ai/aethis-mcp.git"
   },
-  "homepage": "https://aethis.ai",
   "bugs": {
     "url": "https://github.com/aethis-ai/aethis-mcp/issues"
   },
