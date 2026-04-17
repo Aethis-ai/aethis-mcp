@@ -7,6 +7,7 @@
 An MCP server that compiles legislation, policy, and regulation into deterministic logic — so your agent gets the same correct answer every time.
 
 [![npm version](https://img.shields.io/npm/v/aethis-mcp.svg)](https://www.npmjs.com/package/aethis-mcp)
+[![Docs](https://img.shields.io/badge/docs-docs.aethis.ai-blue)](https://docs.aethis.ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [The problem](#the-problem) | [Proof](#proof) | [When to use this](#when-to-use-this) | [Quick start](#quick-start) | [Author rules](#author-your-own-rules) | [Tools](#tools) | [Workflows](#workflows) | [DSL capabilities](#dsl-capabilities) | [Setup](#setup) | [Troubleshooting](#troubleshooting)
