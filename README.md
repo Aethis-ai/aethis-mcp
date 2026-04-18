@@ -187,14 +187,16 @@ One field provided. Decision reached instantly — the engine knew a Vogon is di
 Every decision traces back to the exact section and clause in the source legislation. Pass `include_trace: true` for the full evaluation trail.
 
 > [!TIP]
-> Want to create your own rules from a policy document? See [Author your own rules](#author-your-own-rules) below. Authoring requires an API key — access is rolling out now.
+> Want to create your own rules from a policy document? See [Author your own rules](#author-your-own-rules) below. Rule authoring is **invite-only private beta**. Decision tools (above) stay public and free. [Request access →](https://aethis.ai/sign-up)
 
 ---
 
 ## Author your own rules
 
 > [!NOTE]
-> Authoring requires an API key and an Anthropic key. API key access is rolling out now — [register interest](https://aethis.ai/dashboard). Decision tools (above) work without any keys.
+> Rule authoring is **invite-only private beta** — approval required. Decision tools (above) work publicly with no keys.
+>
+> **What you'll need once approved:** an Aethis API key (we provision one for approved tenants) and your own Anthropic key for generation (passed per-request, never stored). Attempting authoring tools without approval returns `403 Forbidden`. [Request access →](https://aethis.ai/sign-up)
 
 Aethis is not just a decision engine — it lets your agent compile legislation into executable logic. Paste a policy document, write test cases, and iterate until the rules pass.
 
