@@ -62,7 +62,7 @@ A £600M pioneer infrastructure project. Design defect. Access damage claim.
 
 ```
 aethis_decide({
-  bundle_id: "car_defect_endorsement:20250301-a1b2c3d4",
+  bundle_id: "aethis/insurance/construction-all-risks",
   field_values: {
     "car.policy.period_valid": true,
     "car.property.category": "permanent_works",
@@ -100,7 +100,7 @@ aethis_decide({
 **GPT says:** not covered.
 **Aethis says:** covered — pioneer override (Clause 9(3)) reinstates coverage even for design defects on projects >= £500M.
 
-Full benchmark data and reproduction script: [aethis-examples/construction-all-risks](https://github.com/aethis-ai/aethis-examples/tree/main/construction-all-risks)
+Sub-5ms, no LLM at inference, same trace every time. The example trace above is representative — run the full reproducer (all 11 scenarios, every frontier model) yourself: [aethis-examples/construction-all-risks](https://github.com/aethis-ai/aethis-examples/tree/main/construction-all-risks).
 
 ---
 
