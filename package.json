@@ -2,6 +2,7 @@
   "name": "aethis-mcp",
   "version": "0.2.3",
   "description": "MCP server for the Aethis developer API — eligibility checks via Claude, Cursor, Windsurf",
+  "mcpName": "io.github.aethis-ai/aethis-mcp",
   "type": "module",
   "bin": {
     "aethis-mcp": "dist/index.js"

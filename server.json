@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.aethis-ai/aethis-mcp",
+  "description": "Compile legislation, policy, and regulation into deterministic eligibility rules. Sub-5ms decisions, full audit trail, test-driven rule authoring. Decision tools require no auth; rule authoring requires an API key.",
+  "repository": {
+    "url": "https://github.com/Aethis-ai/aethis-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://docs.aethis.ai",
+  "version": "0.2.3",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "aethis-mcp",
+      "version": "0.2.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AETHIS_API_KEY",
+          "description": "API key for rule authoring tools (create/generate/publish). Decision tools (decide/schema/explain on public bundles) work without a key. Get one via 'aethis login' in aethis-cli.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "AETHIS_BASE_URL",
+          "description": "API base URL. Defaults to https://api.aethis.ai — override for self-hosted or staging.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string",
+          "default": "https://api.aethis.ai"
+        }
+      ]
+    }
+  ]
+}
