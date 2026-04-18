@@ -927,7 +927,7 @@ export function createToolHandlers(client: AethisClient) {
 // MCP server setup
 // ---------------------------------------------------------------------------
 
-function registerTools(server: McpServer, handlers: ToolHandlers): void {
+export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   server.tool(
     "aethis_schema",
     "Get the input fields required for an eligibility check. Returns field names, types, descriptions, and allowed values. Use this before calling aethis_decide.",
