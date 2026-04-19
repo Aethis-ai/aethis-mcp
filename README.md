@@ -28,18 +28,18 @@ Aethis compiles rules into formal logic at authoring time. At decision time, no 
 
 ## Proof
 
-We tested frontier LLMs and the Aethis engine on 11 insurance coverage scenarios with a five-level exception chain — no pattern hints, full source text:
+Numbers below are from the paper ([Simpson, Kozak, Doake, 2026](https://github.com/Aethis-ai/confidently-wrong-benchmark/blob/main/paper/Simpson_Exception_Chain_Collapse_2026.md)). The full benchmark covers 225 scenarios across 4 regulatory domains; the construction insurance exception-chain subset (11 scenarios, depth 5) is the demo shown below.
 
-| | Accuracy | Speed | Deterministic | Explainable | Regulated use |
-|--|----------|-------|:---:|:---:|:---:|
-| **Aethis Engine** | **100%** | **<5ms** | ✅ | ✅ | ✅ |
-| GPT-5.4 | 100% | 2-5s | ❌ | ❌ | ❌ |
-| Claude Opus 4.6 | 100% | 2-5s | ❌ | ❌ | ❌ |
-| Claude Sonnet 4.6 | 91% | 1-3s | ❌ | ❌ | ❌ |
-| GPT-5.4-mini | 82% | 1-2s | ❌ | ❌ | ❌ |
-| GPT-5.3 (ChatGPT) | 27% | 2-5s | ❌ | ❌ | ❌ |
+| | Construction (11, depth 5) | Construction @ low reasoning | Deterministic | Explainable | Regulated use |
+|--|:--:|:--:|:--:|:--:|:--:|
+| **Aethis Engine** | **11/11 (100%)** | **100%** | ✅ | ✅ | ✅ |
+| GPT-5.4 | 10/11 (90.9%) | **7/11 (63.6%)** | ❌ | ❌ | ❌ |
+| GPT-5.3 | 7/11 (63.6%) | — | ❌ | ❌ | ❌ |
+| GPT-4.1-mini | 5/11 (45.5%) | — | ❌ | ❌ | ❌ |
 
-Flagship LLMs match the engine on accuracy — but accuracy is table stakes. In regulated workflows (financial services, insurance, immigration, healthcare), decisions must be **deterministic** (same answer every time), **explainable** (audit trail to source clause), and **non-stochastic** (no probabilistic model in the decision path). LLMs fail all three requirements regardless of accuracy.
+**No frontier model achieves 100% across all four paper domains.** GPT-5.4 — the strongest frontier model tested — drops to **96.6%** on the full 58-scenario construction suite and to **63.6%** on the exception-chain subset when reasoning compute is reduced. On a different domain (spacecraft crew certification), Claude Opus 4.6 returns the wrong answer on 7 of 68 scenarios, and across 70 independent re-runs of those 7 it produces **zero** correct answers (Clopper–Pearson 95% upper bound on success: 4.19%). Accuracy varies with reasoning budget, date of evaluation, and run-to-run, with no change to prompts or inputs.
+
+In regulated workflows (financial services, insurance, immigration, healthcare), decisions must be **deterministic** (same answer every time), **explainable** (audit trail to source clause), and **reproducible**. LLMs fail all three regardless of peak accuracy.
 
 ### Where LLMs fail
 
@@ -52,9 +52,9 @@ The failure pattern is nested exception chains in a London market insurance endo
 > Unless the defect was **known prior** — pioneer override is blocked (Clause 9A(1)).
 > Unless there's an **engineer assessment** — the block is lifted (Clause 9A(2)).
 
-Sonnet fails at level 2. Mini fails at levels 2 and 5.
+GPT-5.4 fails on the pioneer override boundary at £500M (paper §6.4). GPT-4.1-mini fails systematically across the enhanced cover chain, treating the access damage exclusion as absolute.
 
-Full benchmarks, reproducible test runner, and comparisons: [aethis-examples](https://github.com/Aethis-ai/aethis-examples)
+Full benchmarks, reproducible test runner, and per-scenario breakdown: [Aethis-ai/confidently-wrong-benchmark](https://github.com/Aethis-ai/confidently-wrong-benchmark) · [aethis-examples](https://github.com/Aethis-ai/aethis-examples)
 
 ### The scenario GPT gets wrong
 

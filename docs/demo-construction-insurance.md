@@ -82,7 +82,7 @@ All tests passing! Call aethis_publish to publish.
 Bundle: car_defect_endorsement:20260408-285d1720
 ```
 
-**11 out of 11 tests pass.** Including the five-level exception chain that GPT-5.3 scores 27% on.
+**11 out of 11 tests pass.** Including the five-level exception chain that GPT-5.3 and GPT-5.4 at low reasoning effort each score 7/11 (63.6%) on (Simpson 2026, Table 8b).
 
 ---
 
