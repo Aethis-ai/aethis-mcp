@@ -1,0 +1,49 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+# See Aethis-ai/aethis-workspace/docs/AUTOMATION_PATTERNS.md for the rules this follows.
+# Kill switch: gh variable set CLAUDE_PR_REVIEW_ENABLED=false
+# Master kill switch: gh variable set AI_AUTOMATIONS_ENABLED=false --org Aethis-ai
+
+jobs:
+  claude-review:
+    if: vars.AI_AUTOMATIONS_ENABLED == 'true' && vars.CLAUDE_PR_REVIEW_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are reviewing a pull request on Aethis-ai/aethis-mcp — the public MCP (Model Context Protocol) server for the Aethis API (TypeScript, Node.js).
+
+            MODE: ${{ vars.CLAUDE_PR_REVIEW_MODE || 'dry-run' }}
+
+            Prioritise these concerns above generic code-quality observations:
+
+            1. **Tool-schema drift** — any change to the MCP tool definitions (name, description, inputSchema) is a public contract change. Flag it and confirm the caller's `aethis-skills/tools.json` manifest is updated in lockstep if the tool is referenced there.
+            2. **SemVer discipline** — npm-published package: every change must bump `package.json` version AND update CHANGELOG.md in the same commit. Patch/minor/major per SemVer rules.
+            3. **Tool registration completeness** — each new tool needs: input schema, description, handler, and an entry in the README. Flag missing pieces.
+            4. **Error handling** — MCP clients (Claude, Cursor, Windsurf) see tool errors directly to end users; be extra strict about vague error messages and silent fallbacks.
+            5. **Standard** — TypeScript type safety, test coverage, conventional commits.
+
+            Use CLAUDE.md for repo-specific conventions.
+
+            Post your review via `gh pr comment`. If MODE is 'dry-run', prefix the comment with a `[DRY-RUN]` heading and end it with: `_This is a dry-run review — informational only until the workflow is flipped to live._`
+
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
