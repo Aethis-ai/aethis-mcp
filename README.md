@@ -28,18 +28,25 @@ Aethis compiles rules into formal logic at authoring time. At decision time, no 
 
 ## Proof
 
-Numbers below are from the paper ([Simpson, Kozak, Doake, 2026](https://github.com/Aethis-ai/confidently-wrong-benchmark/blob/main/paper/Simpson_Exception_Chain_Collapse_2026.md)). The full benchmark covers 225 scenarios across 4 regulatory domains; the construction insurance exception-chain subset (11 scenarios, depth 5) is the demo shown below.
+Numbers below from the paper ([Simpson, Kozak, Doake, v3.8, 2026](https://github.com/Aethis-ai/confidently-wrong-benchmark/blob/main/paper/Simpson_Exception_Chain_Collapse_2026.md)). Three independent evidence sources.
 
-| | Construction (11, depth 5) | Construction @ low reasoning | Deterministic | Explainable | Regulated use |
-|--|:--:|:--:|:--:|:--:|:--:|
-| **Aethis Engine** | **11/11 (100%)** | **100%** | ✅ | ✅ | ✅ |
-| GPT-5.4 | 10/11 (90.9%) | **7/11 (63.6%)** | ❌ | ❌ | ❌ |
-| GPT-5.3 | 7/11 (63.6%) | — | ❌ | ❌ | ❌ |
-| GPT-4.1-mini | 5/11 (45.5%) | — | ❌ | ❌ | ❌ |
+**v3.8 adversarial extension (paper §6.4.1):** 20 newly-authored construction-CAR scenarios stratified across 5 complexity dimensions, independent-prose-then-engine methodology. Engine 20/20 (100%) by construction; current frontier models still fail:
 
-**No frontier model achieves 100% across all four paper domains.** GPT-5.4 — the strongest frontier model tested — drops to **96.6%** on the full 58-scenario construction suite and to **63.6%** on the exception-chain subset when reasoning compute is reduced. On a different domain (spacecraft crew certification), Claude Opus 4.6 returns the wrong answer on 7 of 68 scenarios, and across 70 independent re-runs of those 7 it produces **zero** correct answers (Clopper–Pearson 95% upper bound on success: 4.19%). Accuracy varies with reasoning budget, date of evaluation, and run-to-run, with no change to prompts or inputs.
+| Configuration | N=20 | Failures |
+|--|:--:|--|
+| **Aethis Engine** | **20/20 (100%)** | — |
+| GPT-5.4 (`reasoning_effort=low`) | 20/20 (100%) | — |
+| GPT-5.4 (default) | 19/20 (95%) | **0 reasoning tokens on every scenario** — short-circuits on E4 (DE3/LEG3 carveback gap) |
+| Claude Sonnet 4.6 | 19/20 (95%) | E4 |
+| **Claude Opus 4.7** (current Anthropic strongest) | **18/20 (90%)** | E4 + B3 (£499 M boundary) |
 
-**External validation on LegalBench (v3.8, §6.10).** Across **9 LegalBench tasks (949 held-out cases)** the engine is significantly more accurate than each of three frontier LLMs by exact two-sided combined paired-binomial McNemar's test: *p* < 0.001 vs Claude Sonnet 4.6, *p* = 0.003 vs Claude Opus 4.7, *p* < 0.001 vs GPT-5.4. The structural advantage is largest on multi-prong rule-application tasks (Δ up to +41 percentage points) and persists at a smaller cross-task-significant margin on randomly-sampled tasks chosen without fit inspection. See the [`legalbench/`](https://github.com/Aethis-ai/confidently-wrong-benchmark/tree/main/legalbench) subdirectory of the public benchmark repo for the full harness.
+Three of four frontier configurations fail the same scenario across both Anthropic and OpenAI families.
+
+**External validation on LegalBench (paper §6.10):** across **9 LegalBench tasks (949 held-out cases authored by Stanford researchers)** the engine is significantly more accurate than each of three frontier LLMs by combined paired-binomial McNemar's test: *p* < 0.001 vs Claude Sonnet 4.6, *p* = 0.003 vs Claude Opus 4.7, *p* < 0.001 vs GPT-5.4. The structural advantage is largest on multi-prong rule-application tasks (Δ up to +41 pp) and persists at a smaller cross-task-significant margin on randomly-sampled tasks chosen without fit inspection.
+
+**The shifting-ground problem (paper §6.5 Finding 6):** between March and April 2026 several v3.7 paper cells closed silently under the same model alias — GPT-5.4 on construction-CAR moved from 96.6% to 100%; Opus 4.6 on spacecraft from 89.7% to 98.5%; the GPT-5.3 alias was deprecated by OpenAI mid-cycle. Frontier-LLM accuracy on a fixed benchmark is a moving target. The Aethis Engine is invariant by construction — same bundle, same answer, any month, any prompt.
+
+See [`confidently-wrong-benchmark/legalbench/`](https://github.com/Aethis-ai/confidently-wrong-benchmark/tree/main/legalbench) for the full harness and per-call replication artefacts.
 
 In regulated workflows (financial services, insurance, immigration, healthcare), decisions must be **deterministic** (same answer every time), **explainable** (audit trail to source clause), and **reproducible**. LLMs fail all three regardless of peak accuracy.
 
