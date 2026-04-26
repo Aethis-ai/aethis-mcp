@@ -39,6 +39,8 @@ Numbers below are from the paper ([Simpson, Kozak, Doake, 2026](https://github.c
 
 **No frontier model achieves 100% across all four paper domains.** GPT-5.4 — the strongest frontier model tested — drops to **96.6%** on the full 58-scenario construction suite and to **63.6%** on the exception-chain subset when reasoning compute is reduced. On a different domain (spacecraft crew certification), Claude Opus 4.6 returns the wrong answer on 7 of 68 scenarios, and across 70 independent re-runs of those 7 it produces **zero** correct answers (Clopper–Pearson 95% upper bound on success: 4.19%). Accuracy varies with reasoning budget, date of evaluation, and run-to-run, with no change to prompts or inputs.
 
+**External validation on LegalBench (v3.8, §6.10).** Across **9 LegalBench tasks (949 held-out cases)** the engine is significantly more accurate than each of three frontier LLMs by exact two-sided combined paired-binomial McNemar's test: *p* < 0.001 vs Claude Sonnet 4.6, *p* = 0.003 vs Claude Opus 4.7, *p* < 0.001 vs GPT-5.4. The structural advantage is largest on multi-prong rule-application tasks (Δ up to +41 percentage points) and persists at a smaller cross-task-significant margin on randomly-sampled tasks chosen without fit inspection. See the [`legalbench/`](https://github.com/Aethis-ai/confidently-wrong-benchmark/tree/main/legalbench) subdirectory of the public benchmark repo for the full harness.
+
 In regulated workflows (financial services, insurance, immigration, healthcare), decisions must be **deterministic** (same answer every time), **explainable** (audit trail to source clause), and **reproducible**. LLMs fail all three regardless of peak accuracy.
 
 ### Where LLMs fail
