@@ -4,7 +4,7 @@
 
 ## The source material
 
-A **synthetic** Construction All Risks (CAR) policy endorsement with a five-level nested exception chain for defect exclusions. The wording is modelled on real London market DE3/DE5 clause structures used for major infrastructure projects, but is not actual policy language. Full methodology and caveats: Simpson (2026), "Confidently Wrong: Exception Chain Collapse in Frontier LLM Rule Evaluation."
+A **synthetic** Construction All Risks (CAR) policy endorsement with a five-level nested exception chain for defect exclusions. The wording is modelled on real London market DE3/DE5 clause structures used for major infrastructure projects, but is not actual policy language. Full methodology and caveats: Simpson, Kozak, Doake (v3.8, 2026), "Confidently Wrong: Exception Chain Collapse in Frontier LLM Rule Evaluation."
 
 The exception chain:
 
@@ -82,7 +82,7 @@ All tests passing! Call aethis_publish to publish.
 Bundle: car_defect_endorsement:20260408-285d1720
 ```
 
-**11 out of 11 tests pass.** Including the five-level exception chain that GPT-5.3 and GPT-5.4 at low reasoning effort each score 7/11 (63.6%) on (Simpson 2026, Table 8b).
+**11 out of 11 tests pass.** Including the five-level exception chain that GPT-5.3 and GPT-5.4 at low reasoning effort each score 7/11 (63.6%) on (Simpson, Kozak, Doake, v3.8, 2026 — Table 8b). The same paper's §6.10 reports external validation across 9 LegalBench tasks (949 held-out cases) where the engine is significantly more accurate than Sonnet 4.6, Opus 4.7, and GPT-5.4 by combined paired-binomial McNemar's test (all *p* ≤ 0.003); see [`confidently-wrong-benchmark/legalbench/`](https://github.com/Aethis-ai/confidently-wrong-benchmark/tree/main/legalbench) for the full harness.
 
 ---
 
