@@ -71,7 +71,7 @@ A £600M pioneer infrastructure project. Design defect. Access damage claim.
 
 ```
 aethis_decide({
-  bundle_id: "aethis/insurance/construction-all-risks",
+  bundle_id: "aethis/construction-all-risks",
   field_values: {
     "car.policy.period_valid": true,
     "car.property.category": "permanent_works",
@@ -371,7 +371,9 @@ aethis_list_domain_guidance({ domain: "consumer_credit" })
 
 ```
 aethis_explain_failure({
-  bundle_id: "consumer-credit:20250301-abc123",
+  // explain-failure currently requires the concrete bundle_id from the
+  // /decide envelope (slugs not yet supported on this endpoint)
+  bundle_id: "<bundle_id from your /decide response>",
   field_values: { "credit.dti_percent": 55, "credit.is_existing_customer": true },
   expected_outcome: "eligible",
   test_name: "High DTI, existing customer — approve"
