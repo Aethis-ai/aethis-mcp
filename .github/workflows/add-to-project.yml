@@ -1,0 +1,14 @@
+name: Add launch-blockers to Project #6
+on:
+  issues:
+    types: [opened, labeled, reopened, transferred]
+jobs:
+  add-to-project:
+    name: Add issue to project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/add-to-project@v1
+        with:
+          project-url: https://github.com/orgs/Aethis-ai/projects/6
+          github-token: ${{ secrets.PROJECTS_PAT }}
+          labeled: launch-blocker
