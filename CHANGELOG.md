@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5 (2026-05-01)
+
+- Docs: README Quick start now leads with `aethis mcp install --target all` (via [aethis-cli](https://github.com/Aethis-ai/aethis-cli) v0.5.0+). The manual `claude mcp add` and per-client JSON tabs are demoted to "Manual install" beneath. Setup section gains a **Keys & security** subsection covering `AETHIS_API_KEY` vs `ANTHROPIC_API_KEY` placement (MCP client config, not shell), rotation workflow (`aethis account generate` + `aethis account revoke`), and multi-machine guidance.
+- Discoverability: `package.json` `keywords` extended with `regulation`, `policy`, `eligibility-check`, `deterministic-decision` — matches the highest-intent search terms used by developers in regulated domains. Existing keywords retained.
+- CLAUDE.md updated to note the `aethis mcp install` install path so future contributors don't re-document the manual JSON as primary.
+
+No code or behaviour changes.
+
 ## 0.2.4 (2026-04-28)
 
 First version published to npm since 0.2.2. The `v0.2.3` tag exists in git but predates the publish workflow — it never reached npm. This release bundles all work since 0.2.2.

@@ -162,9 +162,25 @@ Source text ──→ LLM compiles to rules ──→ Test suite validates ─�
 
 No sign-up needed to evaluate. Decision tools work immediately.
 
+**Recommended — one command via [aethis-cli](https://github.com/Aethis-ai/aethis-cli):**
+
+```bash
+# Install once:
+uv tool install aethis-cli
+
+# Wire up your MCP client (claude-code, cursor, claude-desktop, windsurf — or all):
+aethis mcp install --target all
+```
+
+Idempotent, preserves any other MCP servers you have configured, and re-runs cleanly after `aethis account generate` rotates your key. Restart your editor to pick up the change. Full options: `aethis mcp install --help`.
+
+**Manual install** (if you don't use aethis-cli):
+
 ```bash
 claude mcp add aethis -- npx -y aethis-mcp
 ```
+
+For Cursor / Claude Desktop / Windsurf manual config, see [Setup](#setup) below.
 
 Try it immediately with the public demo bundle (Spacecraft Crew Certification Act 2049):
 
@@ -462,7 +478,7 @@ See [Author your own rules](#author-your-own-rules) for the full TDD workflow.
 
 ## Setup
 
-Decision tools work with no API key. Add `AETHIS_API_KEY` when you have authoring access.
+Decision tools work with no API key. Add `AETHIS_API_KEY` when you have authoring access. For most users the [aethis-cli](https://github.com/Aethis-ai/aethis-cli) one-liner in [Quick start](#quick-start) is the fastest path; the manual options below are for environments where you don't want to install the Python CLI.
 
 ### Claude Code
 
@@ -494,6 +510,13 @@ To enable authoring, add `"env": { "AETHIS_API_KEY": "<your-key>" }` to the conf
 ### Cursor / Windsurf
 
 Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
+
+### Keys & security
+
+- `AETHIS_API_KEY` (`ak_live_...`) is your platform key. Mint with `aethis login` (cli) or via the dashboard. **Set it in the MCP client's config**, not your shell profile — the MCP server process doesn't inherit your shell environment.
+- `ANTHROPIC_API_KEY` is forwarded per-request to `aethis_generate_and_test`. The MCP server never stores it; it accompanies the one request and is discarded server-side.
+- Rotate by minting a new key (`aethis account generate` in the cli) and revoking the old one (`aethis account revoke <key_id>`). For multi-machine setups, mint one key per machine so revocation is surgical.
+- Both keys live next to each other in your MCP client config; treat that file like any other secrets store (don't commit to a public repo, sync via your normal credential pathway).
 
 ---
 
