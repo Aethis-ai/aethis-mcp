@@ -8,6 +8,8 @@ Node.js MCP server that exposes 25 tools for the Aethis platform so coding agent
 
 Decision tools work with no API key. Authoring tools require `AETHIS_API_KEY` in the MCP client config.
 
+The documented install path for end users is `aethis mcp install --target <client>` from [aethis-cli](../aethis-cli/) (added in aethis-cli v0.5.0, May 2026). The README's "Manual install" section (`claude mcp add ...` and per-client JSON snippets) is the fallback for users who don't have aethis-cli. When updating install instructions, keep the cli one-liner as the primary path.
+
 ## Dev loop
 
 ```bash
