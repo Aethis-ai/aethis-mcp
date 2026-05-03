@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write  # npm Trusted Publishing (provenance + OIDC)
+      id-token: write  # npm Trusted Publishing (OIDC)
 
     steps:
       - uses: actions/checkout@v4
@@ -30,5 +30,8 @@ jobs:
 
       - run: npm test
 
-      - name: Publish with provenance (Trusted Publishing via OIDC)
-        run: npm publish --provenance --access public
+      # No --provenance: sigstore attestations require a public source repo;
+      # this repo is currently private. Trusted Publishing OIDC still
+      # authorises the publish itself.
+      - name: Publish (Trusted Publishing via OIDC)
+        run: npm publish --access public
