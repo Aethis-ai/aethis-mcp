@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6 (2026-05-03)
+
+- Docs: replaced two stale `aethis.ai/sign-up` request-access pointers in the README authoring section with `aethis.ai/developer-access`. After the Clerk cutover, `/sign-up` serves the Clerk SignUp form for invitees rather than the Notion request-access form. No code or behaviour changes.
+
 ## 0.2.5 (2026-05-01)
 
 - Docs: README Quick start now leads with `aethis mcp install --target all` (via [aethis-cli](https://github.com/Aethis-ai/aethis-cli) v0.5.0+). The manual `claude mcp add` and per-client JSON tabs are demoted to "Manual install" beneath. Setup section gains a **Keys & security** subsection covering `AETHIS_API_KEY` vs `ANTHROPIC_API_KEY` placement (MCP client config, not shell), rotation workflow (`aethis account generate` + `aethis account revoke`), and multi-machine guidance.
