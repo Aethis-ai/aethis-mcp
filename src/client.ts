@@ -164,35 +164,35 @@ export class AethisClient {
   // -- Decision API --
 
   async decide(
-    bundleId: string,
+    rulesetId: string,
     fieldValues: Record<string, unknown>,
     options?: { includeTrace?: boolean; includeExplanation?: boolean },
   ): Promise<unknown> {
     return this.request("POST", "/api/v1/public/decide", {
-      bundle_id: bundleId,
+      ruleset_id: rulesetId,
       field_values: fieldValues,
       ...(options?.includeTrace ? { include_trace: true } : {}),
       ...(options?.includeExplanation ? { include_explanation: true } : {}),
     });
   }
 
-  async getSchema(bundleId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/schema`);
+  async getSchema(rulesetId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/schema`);
   }
 
-  async explain(bundleId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/explain`);
+  async explain(rulesetId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/explain`);
   }
 
   async explainFailure(
-    bundleId: string,
+    rulesetId: string,
     fieldValues: Record<string, unknown>,
     expectedOutcome: string,
     testName?: string,
   ): Promise<unknown> {
     return this.request(
       "POST",
-      `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/explain-failure`,
+      `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/explain-failure`,
       {
         field_values: fieldValues,
         expected_outcome: expectedOutcome,
@@ -201,14 +201,14 @@ export class AethisClient {
     );
   }
 
-  async getSource(bundleId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/source`);
+  async getSource(rulesetId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/source`);
   }
 
-  // -- Bundle management --
+  // -- Ruleset management --
 
-  async archiveBundle(bundleId: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/bundles/${encodeURIComponent(bundleId)}/archive`);
+  async archiveRuleset(rulesetId: string): Promise<unknown> {
+    return this.request("POST", `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/archive`);
   }
 
   // -- Projects API --
@@ -225,8 +225,8 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, undefined, llmKey);
   }
 
-  async listBundles(projectId: string): Promise<unknown> {
-    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/bundles`);
+  async listRulesets(projectId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/rulesets`);
   }
 
   async archiveProject(projectId: string): Promise<unknown> {
@@ -351,7 +351,7 @@ export class AethisClient {
 
     // 2. Poll until done
     const deadline = Date.now() + this.pollTimeoutMs;
-    let bundleId: string | undefined;
+    let rulesetId: string | undefined;
 
     let lastDetail = "";
 
@@ -371,7 +371,7 @@ export class AethisClient {
         }
 
         if (jobStatus === "success") {
-          bundleId = (status.latest_bundle_id ?? jobData.result_bundle_id) as string | undefined;
+          rulesetId = (status.latest_ruleset_id ?? jobData.result_ruleset_id) as string | undefined;
           break;
         }
         if (jobStatus === "failed") {
@@ -393,7 +393,7 @@ export class AethisClient {
       await this.sleep(this.pollIntervalMs);
     }
 
-    if (!bundleId) {
+    if (!rulesetId) {
       throw new AethisAPIError(504, `Generation timed out after ${this.pollTimeoutMs / 1000}s. The generation may still be running server-side. Retry after a delay.`);
     }
 
@@ -401,7 +401,7 @@ export class AethisClient {
     const testResult = await this.runTests(projectId) as Record<string, unknown>;
 
     return {
-      bundle_id: bundleId,
+      ruleset_id: rulesetId,
       ...testResult,
     };
   }

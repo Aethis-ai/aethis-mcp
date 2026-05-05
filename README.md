@@ -44,7 +44,7 @@ Three of four frontier configurations fail the same scenario across both Anthrop
 
 **External validation on LegalBench (paper §6.10):** across **9 LegalBench tasks (949 held-out cases authored by Stanford researchers)** the engine is significantly more accurate than each of three frontier LLMs by combined paired-binomial McNemar's test: *p* < 0.001 vs Claude Sonnet 4.6, *p* = 0.003 vs Claude Opus 4.7, *p* < 0.001 vs GPT-5.4. The structural advantage is largest on multi-prong rule-application tasks (Δ up to +41 pp) and persists at a smaller cross-task-significant margin on randomly-sampled tasks chosen without fit inspection.
 
-**The shifting-ground problem (paper §6.5 Finding 6):** between March and April 2026 several v3.7 paper cells closed silently under the same model alias — GPT-5.4 on construction-CAR moved from 96.6% to 100%; Opus 4.6 on spacecraft from 89.7% to 98.5%; the GPT-5.3 alias was deprecated by OpenAI mid-cycle. Frontier-LLM accuracy on a fixed benchmark is a moving target. The Aethis Engine is invariant by construction — same bundle, same answer, any month, any prompt.
+**The shifting-ground problem (paper §6.5 Finding 6):** between March and April 2026 several v3.7 paper cells closed silently under the same model alias — GPT-5.4 on construction-CAR moved from 96.6% to 100%; Opus 4.6 on spacecraft from 89.7% to 98.5%; the GPT-5.3 alias was deprecated by OpenAI mid-cycle. Frontier-LLM accuracy on a fixed benchmark is a moving target. The Aethis Engine is invariant by construction — same ruleset, same answer, any month, any prompt.
 
 See [`confidently-wrong-benchmark/legalbench/`](https://github.com/Aethis-ai/confidently-wrong-benchmark/tree/main/legalbench) for the full harness and per-call replication artefacts.
 
@@ -71,7 +71,7 @@ A £600M pioneer infrastructure project. Design defect. Access damage claim.
 
 ```
 aethis_decide({
-  bundle_id: "aethis/construction-all-risks",
+  ruleset_id: "aethis/construction-all-risks",
   field_values: {
     "car.policy.period_valid": true,
     "car.property.category": "permanent_works",
@@ -92,7 +92,7 @@ aethis_decide({
 ```json
 {
   "decision": "eligible",
-  "bundle_version": "v3",
+  "ruleset_version": "v3",
   "fields_provided": 11,
   "fields_evaluated": 11,
   "trace": {
@@ -140,7 +140,7 @@ Sub-5ms, no LLM at inference, same trace every time. The example trace above is 
 The LLM is used once, at authoring time, to compile source text into formal logic. After that, every decision is pure constraint evaluation.
 
 ```
-Source text ──→ LLM compiles to rules ──→ Test suite validates ──→ Published rule bundle
+Source text ──→ LLM compiles to rules ──→ Test suite validates ──→ Published rule ruleset
                 (authoring time only)                                      │
                                                                            ▼
                                                                  Eligibility engine evaluates
@@ -157,8 +157,8 @@ Source text ──→ LLM compiles to rules ──→ Test suite validates ─�
 
 **Two use cases — decide which is yours:**
 
-- **Evaluate existing rules** — a bundle already exists, you want to evaluate eligibility against it. No API key needed. Start with `aethis_decide` or `aethis_next_question`.
-- **Author new rules** — you have a policy document and want to compile it into logic. Requires an API key and Anthropic key. Start with `aethis_create_bundle` and follow the TDD workflow.
+- **Evaluate existing rules** — a ruleset already exists, you want to evaluate eligibility against it. No API key needed. Start with `aethis_decide` or `aethis_next_question`.
+- **Author new rules** — you have a policy document and want to compile it into logic. Requires an API key and Anthropic key. Start with `aethis_create_ruleset` and follow the TDD workflow.
 
 No sign-up needed to evaluate. Decision tools work immediately.
 
@@ -182,7 +182,7 @@ claude mcp add aethis -- npx -y aethis-mcp
 
 For Cursor / Claude Desktop / Windsurf manual config, see [Setup](#setup) below.
 
-Try it immediately with the public demo bundle (Spacecraft Crew Certification Act 2049):
+Try it immediately with the public demo ruleset (Spacecraft Crew Certification Act 2049):
 
 > Is a Vogon eligible for crew certification?
 
@@ -230,7 +230,7 @@ Aethis is not just a decision engine — it lets your agent compile legislation 
 Complex legislation that spans multiple sections needs a structured approach before you write rules. The three phases build on each other: discover the structure, nail the field vocabulary, then generate and test rules.
 
 > [!TIP]
-> **Simple single-section rules?** Skip Phases 1–2. Go straight to `aethis_create_bundle` → `aethis_discover_fields` → write tests → `aethis_generate_and_test`. The phase structure is for multi-section domains where getting the decomposition right matters.
+> **Simple single-section rules?** Skip Phases 1–2. Go straight to `aethis_create_ruleset` → `aethis_discover_fields` → write tests → `aethis_generate_and_test`. The phase structure is for multi-section domains where getting the decomposition right matters.
 
 #### Phase 1 — Section discovery
 
@@ -294,14 +294,14 @@ aethis_validate_fields({
 
 #### Phase 3 — Generate and test
 
-What's documented below as Steps 1–4. Once sections are agreed and fields are validated, create bundles and run the TDD loop.
+What's documented below as Steps 1–4. Once sections are agreed and fields are validated, create rulesets and run the TDD loop.
 
 ---
 
 ### Step 1: Create
 
 ```
-aethis_create_bundle({
+aethis_create_ruleset({
   name: "Consumer Credit Pre-Qualification",
   section_id: "consumer-credit",
   domain: "consumer_credit",                          // optional — groups related sections
@@ -317,10 +317,10 @@ aethis_create_bundle({
 Returns a `project_id`.
 
 > [!TIP]
-> **Discover field names before writing tests.** Call `aethis_discover_fields({ project_id })` after creating a bundle to get the exact field names the engine will use. Writing tests with invented field names causes silent mismatches. Run discover → write tests → generate.
+> **Discover field names before writing tests.** Call `aethis_discover_fields({ project_id })` after creating a ruleset to get the exact field names the engine will use. Writing tests with invented field names causes silent mismatches. Run discover → write tests → generate.
 
 > [!TIP]
-> **Use `domain` to share guidance across sections.** If you have multiple related bundles (e.g. `residence`, `english_language`, `good_character` under `uk_citizenship`), set the same `domain` on each. Guidance added with `aethis_add_domain_guidance` for that domain applies automatically to all projects in it — no need to repeat cross-section principles on every bundle.
+> **Use `domain` to share guidance across sections.** If you have multiple related rulesets (e.g. `residence`, `english_language`, `good_character` under `uk_citizenship`), set the same `domain` on each. Guidance added with `aethis_add_domain_guidance` for that domain applies automatically to all projects in it — no need to repeat cross-section principles on every ruleset.
 
 ### Step 2: Generate and test
 
@@ -369,7 +369,7 @@ aethis_add_guidance({
 aethis_list_guidance({ project_id: "proj_abc123" })
 ```
 
-For cross-section principles that apply to multiple bundles in the same domain:
+For cross-section principles that apply to multiple rulesets in the same domain:
 
 ```
 // Add once — applies to all projects in the domain automatically
@@ -387,9 +387,9 @@ aethis_list_domain_guidance({ domain: "consumer_credit" })
 
 ```
 aethis_explain_failure({
-  // explain-failure currently requires the concrete bundle_id from the
+  // explain-failure currently requires the concrete ruleset_id from the
   // /decide envelope (slugs not yet supported on this endpoint)
-  bundle_id: "<bundle_id from your /decide response>",
+  ruleset_id: "<ruleset_id from your /decide response>",
   field_values: { "credit.dti_percent": 55, "credit.is_existing_customer": true },
   expected_outcome: "eligible",
   test_name: "High DTI, existing customer — approve"
@@ -403,7 +403,7 @@ aethis_explain_failure({
 aethis_publish({ project_id: "proj_abc123" })
 ```
 
-Returns a `bundle_id` — ready to use with `aethis_decide`.
+Returns a `ruleset_id` — ready to use with `aethis_decide`.
 
 > [!NOTE]
 > **Test-driven iteration:** Aethis generates rules from your source text and guidance — not from your tests. Tests validate the output and show you what guidance to add next. Better tests = faster convergence on correct rules.
@@ -425,9 +425,9 @@ Returns a `bundle_id` — ready to use with `aethis_decide`.
 |-------|-------|-------------|
 | **Decision** | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure` | Evaluate eligibility, inspect fields, conversational checks, rule explanations, diagnose failures |
 | **Authoring — section & field phases** | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` | Decompose legislation into sections (Phase 1); establish and validate field vocabulary (Phase 2) |
-| **Authoring — rule generation** | `aethis_create_bundle`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` | Create, iterate, and publish rule bundles (TDD workflow); manage project and domain guidance |
-| **Discovery** | `aethis_list_projects`, `aethis_list_bundles` | Find projects, browse bundle versions |
-| **Management** | `aethis_archive_project`, `aethis_archive_bundle` | Archive projects and bundles (permanent) |
+| **Authoring — rule generation** | `aethis_create_ruleset`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` | Create, iterate, and publish rule rulesets (TDD workflow); manage project and domain guidance |
+| **Discovery** | `aethis_list_projects`, `aethis_list_rulesets` | Find projects, browse ruleset versions |
+| **Management** | `aethis_archive_project`, `aethis_archive_ruleset` | Archive projects and rulesets (permanent) |
 
 ### Prompts
 
@@ -435,8 +435,8 @@ MCP prompts are pre-built workflow guides that compatible clients (Claude Deskto
 
 | Prompt | Description |
 |--------|-------------|
-| `aethis-author` | Step-by-step TDD workflow: gather requirements → create bundle → generate → refine → publish |
-| `aethis-decide` | Decision workflow: find bundle → get schema → evaluate (quick or conversational). Accepts optional `bundle_id` argument |
+| `aethis-author` | Step-by-step TDD workflow: gather requirements → create ruleset → generate → refine → publish |
+| `aethis-decide` | Decision workflow: find ruleset → get schema → evaluate (quick or conversational). Accepts optional `ruleset_id` argument |
 
 ---
 
@@ -445,8 +445,8 @@ MCP prompts are pre-built workflow guides that compatible clients (Claude Deskto
 ### Evaluate eligibility (2 calls)
 
 ```
-aethis_schema(bundle_id)          → Learn what fields are needed
-aethis_decide(bundle_id, fields)  → eligible / not_eligible / undetermined
+aethis_schema(ruleset_id)          → Learn what fields are needed
+aethis_decide(ruleset_id, fields)  → eligible / not_eligible / undetermined
 ```
 
 - `include_trace: true` — full evaluation trace with source citations for each criterion
@@ -457,10 +457,10 @@ aethis_decide(bundle_id, fields)  → eligible / not_eligible / undetermined
 The engine doesn't just evaluate — it tells your agent what to ask next. Given the facts collected so far, it computes the single most informative question and returns the shortest remaining path to a decision.
 
 ```
-aethis_next_question(bundle_id, {})
+aethis_next_question(ruleset_id, {})
 → "What is the applicant's species?" (10 questions remaining)
 
-aethis_next_question(bundle_id, {species: "Vogon"})
+aethis_next_question(ruleset_id, {species: "Vogon"})
 → Decision: not eligible. No more questions needed.
 ```
 
@@ -526,10 +526,10 @@ Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
 |-------|-------|-----|
 | "API key is required" | `AETHIS_API_KEY` not set (authoring tools only) | Configure in MCP client settings (not shell profile). Decision tools don't need a key |
 | "X-Anthropic-Key header is required" | Missing Anthropic key on generation | Pass `anthropic_key` parameter on authoring tools |
-| "Bundle not found" (404) | Wrong ID or archived | Use `aethis_list_projects` → `aethis_list_bundles` |
+| "Ruleset not found" (404) | Wrong ID or archived | Use `aethis_list_projects` → `aethis_list_rulesets` |
 | "Rate limit exceeded" (429) | Daily limit hit | Client retries automatically. Contact [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
 | "Cannot publish: tests failing" | Tests don't pass | Fix with `aethis_refine`, or `force=true` to override |
-| Generation timeout (504) | The client timed out waiting (normal for complex rules — generation can take 5–15 min server-side) | **The server continues generating after the timeout.** Wait 10–15 min, then call `aethis_list_bundles({ project_id })` to check if a new bundle appeared. If yes, call `aethis_publish`. If not, the server may still be running — wait and check again rather than re-triggering generation |
+| Generation timeout (504) | The client timed out waiting (normal for complex rules — generation can take 5–15 min server-side) | **The server continues generating after the timeout.** Wait 10–15 min, then call `aethis_list_rulesets({ project_id })` to check if a new ruleset appeared. If yes, call `aethis_publish`. If not, the server may still be running — wait and check again rather than re-triggering generation |
 | `"Expected an integer for <field>, got str"` | DATE field passed as ISO string | Pass as `date.toordinal()` integer — e.g. `739354` for 2025-04-13. Quick: `python3 -c "from datetime import date; print(date(2025,4,13).toordinal())"` |
 
 ---

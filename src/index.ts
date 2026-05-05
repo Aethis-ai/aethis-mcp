@@ -36,7 +36,7 @@ interface TestCaseResult {
 }
 
 interface TestRunResult {
-  bundle_id?: string;
+  ruleset_id?: string;
   total?: number;
   passed?: number;
   failed?: number;
@@ -81,7 +81,7 @@ export function formatTestResults(
   previous: TestRunResult | null,
   iteration: number,
 ): string {
-  const bundleId = current.bundle_id ?? "unknown";
+  const rulesetId = current.ruleset_id ?? "unknown";
   const total = current.total ?? 0;
   const passed = current.passed ?? 0;
   const results = current.results ?? [];
@@ -148,7 +148,7 @@ export function formatTestResults(
     );
   }
 
-  lines.push(`\nBundle: ${bundleId}`);
+  lines.push(`\nRuleset: ${rulesetId}`);
   return lines.join("\n");
 }
 
@@ -242,25 +242,25 @@ export function createToolHandlers(client: AethisClient) {
   return {
     // -- Decision tools --
 
-    async aethis_schema(args: { bundle_id: string }): Promise<ToolResult> {
-      const idErr = validateId(args.bundle_id, "bundle_id");
+    async aethis_schema(args: { ruleset_id: string }): Promise<ToolResult> {
+      const idErr = validateId(args.ruleset_id, "ruleset_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.getSchema(args.bundle_id);
+        const result = await client.getSchema(args.ruleset_id);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
 
     async aethis_decide(args: {
-      bundle_id: string;
+      ruleset_id: string;
       field_values: Record<string, unknown>;
       include_trace?: boolean;
       include_explanation?: boolean;
     }): Promise<ToolResult> {
-      const idErr = validateId(args.bundle_id, "bundle_id");
+      const idErr = validateId(args.ruleset_id, "ruleset_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.decide(args.bundle_id, args.field_values, {
+        const result = await client.decide(args.ruleset_id, args.field_values, {
           includeTrace: args.include_trace,
           includeExplanation: args.include_explanation,
         });
@@ -268,11 +268,11 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_next_question(args: { bundle_id: string; field_values: Record<string, unknown> }): Promise<ToolResult> {
-      const idErr = validateId(args.bundle_id, "bundle_id");
+    async aethis_next_question(args: { ruleset_id: string; field_values: Record<string, unknown> }): Promise<ToolResult> {
+      const idErr = validateId(args.ruleset_id, "ruleset_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.decide(args.bundle_id, args.field_values) as Record<string, unknown>;
+        const result = await client.decide(args.ruleset_id, args.field_values) as Record<string, unknown>;
         const decision = result.decision as string | undefined;
 
         if (decision === "eligible") return ok("Decision: eligible. No more questions needed.");
@@ -304,26 +304,26 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_explain(args: { bundle_id: string }): Promise<ToolResult> {
-      const idErr = validateId(args.bundle_id, "bundle_id");
+    async aethis_explain(args: { ruleset_id: string }): Promise<ToolResult> {
+      const idErr = validateId(args.ruleset_id, "ruleset_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.explain(args.bundle_id);
+        const result = await client.explain(args.ruleset_id);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
 
     async aethis_explain_failure(args: {
-      bundle_id: string;
+      ruleset_id: string;
       field_values: Record<string, unknown>;
       expected_outcome: "eligible" | "not_eligible" | "undetermined";
       test_name?: string;
     }): Promise<ToolResult> {
-      const idErr = validateId(args.bundle_id, "bundle_id");
+      const idErr = validateId(args.ruleset_id, "ruleset_id");
       if (idErr) return err(idErr);
       try {
         const result = await client.explainFailure(
-          args.bundle_id,
+          args.ruleset_id,
           args.field_values,
           args.expected_outcome,
           args.test_name,
@@ -332,13 +332,13 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_source(args: { bundle_id: string }): Promise<ToolResult> {
+    async aethis_source(args: { ruleset_id: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
-      const idErr = validateId(args.bundle_id, "bundle_id");
+      const idErr = validateId(args.ruleset_id, "ruleset_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.getSource(args.bundle_id);
+        const result = await client.getSource(args.ruleset_id);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -354,13 +354,13 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_list_bundles(args: { project_id: string }): Promise<ToolResult> {
+    async aethis_list_rulesets(args: { project_id: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.listBundles(args.project_id);
+        const result = await client.listRulesets(args.project_id);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -378,13 +378,13 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_archive_bundle(args: { bundle_id: string }): Promise<ToolResult> {
+    async aethis_archive_ruleset(args: { ruleset_id: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
-      const idErr = validateId(args.bundle_id, "bundle_id");
+      const idErr = validateId(args.ruleset_id, "ruleset_id");
       if (idErr) return err(idErr);
       try {
-        const result = await client.archiveBundle(args.bundle_id);
+        const result = await client.archiveRuleset(args.ruleset_id);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -393,7 +393,7 @@ export function createToolHandlers(client: AethisClient) {
 
     // -- Intelligent authoring tools --
 
-    async aethis_create_bundle(args: {
+    async aethis_create_ruleset(args: {
       name: string;
       section_id: string;
       source_text: string;
@@ -425,7 +425,7 @@ export function createToolHandlers(client: AethisClient) {
         await client.addTests(projectId, args.test_cases);
 
         return ok([
-          "Rule bundle created successfully.",
+          "Rule ruleset created successfully.",
           `  Project ID: ${projectId}`,
           `  Section: ${args.section_id}`,
           `  Source: ${args.source_text.length} characters uploaded as ${filename}`,
@@ -575,7 +575,7 @@ export function createToolHandlers(client: AethisClient) {
         lines.push(
           "Review these sections against your source legislation.",
           "If sections are missing or incorrectly split, call aethis_refine_sections.",
-          "Once sections look correct, create a project for each section with aethis_create_bundle.",
+          "Once sections look correct, create a project for each section with aethis_create_ruleset.",
         );
 
         return ok(lines.join("\n"));
@@ -617,7 +617,7 @@ export function createToolHandlers(client: AethisClient) {
 
         lines.push(
           "If sections still need refinement, call aethis_refine_sections again.",
-          "Once correct, create a project for each section with aethis_create_bundle.",
+          "Once correct, create a project for each section with aethis_create_ruleset.",
         );
 
         return ok(lines.join("\n"));
@@ -901,13 +901,13 @@ export function createToolHandlers(client: AethisClient) {
         }
 
         const pubResult = await client.publish(args.project_id, args.label) as Record<string, unknown>;
-        const bundleId = (pubResult.bundle_id ?? "unknown") as string;
+        const rulesetId = (pubResult.ruleset_id ?? "unknown") as string;
         const version = (pubResult.version ?? "unknown") as string;
-        const deprecated = (pubResult.deprecated_bundles ?? []) as string[];
+        const deprecated = (pubResult.deprecated_rulesets ?? []) as string[];
 
         const lines = [
           "Published successfully!",
-          `  Bundle: ${bundleId}`,
+          `  Ruleset: ${rulesetId}`,
           `  Version: ${version}`,
           `  Tests: ${passed}/${total} passing`,
         ];
@@ -931,15 +931,15 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   server.tool(
     "aethis_schema",
     "Get the input fields required for an eligibility check. Returns field names, types, descriptions, and allowed values. Use this before calling aethis_decide.",
-    { bundle_id: z.string().describe("The ID of the published rule bundle") },
+    { ruleset_id: z.string().describe("The ID of the published rule ruleset") },
     (args) => handlers.aethis_schema(args),
   );
 
   server.tool(
     "aethis_decide",
-    "Evaluate eligibility against a published rule bundle. Returns eligible/not_eligible/undetermined with optional trace and explanation. When undetermined, includes next_question and optimal_path.",
+    "Evaluate eligibility against a published rule ruleset. Returns eligible/not_eligible/undetermined with optional trace and explanation. When undetermined, includes next_question and optimal_path.",
     {
-      bundle_id: z.string().describe("The ID of the published rule bundle"),
+      ruleset_id: z.string().describe("The ID of the published rule ruleset"),
       field_values: z.record(z.string(), z.unknown()).describe("Input field values (see aethis_schema for required fields)"),
       include_trace: z.boolean().optional().describe("Include the full evaluation trace showing how each rule was evaluated"),
       include_explanation: z.boolean().optional().describe("Include human-readable rule explanations with source citations"),
@@ -951,7 +951,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_next_question",
     "Get the optimal next question for a conversational eligibility check. Call with empty field_values for the first question, then add answers and call again until decision is reached.",
     {
-      bundle_id: z.string().describe("The ID of the published rule bundle"),
+      ruleset_id: z.string().describe("The ID of the published rule ruleset"),
       field_values: z.record(z.string(), z.unknown()).describe("Answers collected so far (empty dict for first question)"),
     },
     (args) => handlers.aethis_next_question(args),
@@ -959,16 +959,16 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_explain",
-    "Get human-readable descriptions of the rules in a bundle, including criteria groups, requirements, and exception paths.",
-    { bundle_id: z.string().describe("The ID of the published rule bundle") },
+    "Get human-readable descriptions of the rules in a ruleset, including criteria groups, requirements, and exception paths.",
+    { ruleset_id: z.string().describe("The ID of the published rule ruleset") },
     (args) => handlers.aethis_explain(args),
   );
 
   server.tool(
     "aethis_explain_failure",
-    "Diagnose why a bundle produced an unexpected outcome for specific test inputs. Use during rule authoring when a test fails — returns the diagnosis, criteria with DSL metadata (waivable, review_required), and a targeted hint for fixing the rule.",
+    "Diagnose why a ruleset produced an unexpected outcome for specific test inputs. Use during rule authoring when a test fails — returns the diagnosis, criteria with DSL metadata (waivable, review_required), and a targeted hint for fixing the rule.",
     {
-      bundle_id: z.string().describe("The ID of the rule bundle to diagnose"),
+      ruleset_id: z.string().describe("The ID of the rule ruleset to diagnose"),
       field_values: z.record(z.string(), z.unknown()).describe("The test input values that produced the unexpected outcome"),
       expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("The outcome you expected from this input"),
       test_name: z.string().optional().describe("Name of the failing test case (included in the diagnosis for context)"),
@@ -978,15 +978,15 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_list_projects",
-    "List all projects in the current tenant. Returns project IDs, names, domains, and latest bundle information.",
+    "List all projects in the current tenant. Returns project IDs, names, domains, and latest ruleset information.",
     () => handlers.aethis_list_projects({}),
   );
 
   server.tool(
-    "aethis_list_bundles",
-    "List all rule bundles for a project, including version history. Shows bundle ID, status (active/archived), version, field count, and rule count.",
+    "aethis_list_rulesets",
+    "List all rule rulesets for a project, including version history. Shows ruleset ID, status (active/archived), version, field count, and rule count.",
     { project_id: z.string().describe("The project ID") },
-    (args) => handlers.aethis_list_bundles(args),
+    (args) => handlers.aethis_list_rulesets(args),
   );
 
   server.tool(
@@ -997,23 +997,23 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
-    "aethis_archive_bundle",
-    "Archive a rule bundle. Archived bundles are preserved but excluded from /decide resolution. This is permanent.",
-    { bundle_id: z.string().describe("The bundle ID to archive") },
-    (args) => handlers.aethis_archive_bundle(args),
+    "aethis_archive_ruleset",
+    "Archive a rule ruleset. Archived rulesets are preserved but excluded from /decide resolution. This is permanent.",
+    { ruleset_id: z.string().describe("The ruleset ID to archive") },
+    (args) => handlers.aethis_archive_ruleset(args),
   );
 
   server.tool(
-    "aethis_create_bundle",
-    "Create a new rule bundle with source text and test cases (TDD). Test cases are required. After creation, call aethis_generate_and_test.",
+    "aethis_create_ruleset",
+    "Create a new rule ruleset with source text and test cases (TDD). Test cases are required. After creation, call aethis_generate_and_test.",
     {
-      name: z.string().describe("Human-readable name for the rule bundle"),
+      name: z.string().describe("Human-readable name for the rule ruleset"),
       section_id: z.string().describe("Unique section identifier (e.g., 'flight_readiness')"),
       source_text: z.string().describe("The source legislation, policy, or specification text"),
       test_cases: z.array(z.record(z.string(), z.unknown())).describe("Test cases: [{name, field_values, expected_outcome}]. At least 1 required."),
       domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
     },
-    (args) => handlers.aethis_create_bundle(args),
+    (args) => handlers.aethis_create_ruleset(args),
   );
 
   server.tool(
@@ -1090,7 +1090,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_discover_sections",
     "Discover the logical sections of source legislation for a domain. " +
     "Provide the raw text of your source documents (legislation, guidance notes, form instructions). " +
-    "The service analyses the content and identifies which sections should be authored as separate rule bundles. " +
+    "The service analyses the content and identifies which sections should be authored as separate rule rulesets. " +
     "Run BEFORE creating projects — you need to know the sections before you can create one. " +
     "Call aethis_refine_sections if sections are missing or incorrectly split.",
     {
@@ -1221,11 +1221,11 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_publish",
-    "Publish the latest rule bundle. Runs tests first and refuses if they fail unless force=true. Auto-deprecates previous active bundle.",
+    "Publish the latest rule ruleset. Runs tests first and refuses if they fail unless force=true. Auto-deprecates previous active ruleset.",
     {
       project_id: z.string().describe("The project ID"),
       force: z.boolean().optional().describe("Publish even if tests are not all passing"),
-      label: z.string().optional().describe("Human-readable label for this bundle version, e.g. 'v5 — raw facts, date arithmetic'. Stored on the bundle and shown in aethis_list_bundles."),
+      label: z.string().optional().describe("Human-readable label for this ruleset version, e.g. 'v5 — raw facts, date arithmetic'. Stored on the ruleset and shown in aethis_list_rulesets."),
     },
     (args) => handlers.aethis_publish(args),
   );
@@ -1243,8 +1243,8 @@ Ask the user for:
 - What the eligibility check should determine
 - The domain this section belongs to (e.g., "uk_citizenship", "skilled_worker_visa")
 
-## Step 2 — Create the bundle (source text only, minimal tests)
-Call aethis_create_bundle with:
+## Step 2 — Create the ruleset (source text only, minimal tests)
+Call aethis_create_ruleset with:
 - name: Human-readable name (e.g., "UK Skilled Worker Visa Eligibility")
 - section_id: Snake_case identifier (e.g., "skilled_worker_visa")
 - source_text: The full legislation or policy text
@@ -1271,7 +1271,7 @@ Now that you have the correct field vocabulary, write the full test suite:
 - Use "undetermined" when fields are absent and caseworker discretion applies
 - Use "undetermined" (NOT "not_eligible") for advisory restrictions that aren't statutory bars
 
-Update the bundle with the full test suite by calling aethis_create_bundle again with the complete test_cases list.
+Update the ruleset with the full test suite by calling aethis_create_ruleset again with the complete test_cases list.
 
 ## Step 5 — Seed domain guidance (recommended)
 If domain-level guidance exists (e.g., cross-section principles), import it before generating:
@@ -1297,7 +1297,7 @@ If tests fail, diagnose WHY and call aethis_refine with targeted feedback:
 Each aethis_refine call adds guidance AND regenerates. Review results after each iteration.
 
 ## Step 8 — Publish
-When all tests pass, call aethis_publish. This validates tests pass, activates the bundle for decide calls, and auto-deprecates the previous version.
+When all tests pass, call aethis_publish. This validates tests pass, activates the ruleset for decide calls, and auto-deprecates the previous version.
 
 ## Tips
 - Check existing projects first with aethis_list_projects — the user may want to iterate on an existing project
@@ -1307,14 +1307,14 @@ When all tests pass, call aethis_publish. This validates tests pass, activates t
 - Proactive guidance before the first generate call dramatically improves first-pass quality
 - Don't over-specify: only add guidance when the engine gets something wrong`;
 
-export function decidePromptText(bundleId?: string): string {
-  const bundleHint = bundleId
-    ? `The user wants to evaluate bundle "${bundleId}". Start by calling aethis_schema with this bundle_id.`
-    : "Start by helping the user find their bundle: call aethis_list_projects, then aethis_list_bundles for the relevant project.";
+export function decidePromptText(rulesetId?: string): string {
+  const rulesetHint = rulesetId
+    ? `The user wants to evaluate ruleset "${rulesetId}". Start by calling aethis_schema with this ruleset_id.`
+    : "Start by helping the user find their ruleset: call aethis_list_projects, then aethis_list_rulesets for the relevant project.";
 
   return `You are guiding the user through evaluating eligibility using the Aethis platform.
 
-${bundleHint}
+${rulesetHint}
 
 ## Quick Decision
 1. Call aethis_schema to see required input fields, their types, and allowed values.
@@ -1322,7 +1322,7 @@ ${bundleHint}
 
 ## Conversational Eligibility (Optimal Questioning)
 For interactive eligibility checks where you don't have all inputs upfront:
-1. Call aethis_next_question with the bundle_id and an empty field_values: {}
+1. Call aethis_next_question with the ruleset_id and an empty field_values: {}
 2. The engine returns the optimal next question — the one that eliminates the most branches
 3. Ask the user, collect the answer, call aethis_next_question again with updated field_values
 4. Repeat until the engine returns a decision instead of a question
@@ -1338,7 +1338,7 @@ For interactive eligibility checks where you don't have all inputs upfront:
 ## Key Facts
 - Decisions are deterministic: same inputs always produce the same output
 - Decisions are fast (<5ms) — no LLM at inference time, pure constraint evaluation
-- The decision API needs no authentication — only the bundle_id is required
+- The decision API needs no authentication — only the ruleset_id is required
 - Use aethis_explain to show users what rules apply before they start`;
 }
 
@@ -1360,12 +1360,12 @@ function registerPrompts(server: McpServer): void {
 
   server.prompt(
     "aethis-decide",
-    "Evaluate eligibility against a published bundle, or run a conversational eligibility check",
-    { bundle_id: z.string().optional().describe("Bundle ID to evaluate against (discovers available bundles if omitted)") },
+    "Evaluate eligibility against a published ruleset, or run a conversational eligibility check",
+    { ruleset_id: z.string().optional().describe("Ruleset ID to evaluate against (discovers available rulesets if omitted)") },
     (args) => ({
       messages: [{
         role: "user" as const,
-        content: { type: "text" as const, text: decidePromptText(args.bundle_id) },
+        content: { type: "text" as const, text: decidePromptText(args.ruleset_id) },
       }],
     }),
   );
@@ -1396,10 +1396,10 @@ async function main(): Promise<void> {
         "Aethis is an AI platform for regulated eligibility checks.",
         "",
         "## Workflows",
-        "**Author rules** (TDD): aethis_create_bundle → aethis_discover_fields → write tests with discovered field names → aethis_generate_and_test (60-120s) → aethis_refine (if failures) → aethis_publish",
+        "**Author rules** (TDD): aethis_create_ruleset → aethis_discover_fields → write tests with discovered field names → aethis_generate_and_test (60-120s) → aethis_refine (if failures) → aethis_publish",
         "**Evaluate eligibility**: aethis_schema (discover fields) → aethis_decide (with optional include_trace/include_explanation)",
         "**Conversational check**: aethis_next_question iteratively with growing field_values until decision reached",
-        "**Discover**: aethis_list_projects → aethis_list_bundles",
+        "**Discover**: aethis_list_projects → aethis_list_rulesets",
         "",
         "## Key Principles",
         "- Tests come FIRST — define expected outcomes before generating rules",

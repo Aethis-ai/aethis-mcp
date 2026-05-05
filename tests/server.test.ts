@@ -24,12 +24,12 @@ import {
 function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}): AethisClient {
   const defaults: Record<string, unknown> = {
     decide: vi.fn().mockResolvedValue({ outcome: "eligible" }),
-    getSchema: vi.fn().mockResolvedValue({ bundle_id: "b_123", fields: [] }),
+    getSchema: vi.fn().mockResolvedValue({ ruleset_id: "b_123", fields: [] }),
     explain: vi.fn().mockResolvedValue({ rules: [] }),
     listProjects: vi.fn().mockResolvedValue([]),
-    listBundles: vi.fn().mockResolvedValue([]),
+    listRulesets: vi.fn().mockResolvedValue([]),
     archiveProject: vi.fn().mockResolvedValue({ message: "Archived" }),
-    archiveBundle: vi.fn().mockResolvedValue({ message: "Archived" }),
+    archiveRuleset: vi.fn().mockResolvedValue({ message: "Archived" }),
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_abc" }),
     uploadSourceText: vi.fn().mockResolvedValue({ uploaded: 1 }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
@@ -44,14 +44,14 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
       recommendation: "continue", is_complete: false,
     }),
     generateAndTest: vi.fn().mockResolvedValue({
-      bundle_id: "b_1",
+      ruleset_id: "b_1",
       total: 1, passed: 1, failed: 0, errors: 0,
       results: [{ name: "c1", expected: "eligible", actual: "eligible", passed: true }],
     }),
     runTests: vi.fn().mockResolvedValue({
       total: 1, passed: 1, failed: 0, errors: 0, results: [],
     }),
-    publish: vi.fn().mockResolvedValue({ bundle_id: "b_1", version: "v1", deprecated_bundles: [] }),
+    publish: vi.fn().mockResolvedValue({ ruleset_id: "b_1", version: "v1", deprecated_rulesets: [] }),
     hasApiKey: true,
     setApiKey: vi.fn(),
     retryDelayMs: 0,
@@ -81,13 +81,13 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_next_question");
     expect(names).toContain("aethis_explain");
     expect(names).toContain("aethis_explain_failure");
-    // Bundle / project listing
+    // Ruleset / project listing
     expect(names).toContain("aethis_list_projects");
-    expect(names).toContain("aethis_list_bundles");
+    expect(names).toContain("aethis_list_rulesets");
     expect(names).toContain("aethis_archive_project");
-    expect(names).toContain("aethis_archive_bundle");
+    expect(names).toContain("aethis_archive_ruleset");
     // Authoring lifecycle
-    expect(names).toContain("aethis_create_bundle");
+    expect(names).toContain("aethis_create_ruleset");
     expect(names).toContain("aethis_add_guidance");
     expect(names).toContain("aethis_list_guidance");
     expect(names).toContain("aethis_generate_and_test");
@@ -117,30 +117,30 @@ describe("createToolHandlers", () => {
 describe("aethis_schema", () => {
   it("returns schema JSON", async () => {
     const client = mockClient({
-      getSchema: vi.fn().mockResolvedValue({ bundle_id: "b_123", fields: [{ name: "age" }] }),
+      getSchema: vi.fn().mockResolvedValue({ ruleset_id: "b_123", fields: [{ name: "age" }] }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_schema({ bundle_id: "b_123" });
+    const result = await h.aethis_schema({ ruleset_id: "b_123" });
     const data = JSON.parse(text(result));
-    expect(data.bundle_id).toBe("b_123");
+    expect(data.ruleset_id).toBe("b_123");
     expect(data.fields).toHaveLength(1);
   });
 
-  it("rejects empty bundle_id", async () => {
+  it("rejects empty ruleset_id", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_schema({ bundle_id: "" });
+    const result = await h.aethis_schema({ ruleset_id: "" });
     expect(text(result)).toMatch(/must not be empty/i);
   });
 
   it("includes error detail on API failure", async () => {
     const { AethisAPIError } = await import("../src/client.js");
     const client = mockClient({
-      getSchema: vi.fn().mockRejectedValue(new AethisAPIError(404, "Bundle not found")),
+      getSchema: vi.fn().mockRejectedValue(new AethisAPIError(404, "Ruleset not found")),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_schema({ bundle_id: "bad" });
+    const result = await h.aethis_schema({ ruleset_id: "bad" });
     expect(text(result)).toContain("404");
-    expect(text(result)).toContain("Bundle not found");
+    expect(text(result)).toContain("Ruleset not found");
   });
 });
 
@@ -150,14 +150,14 @@ describe("aethis_decide", () => {
       decide: vi.fn().mockResolvedValue({ outcome: "eligible", reasoning: "All met" }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_decide({ bundle_id: "b_123", field_values: { age: 30 } });
+    const result = await h.aethis_decide({ ruleset_id: "b_123", field_values: { age: 30 } });
     const data = JSON.parse(text(result));
     expect(data.outcome).toBe("eligible");
   });
 
-  it("rejects empty bundle_id", async () => {
+  it("rejects empty ruleset_id", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_decide({ bundle_id: "  ", field_values: {} });
+    const result = await h.aethis_decide({ ruleset_id: "  ", field_values: {} });
     expect(text(result)).toMatch(/must not be empty/i);
   });
 
@@ -166,7 +166,7 @@ describe("aethis_decide", () => {
     const client = mockClient({ decide: decideFn });
     const h = createToolHandlers(client);
     await h.aethis_decide({
-      bundle_id: "b_123",
+      ruleset_id: "b_123",
       field_values: { age: 30 },
       include_trace: true,
       include_explanation: true,
@@ -193,7 +193,7 @@ describe("aethis_next_question", () => {
       }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_next_question({ bundle_id: "b_1", field_values: {} });
+    const result = await h.aethis_next_question({ ruleset_id: "b_1", field_values: {} });
     const t = text(result);
     expect(t).toContain("undetermined");
     expect(t).toContain("cert");
@@ -206,7 +206,7 @@ describe("aethis_next_question", () => {
       decide: vi.fn().mockResolvedValue({ decision: "eligible" }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_next_question({ bundle_id: "b_1", field_values: {} });
+    const result = await h.aethis_next_question({ ruleset_id: "b_1", field_values: {} });
     expect(text(result)).toContain("eligible");
     expect(text(result)).toContain("No more questions");
   });
@@ -216,7 +216,7 @@ describe("aethis_next_question", () => {
       decide: vi.fn().mockResolvedValue({ decision: "not_eligible" }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_next_question({ bundle_id: "b_1", field_values: {} });
+    const result = await h.aethis_next_question({ ruleset_id: "b_1", field_values: {} });
     expect(text(result)).toContain("not eligible");
   });
 });
@@ -227,7 +227,7 @@ describe("aethis_explain", () => {
       explain: vi.fn().mockResolvedValue({ rules: [{ name: "r1", description: "desc" }] }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_explain({ bundle_id: "b_123" });
+    const result = await h.aethis_explain({ ruleset_id: "b_123" });
     const data = JSON.parse(text(result));
     expect(data.rules).toHaveLength(1);
   });
@@ -250,23 +250,23 @@ describe("aethis_list_projects", () => {
   });
 });
 
-describe("aethis_list_bundles", () => {
-  it("returns bundles JSON", async () => {
+describe("aethis_list_rulesets", () => {
+  it("returns rulesets JSON", async () => {
     const client = mockClient({
-      listBundles: vi.fn().mockResolvedValue([
-        { bundle_id: "b_1", status: "active", version: "v1" },
+      listRulesets: vi.fn().mockResolvedValue([
+        { ruleset_id: "b_1", status: "active", version: "v1" },
       ]),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_list_bundles({ project_id: "p_1" });
+    const result = await h.aethis_list_rulesets({ project_id: "p_1" });
     const data = JSON.parse(text(result));
     expect(data).toHaveLength(1);
-    expect(data[0].bundle_id).toBe("b_1");
+    expect(data[0].ruleset_id).toBe("b_1");
   });
 
   it("rejects empty project_id", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_list_bundles({ project_id: "" });
+    const result = await h.aethis_list_rulesets({ project_id: "" });
     expect(text(result)).toMatch(/must not be empty/i);
   });
 });
@@ -292,19 +292,19 @@ describe("aethis_archive_project", () => {
   });
 });
 
-describe("aethis_archive_bundle", () => {
+describe("aethis_archive_ruleset", () => {
   it("archives and returns result", async () => {
     const client = mockClient({
-      archiveBundle: vi.fn().mockResolvedValue({ message: "Bundle archived", bundle_id: "b_1" }),
+      archiveRuleset: vi.fn().mockResolvedValue({ message: "Ruleset archived", ruleset_id: "b_1" }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_archive_bundle({ bundle_id: "b_1" });
+    const result = await h.aethis_archive_ruleset({ ruleset_id: "b_1" });
     expect(text(result)).toContain("archived");
   });
 
-  it("rejects empty bundle_id", async () => {
+  it("rejects empty ruleset_id", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_archive_bundle({ bundle_id: "" });
+    const result = await h.aethis_archive_ruleset({ ruleset_id: "" });
     expect(text(result)).toMatch(/must not be empty/i);
   });
 });
@@ -317,10 +317,10 @@ describe("aethis_archive_bundle", () => {
 // Intelligent authoring tools
 // ---------------------------------------------------------------------------
 
-describe("aethis_create_bundle", () => {
+describe("aethis_create_ruleset", () => {
   it("rejects empty test_cases", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_create_bundle({
+    const result = await h.aethis_create_ruleset({
       name: "test", section_id: "s1", source_text: "Law.",
       test_cases: [],
     });
@@ -329,7 +329,7 @@ describe("aethis_create_bundle", () => {
 
   it("rejects test case missing keys", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_create_bundle({
+    const result = await h.aethis_create_ruleset({
       name: "test", section_id: "s1", source_text: "Law.",
       test_cases: [{ name: "bad" }],
     });
@@ -338,7 +338,7 @@ describe("aethis_create_bundle", () => {
 
   it("rejects invalid expected_outcome", async () => {
     const h = createToolHandlers(mockClient());
-    const result = await h.aethis_create_bundle({
+    const result = await h.aethis_create_ruleset({
       name: "test", section_id: "s1", source_text: "Law.",
       test_cases: [{ name: "c", field_values: {}, expected_outcome: "maybe" }],
     });
@@ -348,7 +348,7 @@ describe("aethis_create_bundle", () => {
   it("orchestrates create → upload → add_tests", async () => {
     const client = mockClient();
     const h = createToolHandlers(client);
-    const result = await h.aethis_create_bundle({
+    const result = await h.aethis_create_ruleset({
       name: "test-rules", section_id: "test_section", source_text: "The law says...",
       test_cases: [
         { name: "c1", field_values: { age: 30 }, expected_outcome: "eligible" },
@@ -382,7 +382,7 @@ describe("aethis_generate_and_test", () => {
   it("shows pass count and suggests publish when all pass", async () => {
     const client = mockClient({
       generateAndTest: vi.fn().mockResolvedValue({
-        bundle_id: "b_1",
+        ruleset_id: "b_1",
         total: 2, passed: 2, failed: 0, errors: 0,
         results: [
           { name: "c1", expected: "eligible", actual: "eligible", passed: true },
@@ -400,7 +400,7 @@ describe("aethis_generate_and_test", () => {
   it("shows failures with expected vs actual", async () => {
     const client = mockClient({
       generateAndTest: vi.fn().mockResolvedValue({
-        bundle_id: "b_1",
+        ruleset_id: "b_1",
         total: 2, passed: 1, failed: 1, errors: 0,
         results: [
           { name: "good", expected: "eligible", actual: "eligible", passed: true },
@@ -423,7 +423,7 @@ describe("aethis_generate_and_test", () => {
 
     // First iteration: c1 passes, c2 fails
     genTest.mockResolvedValueOnce({
-      bundle_id: "b_1", total: 2, passed: 1, failed: 1, errors: 0,
+      ruleset_id: "b_1", total: 2, passed: 1, failed: 1, errors: 0,
       results: [
         { name: "c1", expected: "eligible", actual: "eligible", passed: true },
         { name: "c2", expected: "not_eligible", actual: "eligible", passed: false },
@@ -433,7 +433,7 @@ describe("aethis_generate_and_test", () => {
 
     // Second iteration: c2 now passes but c1 regresses
     genTest.mockResolvedValueOnce({
-      bundle_id: "b_2", total: 2, passed: 1, failed: 1, errors: 0,
+      ruleset_id: "b_2", total: 2, passed: 1, failed: 1, errors: 0,
       results: [
         { name: "c1", expected: "eligible", actual: "not_eligible", passed: false },
         { name: "c2", expected: "not_eligible", actual: "not_eligible", passed: true },
@@ -450,10 +450,10 @@ describe("aethis_generate_and_test", () => {
     expect(t).toContain("was FAIL, now PASS");
   });
 
-  it("output includes bundle_id and iteration number", async () => {
+  it("output includes ruleset_id and iteration number", async () => {
     const client = mockClient({
       generateAndTest: vi.fn().mockResolvedValue({
-        bundle_id: "space:20260405-abc",
+        ruleset_id: "space:20260405-abc",
         total: 1, passed: 1, failed: 0, errors: 0,
         results: [{ name: "c1", expected: "eligible", actual: "eligible", passed: true }],
       }),
@@ -469,7 +469,7 @@ describe("aethis_generate_and_test", () => {
   it("first iteration has no regressions section", async () => {
     const client = mockClient({
       generateAndTest: vi.fn().mockResolvedValue({
-        bundle_id: "b_1", total: 1, passed: 0, failed: 1, errors: 0,
+        ruleset_id: "b_1", total: 1, passed: 0, failed: 1, errors: 0,
         results: [{ name: "c1", expected: "eligible", actual: "not_eligible", passed: false }],
       }),
     });
@@ -533,7 +533,7 @@ describe("aethis_publish", () => {
   it("publishes when all tests pass", async () => {
     const client = mockClient({
       runTests: vi.fn().mockResolvedValue({ total: 2, passed: 2, failed: 0, errors: 0, results: [] }),
-      publish: vi.fn().mockResolvedValue({ bundle_id: "b_1", version: "v2", deprecated_bundles: ["b_old"] }),
+      publish: vi.fn().mockResolvedValue({ ruleset_id: "b_1", version: "v2", deprecated_rulesets: ["b_old"] }),
     });
     const h = createToolHandlers(client);
     const result = await h.aethis_publish({ project_id: "p_1" });
@@ -547,7 +547,7 @@ describe("aethis_publish", () => {
   it("force publishes despite failures", async () => {
     const client = mockClient({
       runTests: vi.fn().mockResolvedValue({ total: 2, passed: 1, failed: 1, errors: 0, results: [] }),
-      publish: vi.fn().mockResolvedValue({ bundle_id: "b_1", version: "v2", deprecated_bundles: [] }),
+      publish: vi.fn().mockResolvedValue({ ruleset_id: "b_1", version: "v2", deprecated_rulesets: [] }),
     });
     const h = createToolHandlers(client);
     const result = await h.aethis_publish({ project_id: "p_1", force: true });
@@ -564,7 +564,7 @@ describe("formatTestResults", () => {
   it("formats all-passing result", () => {
     const t = formatTestResults(
       {
-        bundle_id: "test:abc", total: 2, passed: 2, failed: 0, errors: 0,
+        ruleset_id: "test:abc", total: 2, passed: 2, failed: 0, errors: 0,
         results: [
           { name: "c1", expected: "eligible", actual: "eligible", passed: true },
           { name: "c2", expected: "not_eligible", actual: "not_eligible", passed: true },
@@ -580,7 +580,7 @@ describe("formatTestResults", () => {
 
   it("formats empty result", () => {
     const t = formatTestResults(
-      { bundle_id: "b1", total: 0, passed: 0, failed: 0, errors: 0, results: [] },
+      { ruleset_id: "b1", total: 0, passed: 0, failed: 0, errors: 0, results: [] },
       null,
       1,
     );
@@ -588,9 +588,9 @@ describe("formatTestResults", () => {
     expect(t).toContain("0/0 passing");
   });
 
-  it("includes bundle_id", () => {
+  it("includes ruleset_id", () => {
     const t = formatTestResults(
-      { bundle_id: "test:20260405-abc", total: 0, passed: 0, failed: 0, errors: 0, results: [] },
+      { ruleset_id: "test:20260405-abc", total: 0, passed: 0, failed: 0, errors: 0, results: [] },
       null,
       1,
     );
@@ -599,14 +599,14 @@ describe("formatTestResults", () => {
 
   it("shows improvements and regressions when previous results exist", () => {
     const prev = {
-      bundle_id: "b_old", total: 2, passed: 1, failed: 1, errors: 0,
+      ruleset_id: "b_old", total: 2, passed: 1, failed: 1, errors: 0,
       results: [
         { name: "c1", expected: "eligible", actual: "eligible", passed: true },
         { name: "c2", expected: "not_eligible", actual: "eligible", passed: false },
       ],
     };
     const curr = {
-      bundle_id: "b_new", total: 2, passed: 1, failed: 1, errors: 0,
+      ruleset_id: "b_new", total: 2, passed: 1, failed: 1, errors: 0,
       results: [
         { name: "c1", expected: "eligible", actual: "not_eligible", passed: false },
         { name: "c2", expected: "not_eligible", actual: "not_eligible", passed: true },
@@ -693,7 +693,7 @@ describe("AUTHOR_PROMPT", () => {
   });
 
   it("references key tools in correct order", () => {
-    const createIdx = AUTHOR_PROMPT.indexOf("aethis_create_bundle");
+    const createIdx = AUTHOR_PROMPT.indexOf("aethis_create_ruleset");
     const discoverIdx = AUTHOR_PROMPT.indexOf("aethis_discover_fields");
     const genIdx = AUTHOR_PROMPT.indexOf("aethis_generate_and_test");
     // Match "aethis_refine" for rule refinement (Step 5), not "aethis_refine_fields"
@@ -773,13 +773,13 @@ describe("A3 aethis_source tool visibility", () => {
 });
 
 describe("decidePromptText", () => {
-  it("without bundle_id suggests discovery", () => {
+  it("without ruleset_id suggests discovery", () => {
     const text = decidePromptText();
     expect(text).toContain("aethis_list_projects");
-    expect(text).toContain("aethis_list_bundles");
+    expect(text).toContain("aethis_list_rulesets");
   });
 
-  it("with bundle_id skips discovery", () => {
+  it("with ruleset_id skips discovery", () => {
     const text = decidePromptText("b_abc123");
     expect(text).toContain("b_abc123");
     expect(text).toContain("aethis_schema");

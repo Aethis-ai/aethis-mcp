@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 (2026-05-05)
+
+- **Breaking**: renamed the public *bundle* concept to *ruleset* throughout the MCP tool set, to match the `aethis-core 0.10.0` API contract. The compiled rule artefact is now called a **ruleset** in every tool name, parameter, and prose description. Specifically:
+  - Tools: `aethis_create_bundle` → `aethis_create_ruleset`, `aethis_list_bundles` → `aethis_list_rulesets`, `aethis_archive_bundle` → `aethis_archive_ruleset`
+  - Parameters: every `bundle_id` → `ruleset_id`
+  - JSON keys returned to the agent: `bundle_id`/`latest_bundle_id`/`bundle_version`/`deprecated_bundles`/`result_bundle_id`/`bundle_refs` → `ruleset_id` etc.
+  - URL paths inside the client: `/bundles/...` → `/rulesets/...`
+- This release **requires `aethis-core 0.10.0` or newer.** Older engines respond at the legacy `/bundles/*` paths with `bundle_id` JSON keys; this client expects `/rulesets/*` and will 404. Pin `aethis-mcp@0.2.6` if you need to keep working against an older engine until you can deploy.
+- **MCP tool renames are part of the public LLM-facing contract.** Coding agents that have learnt the old tool names (`aethis_list_bundles` etc.) from training data will get "no such tool" errors and need to retry against the new names. Tool descriptions explicitly call out the new naming so the LLM picks it up on first read.
+
 ## 0.2.6 (2026-05-03)
 
 - Docs: replaced two stale `aethis.ai/sign-up` request-access pointers in the README authoring section with `aethis.ai/developer-access`. After the Clerk cutover, `/sign-up` serves the Clerk SignUp form for invitees rather than the Notion request-access form. No code or behaviour changes.
@@ -14,7 +24,7 @@ No code or behaviour changes.
 
 ## 0.2.4 (2026-04-28)
 
-First version published to npm since 0.2.2. The `v0.2.3` tag exists in git but predates the publish workflow — it never reached npm. This release bundles all work since 0.2.2.
+First version published to npm since 0.2.2. The `v0.2.3` tag exists in git but predates the publish workflow — it never reached npm. This release rulesets all work since 0.2.2.
 
 ### Registry
 
@@ -28,14 +38,14 @@ First version published to npm since 0.2.2. The `v0.2.3` tag exists in git but p
 
 - **Better error messages on generation failure.** Failed jobs now surface classified error details (invalid key, rate limit, connection failure) instead of "unknown error".
 - Sends both `X-Anthropic-Key` and `X-OpenAI-Key` headers for backwards compatibility with older API versions.
-- **`aethis_explain_failure` clarification.** Tool docs now note that `bundle_id` must be the concrete ID from a `/decide` envelope; slugs are not yet resolved on this endpoint (tracked in aethis-core#51).
+- **`aethis_explain_failure` clarification.** Tool docs now note that `ruleset_id` must be the concrete ID from a `/decide` envelope; slugs are not yet resolved on this endpoint (tracked in aethis-core#51).
 
 ### Docs
 
 - **Proof section updated to cite the Simpson et al. 2026 benchmark paper.** Replaced the pre-paper 11-scenario table (GPT-5.4-mini 82%, GPT-5.3 27%) with paper-backed figures from Table 8b of the published benchmark. Removed the 27% GPT-5.3 claim — the paper identifies that figure as a harness-configuration bug; the corrected value is 63.6%.
 - **Proof section: add §6.10 LegalBench external-validation paragraph.** v3.8 of the paper adds external validation across 9 LegalBench tasks (949 held-out cases). Combined paired-binomial McNemar's: *p* < 0.001 vs Sonnet 4.6, *p* = 0.003 vs Opus 4.7, *p* < 0.001 vs GPT-5.4. Linked to the public LegalBench harness at `confidently-wrong-benchmark/legalbench/`.
 - **Proof section: replaced 11-scenario subset table with v3.8 adversarial extension (§6.4.1).** The v3.7 11-scenario exception-chain table no longer differentiates current frontier models from the engine (GPT-5.4 default and low both 11/11, Opus 4.7 11/11). The Proof section now leads with the v3.8 adversarial extension (20 newly-authored scenarios; engine 20/20; Opus 4.7 18/20; GPT-5.4 default 19/20 with 0 reasoning tokens; Sonnet 4.6 19/20) and the shifting-ground argument from paper §6.5 Finding 6.
-- **Use `aethis/construction-all-risks` slug in CAR proof example** for stable URL across bundle regenerations.
+- **Use `aethis/construction-all-risks` slug in CAR proof example** for stable URL across ruleset regenerations.
 - **Invite-only beta messaging** replaces "rolling out now" framing throughout README — explicit approval-gated framing aligned with current onboarding.
 - **`docs.aethis.ai` badge** added to README.
 
@@ -79,9 +89,9 @@ Initial release.
 
 - **Decision tools**: `aethis_schema`, `aethis_decide`, `aethis_next_question`, `aethis_explain`
 - **Discovery tools**: `aethis_list_projects`
-- **Authoring tools** (TDD workflow): `aethis_create_bundle`, `aethis_generate_and_test`, `aethis_add_guidance`, `aethis_refine`, `aethis_publish`, `aethis_archive_project`, `aethis_archive_bundle`
+- **Authoring tools** (TDD workflow): `aethis_create_ruleset`, `aethis_generate_and_test`, `aethis_add_guidance`, `aethis_refine`, `aethis_publish`, `aethis_archive_project`, `aethis_archive_ruleset`
 - HTTPS enforcement for remote hosts
 - Exponential backoff with retry on 429/502/503/504
 - Works with Claude Desktop, Claude Code, Cursor, and Windsurf
 
-> Note: v0.1.0 used `aethis_create_ruleset` (renamed to `aethis_create_bundle`) and `aethis_project_status` (replaced by `aethis_list_projects`). These tools were removed in v0.2.x.
+> Note: v0.1.0 used `aethis_create_ruleset` (renamed to `aethis_create_ruleset`) and `aethis_project_status` (replaced by `aethis_list_projects`). These tools were removed in v0.2.x.
