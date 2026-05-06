@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 (2026-05-06)
+
+- docs: align README with positioning bible — promote 225-scenario accuracy framing
+- docs: add aethis-bible: markers to derived copy blocks
+- docs: fix latency claim to <1ms (was <5ms)
+- fix: replace deprecated "rule bundle" terminology with "ruleset"
+
 ## 0.3.0 (2026-05-05)
 
 - **Breaking**: renamed the public *bundle* concept to *ruleset* throughout the MCP tool set, to match the `aethis-core 0.10.0` API contract. The compiled rule artefact is now called a **ruleset** in every tool name, parameter, and prose description. Specifically:

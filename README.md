@@ -18,15 +18,20 @@ An MCP server that compiles legislation, policy, and regulation into determinist
 
 ## The problem
 
+<!-- aethis-bible: public-messaging.md#3-the-problem-one-paragraph -->
 AI agents are making eligibility and compliance decisions using LLM reasoning. Most of the time it works. When it doesn't, nobody notices — the model returns a confident, well-structured wrong answer with no audit trail.
 
 LLMs are good at interpreting rules. They are not reliable at executing them. The failure mode is silent: high confidence, wrong answer, no trace.
 
+<!-- aethis-bible: public-messaging.md#4-the-solution-one-paragraph -->
 Aethis compiles rules into formal logic at authoring time. At decision time, no LLM is involved. Same inputs, same answer, every time — with a full audit trail back to the source clause.
 
 ---
 
 ## Proof
+
+<!-- aethis-bible: claims.md#internal-benchmark-aethis-vs-frontier-llms-225-scenarios -->
+Engine accuracy: 100% across 225 scenarios spanning four rule domains, where frontier LLMs score 63–100% (Simpson 2026 §3). The construction-CAR adversarial extension below is one domain from that dataset.
 
 Numbers below from the paper ([Simpson, Kozak, Doake, v3.8, 2026](https://github.com/Aethis-ai/confidently-wrong-benchmark/blob/main/paper/Simpson_Exception_Chain_Collapse_2026.md)). Three independent evidence sources.
 
@@ -42,6 +47,7 @@ Numbers below from the paper ([Simpson, Kozak, Doake, v3.8, 2026](https://github
 
 Three of four frontier configurations fail the same scenario across both Anthropic and OpenAI families.
 
+<!-- aethis-bible: claims.md#legalbench -->
 **External validation on LegalBench (paper §6.10):** across **9 LegalBench tasks (949 held-out cases authored by Stanford researchers)** the engine is significantly more accurate than each of three frontier LLMs by combined paired-binomial McNemar's test: *p* < 0.001 vs Claude Sonnet 4.6, *p* = 0.003 vs Claude Opus 4.7, *p* < 0.001 vs GPT-5.4. The structural advantage is largest on multi-prong rule-application tasks (Δ up to +41 pp) and persists at a smaller cross-task-significant margin on randomly-sampled tasks chosen without fit inspection.
 
 **The shifting-ground problem (paper §6.5 Finding 6):** between March and April 2026 several v3.7 paper cells closed silently under the same model alias — GPT-5.4 on construction-CAR moved from 96.6% to 100%; Opus 4.6 on spacecraft from 89.7% to 98.5%; the GPT-5.3 alias was deprecated by OpenAI mid-cycle. Frontier-LLM accuracy on a fixed benchmark is a moving target. The Aethis Engine is invariant by construction — same ruleset, same answer, any month, any prompt.
@@ -109,7 +115,7 @@ aethis_decide({
 **GPT says:** not covered.
 **Aethis says:** covered — pioneer override (Clause 9(3)) reinstates coverage even for design defects on projects >= £500M.
 
-Sub-5ms, no LLM at inference, same trace every time. The example trace above is representative — run the full reproducer (all 11 scenarios, every frontier model) yourself: [aethis-examples/construction-all-risks](https://github.com/aethis-ai/aethis-examples/tree/main/construction-all-risks).
+<1ms median decision, 0 LLM calls in the request path, same trace every time. The example trace above is representative — run the full reproducer (all 11 scenarios, every frontier model) yourself: [aethis-examples/construction-all-risks](https://github.com/aethis-ai/aethis-examples/tree/main/construction-all-risks).
 
 ---
 
@@ -122,7 +128,7 @@ Sub-5ms, no LLM at inference, same trace every time. The example trace above is 
 - Rules involve nested exceptions, conditional thresholds, or override chains
 - "95% accurate" is not good enough
 - You need the same answer every time, not just most of the time
-- **You're making decisions at scale** — the engine evaluates in under 5ms per decision (1000x faster than an LLM call). A batch of 10,000 evaluations completes in seconds, not hours
+- **You're making decisions at scale** — the engine evaluates at <1ms median decision (1000x faster than an LLM call). A batch of 10,000 evaluations completes in seconds, not hours
 - **Your agent needs to ask the right questions** — the engine computes the optimal next question to ask given what it already knows, finding the shortest path to a decision. Two applicants with different facts get different question sequences — the engine adapts in real time
 
 **Domains:** Loan eligibility, insurance underwriting, immigration compliance, HR policy, benefits qualification, medical device clearance, trade compliance — any domain where rules are written in legislation or policy documents.
@@ -223,6 +229,7 @@ Every decision traces back to the exact section and clause in the source legisla
 >
 > **What you'll need once approved:** an Aethis API key (we provision one for approved tenants) and your own Anthropic key for generation (passed per-request, never stored). Attempting authoring tools without approval returns `403 Forbidden`. [Request access →](https://aethis.ai/developer-access)
 
+<!-- aethis-bible: public-messaging.md#5-how-rule-authoring-works -->
 Aethis is not just a decision engine — it lets your agent compile legislation into executable logic. Paste a policy document, write test cases, and iterate until the rules pass.
 
 ### Three-phase authoring workflow
