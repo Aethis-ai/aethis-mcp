@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.3 (2026-05-06)
+- docs: restructure README as dev MCP docs — Install / Quick start / Tools / Setup leads, positioning sections (Problem, Accuracy, When to use this, How it works, Example walkthrough) removed; their content belongs in docs.aethis.ai or the benchmarks repo
+- docs: trim narrative paragraphs across Quick start, Conversational eligibility, and Authoring; collapse repeated Tips into terse callouts
+- docs: header tagline rewritten to a single factual line; link bar updated to the new structure
+
+## 0.3.2 (2026-05-06)
+- docs: normalise tone to documentation register — replace argumentative Proof section with one-liner accuracy claim, neutralise example framing, trim sales-y bullets in When to use this
+- docs: add private-beta callout for authoring tools (decision tools remain public, no key required)
+
+## 0.3.1 (2026-05-06)
+
+- docs: align README with positioning bible — promote 225-scenario accuracy framing
+- docs: add aethis-bible: markers to derived copy blocks
+- docs: fix latency claim to <1ms (was <5ms)
+- fix: replace deprecated "rule bundle" terminology with "ruleset"
+
 ## 0.3.0 (2026-05-05)
 
 - **Breaking**: renamed the public *bundle* concept to *ruleset* throughout the MCP tool set, to match the `aethis-core 0.10.0` API contract. The compiled rule artefact is now called a **ruleset** in every tool name, parameter, and prose description. Specifically:
