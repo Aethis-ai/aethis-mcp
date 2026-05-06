@@ -88,14 +88,14 @@ describe("AethisClient requests", () => {
 
   it("omits X-API-Key header when key is empty", async () => {
     const noKeyClient = new AethisClient("", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
-    fetchSpy.mockResolvedValueOnce(jsonResponse({ bundles: [] }));
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ rulesets: [] }));
     await noKeyClient.decide("b_123", {});
     const [, init] = fetchSpy.mock.calls[0];
     expect(init.headers["X-API-Key"]).toBeUndefined();
   });
 
   it("returns parsed JSON on success", async () => {
-    const data = { bundle_id: "b_123", fields: [] };
+    const data = { ruleset_id: "b_123", fields: [] };
     fetchSpy.mockResolvedValueOnce(jsonResponse(data));
     const result = await client.getSchema("b_123");
     expect(result).toEqual(data);
@@ -238,7 +238,7 @@ describe("AethisClient API methods", () => {
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("https://api.aethis.ai/api/v1/public/decide");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toEqual({ bundle_id: "b_123", field_values: { age: 30 } });
+    expect(JSON.parse(init.body)).toEqual({ ruleset_id: "b_123", field_values: { age: 30 } });
   });
 
   it("decide() passes include_trace and include_explanation", async () => {
@@ -257,23 +257,23 @@ describe("AethisClient API methods", () => {
     expect(body.include_explanation).toBeUndefined();
   });
 
-  it("getSchema() gets /api/v1/public/bundles/:id/schema", async () => {
+  it("getSchema() gets /api/v1/public/rulesets/:id/schema", async () => {
     await client.getSchema("b_123");
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/bundles/b_123/schema");
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulesets/b_123/schema");
     expect(init.method).toBe("GET");
   });
 
-  it("explain() gets /api/v1/public/bundles/:id/explain", async () => {
+  it("explain() gets /api/v1/public/rulesets/:id/explain", async () => {
     await client.explain("b_123");
     const [url] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/bundles/b_123/explain");
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulesets/b_123/explain");
   });
 
-  it("archiveBundle() posts to /api/v1/public/bundles/:id/archive", async () => {
-    await client.archiveBundle("b_123");
+  it("archiveRuleset() posts to /api/v1/public/rulesets/:id/archive", async () => {
+    await client.archiveRuleset("b_123");
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/bundles/b_123/archive");
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulesets/b_123/archive");
     expect(init.method).toBe("POST");
   });
 
@@ -296,10 +296,10 @@ describe("AethisClient API methods", () => {
     expect(init.method).toBe("POST");
   });
 
-  it("listBundles() gets /api/v1/public/projects/:id/bundles", async () => {
-    await client.listBundles("p_1");
+  it("listRulesets() gets /api/v1/public/projects/:id/rulesets", async () => {
+    await client.listRulesets("p_1");
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/bundles");
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/rulesets");
     expect(init.method).toBe("GET");
   });
 
@@ -354,7 +354,7 @@ describe("AethisClient API methods", () => {
   it("encodes path parameters to prevent traversal", async () => {
     await client.getSchema("../../admin/secrets");
     const [url] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.aethis.ai/api/v1/public/bundles/..%2F..%2Fadmin%2Fsecrets/schema");
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulesets/..%2F..%2Fadmin%2Fsecrets/schema");
     expect(url).not.toContain("../../");
   });
 });
@@ -378,13 +378,13 @@ describe("AethisClient generateAndTest", () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({
       project_status: "generating",
       job: { job_id: "j_1", status: "running", progress_percent: 50 },
-      latest_bundle_id: null,
+      latest_ruleset_id: null,
     }));
     // 3. second poll: success
     fetchSpy.mockResolvedValueOnce(jsonResponse({
       project_status: "ready",
-      job: { job_id: "j_1", status: "success", result_bundle_id: "b_new" },
-      latest_bundle_id: "b_new",
+      job: { job_id: "j_1", status: "success", result_ruleset_id: "b_new" },
+      latest_ruleset_id: "b_new",
     }));
     // 4. runTests
     fetchSpy.mockResolvedValueOnce(jsonResponse({
@@ -396,7 +396,7 @@ describe("AethisClient generateAndTest", () => {
     }));
 
     const result = await client.generateAndTest("p_1") as Record<string, unknown>;
-    expect(result.bundle_id).toBe("b_new");
+    expect(result.ruleset_id).toBe("b_new");
     expect(result.total).toBe(2);
     expect(result.passed).toBe(2);
     expect(fetchSpy).toHaveBeenCalledTimes(4);
