@@ -10,7 +10,7 @@ An MCP server that compiles legislation, policy, and regulation into determinist
 [![Docs](https://img.shields.io/badge/docs-docs.aethis.ai-blue)](https://docs.aethis.ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[The problem](#the-problem) | [Proof](#proof) | [When to use this](#when-to-use-this) | [Quick start](#quick-start) | [Author rules](#author-your-own-rules) | [Tools](#tools) | [Workflows](#workflows) | [DSL capabilities](#dsl-capabilities) | [Setup](#setup) | [Troubleshooting](#troubleshooting)
+[The problem](#the-problem) | [Accuracy](#accuracy) | [Example](#example) | [When to use this](#when-to-use-this) | [Quick start](#quick-start) | [Authoring (private beta)](#author-your-own-rules-private-beta) | [Tools](#tools) | [Workflows](#workflows) | [DSL capabilities](#dsl-capabilities) | [Setup](#setup) | [Troubleshooting](#troubleshooting)
 
 </div>
 
@@ -28,52 +28,21 @@ Aethis compiles rules into formal logic at authoring time. At decision time, no 
 
 ---
 
-## Proof
+## Accuracy
 
 <!-- aethis-bible: claims.md#internal-benchmark-aethis-vs-frontier-llms-225-scenarios -->
-Engine accuracy: 100% across 225 scenarios spanning four rule domains, where frontier LLMs score 63–100% (Simpson 2026 §3). The construction-CAR adversarial extension below is one domain from that dataset.
-
-Numbers below from the paper ([Simpson, Kozak, Doake, v3.8, 2026](https://github.com/Aethis-ai/confidently-wrong-benchmark/blob/main/paper/Simpson_Exception_Chain_Collapse_2026.md)). Three independent evidence sources.
-
-**v3.8 adversarial extension (paper §6.4.1):** 20 newly-authored construction-CAR scenarios stratified across 5 complexity dimensions, independent-prose-then-engine methodology. Engine 20/20 (100%) by construction; current frontier models still fail:
-
-| Configuration | N=20 | Failures |
-|--|:--:|--|
-| **Aethis Engine** | **20/20 (100%)** | — |
-| GPT-5.4 (`reasoning_effort=low`) | 20/20 (100%) | — |
-| GPT-5.4 (default) | 19/20 (95%) | **0 reasoning tokens on every scenario** — short-circuits on E4 (DE3/LEG3 carveback gap) |
-| Claude Sonnet 4.6 | 19/20 (95%) | E4 |
-| **Claude Opus 4.7** (current Anthropic strongest) | **18/20 (90%)** | E4 + B3 (£499 M boundary) |
-
-Three of four frontier configurations fail the same scenario across both Anthropic and OpenAI families.
+Engine accuracy: 100% across 225 scenarios spanning four rule domains, where frontier LLMs score 63–100% (Simpson 2026 §3).
 
 <!-- aethis-bible: claims.md#legalbench -->
-**External validation on LegalBench (paper §6.10):** across **9 LegalBench tasks (949 held-out cases authored by Stanford researchers)** the engine is significantly more accurate than each of three frontier LLMs by combined paired-binomial McNemar's test: *p* < 0.001 vs Claude Sonnet 4.6, *p* = 0.003 vs Claude Opus 4.7, *p* < 0.001 vs GPT-5.4. The structural advantage is largest on multi-prong rule-application tasks (Δ up to +41 pp) and persists at a smaller cross-task-significant margin on randomly-sampled tasks chosen without fit inspection.
+External validation on Stanford's LegalBench: significantly more accurate than Claude Opus 4.7 and GPT-5.4 across 9 tasks and 949 held-out cases (Simpson 2026 §6.10).
 
-**The shifting-ground problem (paper §6.5 Finding 6):** between March and April 2026 several v3.7 paper cells closed silently under the same model alias — GPT-5.4 on construction-CAR moved from 96.6% to 100%; Opus 4.6 on spacecraft from 89.7% to 98.5%; the GPT-5.3 alias was deprecated by OpenAI mid-cycle. Frontier-LLM accuracy on a fixed benchmark is a moving target. The Aethis Engine is invariant by construction — same ruleset, same answer, any month, any prompt.
+Replication artefacts and reproducible benchmarks: [Aethis-ai/confidently-wrong-benchmark](https://github.com/Aethis-ai/confidently-wrong-benchmark) · [aethis-examples](https://github.com/Aethis-ai/aethis-examples).
 
-See [`confidently-wrong-benchmark/legalbench/`](https://github.com/Aethis-ai/confidently-wrong-benchmark/tree/main/legalbench) for the full harness and per-call replication artefacts.
+---
 
-In regulated workflows (financial services, insurance, immigration, healthcare), decisions must be **deterministic** (same answer every time), **explainable** (audit trail to source clause), and **reproducible**. LLMs fail all three regardless of peak accuracy.
+## Example
 
-### Where LLMs fail
-
-The failure pattern is nested exception chains in a London market insurance endorsement:
-
-> Access damage is **excluded** (Clause 8).
-> Unless the project is worth >=100M — **enhanced cover reinstates** it (Clause 9(1)).
-> Unless the defect is a **design defect** — enhanced cover doesn't apply (Clause 9(2)).
-> Unless the project is worth >=500M — **pioneer override reinstates** it (Clause 9(3)).
-> Unless the defect was **known prior** — pioneer override is blocked (Clause 9A(1)).
-> Unless there's an **engineer assessment** — the block is lifted (Clause 9A(2)).
-
-GPT-5.4 fails on the pioneer override boundary at £500M (paper §6.4). GPT-4.1-mini fails systematically across the enhanced cover chain, treating the access damage exclusion as absolute.
-
-Full benchmarks, reproducible test runner, and per-scenario breakdown: [Aethis-ai/confidently-wrong-benchmark](https://github.com/Aethis-ai/confidently-wrong-benchmark) · [aethis-examples](https://github.com/Aethis-ai/aethis-examples)
-
-### The scenario GPT gets wrong
-
-A £600M pioneer infrastructure project. Design defect. Access damage claim.
+A decision against the published `aethis/construction-all-risks` ruleset. The rule structure is a nested exception chain — access damage exclusions reinstated by enhanced cover, qualified by design-defect carvebacks, with a pioneer override at higher project values.
 
 ```
 aethis_decide({
@@ -112,22 +81,17 @@ aethis_decide({
 }
 ```
 
-**GPT says:** not covered.
-**Aethis says:** covered — pioneer override (Clause 9(3)) reinstates coverage even for design defects on projects >= £500M.
-
-<1ms median decision, 0 LLM calls in the request path, same trace every time. The example trace above is representative — run the full reproducer (all 11 scenarios, every frontier model) yourself: [aethis-examples/construction-all-risks](https://github.com/aethis-ai/aethis-examples/tree/main/construction-all-risks).
+<1ms median decision, 0 LLM calls in the request path, same trace every time. Run the full reproducer (all 11 scenarios): [aethis-examples/construction-all-risks](https://github.com/aethis-ai/aethis-examples/tree/main/construction-all-risks).
 
 ---
 
 ## When to use this
 
-**Use Aethis when:**
+Aethis is appropriate when:
 
 - The decision has regulatory, legal, or financial consequences
 - You need an audit trail that traces back to source text
 - Rules involve nested exceptions, conditional thresholds, or override chains
-- "95% accurate" is not good enough
-- You need the same answer every time, not just most of the time
 - **You're making decisions at scale** — the engine evaluates at <1ms median decision (1000x faster than an LLM call). A batch of 10,000 evaluations completes in seconds, not hours
 - **Your agent needs to ask the right questions** — the engine computes the optimal next question to ask given what it already knows, finding the shortest path to a decision. Two applicants with different facts get different question sequences — the engine adapts in real time
 
@@ -162,6 +126,8 @@ Source text ──→ LLM compiles to rules ──→ Test suite validates ─�
 ## Quick start
 
 **Two use cases — decide which is yours:**
+
+> **Authoring is in private beta.** Decision tools (`aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_next_question`) are public — no key required. Authoring tools (rule generation, test refinement, publishing) require an invite. Request access at [aethis.ai/developer-access](https://aethis.ai/developer-access).
 
 - **Evaluate existing rules** — a ruleset already exists, you want to evaluate eligibility against it. No API key needed. Start with `aethis_decide` or `aethis_next_question`.
 - **Author new rules** — you have a policy document and want to compile it into logic. Requires an API key and Anthropic key. Start with `aethis_create_ruleset` and follow the TDD workflow.
@@ -218,11 +184,11 @@ One field provided. Decision reached instantly — the engine knew a Vogon is di
 Every decision traces back to the exact section and clause in the source legislation. Pass `include_trace: true` for the full evaluation trail.
 
 > [!TIP]
-> Want to create your own rules from a policy document? See [Author your own rules](#author-your-own-rules) below. Rule authoring is **invite-only private beta**. Decision tools (above) stay public and free. [Request access →](https://aethis.ai/developer-access)
+> Want to create your own rules from a policy document? See [Author your own rules](#author-your-own-rules-private-beta) below. Rule authoring is **invite-only private beta**. Decision tools (above) stay public and free. [Request access →](https://aethis.ai/developer-access)
 
 ---
 
-## Author your own rules
+## Author your own rules (private beta)
 
 > [!NOTE]
 > Rule authoring is **invite-only private beta** — approval required. Decision tools (above) work publicly with no keys.
@@ -479,7 +445,7 @@ The response includes `optimal_path` — the full ranked list of remaining quest
 
 ### Author rules
 
-See [Author your own rules](#author-your-own-rules) for the full TDD workflow.
+See [Author your own rules](#author-your-own-rules-private-beta) for the full TDD workflow.
 
 ---
 

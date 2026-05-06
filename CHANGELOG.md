@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 (2026-05-06)
+- docs: normalise tone to documentation register — replace argumentative Proof section with one-liner accuracy claim, neutralise example framing, trim sales-y bullets in When to use this
+- docs: add private-beta callout for authoring tools (decision tools remain public, no key required)
+
 ## 0.3.1 (2026-05-06)
 
 - docs: align README with positioning bible — promote 225-scenario accuracy framing
