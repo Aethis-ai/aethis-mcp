@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3 (2026-05-06)
+- docs: restructure README as dev MCP docs — Install / Quick start / Tools / Setup leads, positioning sections (Problem, Accuracy, When to use this, How it works, Example walkthrough) removed; their content belongs in docs.aethis.ai or the benchmarks repo
+- docs: trim narrative paragraphs across Quick start, Conversational eligibility, and Authoring; collapse repeated Tips into terse callouts
+- docs: header tagline rewritten to a single factual line; link bar updated to the new structure
+
 ## 0.3.2 (2026-05-06)
 - docs: normalise tone to documentation register — replace argumentative Proof section with one-liner accuracy claim, neutralise example framing, trim sales-y bullets in When to use this
 - docs: add private-beta callout for authoring tools (decision tools remain public, no key required)

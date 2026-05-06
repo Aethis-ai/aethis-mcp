@@ -2,161 +2,50 @@
 
 # aethis-mcp
 
-**LLMs interpret rules. This compiles them.**
-
-An MCP server that compiles legislation, policy, and regulation into deterministic logic — so your agent gets the same correct answer every time.
+MCP server for the Aethis decision engine. Compile legislation, policy, contracts, and regulation into deterministic logic — same input, same answer, every time, with a full audit trail.
 
 [![npm version](https://img.shields.io/npm/v/aethis-mcp.svg)](https://www.npmjs.com/package/aethis-mcp)
 [![Docs](https://img.shields.io/badge/docs-docs.aethis.ai-blue)](https://docs.aethis.ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[The problem](#the-problem) | [Accuracy](#accuracy) | [Example](#example) | [When to use this](#when-to-use-this) | [Quick start](#quick-start) | [Authoring (private beta)](#author-your-own-rules-private-beta) | [Tools](#tools) | [Workflows](#workflows) | [DSL capabilities](#dsl-capabilities) | [Setup](#setup) | [Troubleshooting](#troubleshooting)
+[Install](#install) · [Quick start](#quick-start) · [Tools](#tools) · [Setup](#setup) · [Authoring](#authoring-private-beta) · [DSL](#dsl-capabilities) · [Troubleshooting](#troubleshooting)
 
 </div>
 
 ---
 
-## The problem
-
-<!-- aethis-bible: public-messaging.md#3-the-problem-one-paragraph -->
-AI agents are making eligibility and compliance decisions using LLM reasoning. Most of the time it works. When it doesn't, nobody notices — the model returns a confident, well-structured wrong answer with no audit trail.
-
-LLMs are good at interpreting rules. They are not reliable at executing them. The failure mode is silent: high confidence, wrong answer, no trace.
-
-<!-- aethis-bible: public-messaging.md#4-the-solution-one-paragraph -->
-Aethis compiles rules into formal logic at authoring time. At decision time, no LLM is involved. Same inputs, same answer, every time — with a full audit trail back to the source clause.
-
----
-
-## Accuracy
-
-<!-- aethis-bible: claims.md#internal-benchmark-aethis-vs-frontier-llms-225-scenarios -->
-Engine accuracy: 100% across 225 scenarios spanning four rule domains, where frontier LLMs score 63–100% (Simpson 2026 §3).
-
-<!-- aethis-bible: claims.md#legalbench -->
-External validation on Stanford's LegalBench: significantly more accurate than Claude Opus 4.7 and GPT-5.4 across 9 tasks and 949 held-out cases (Simpson 2026 §6.10).
-
-Replication artefacts and reproducible benchmarks: [Aethis-ai/confidently-wrong-benchmark](https://github.com/Aethis-ai/confidently-wrong-benchmark) · [aethis-examples](https://github.com/Aethis-ai/aethis-examples).
-
----
-
-## Example
-
-A decision against the published `aethis/construction-all-risks` ruleset. The rule structure is a nested exception chain — access damage exclusions reinstated by enhanced cover, qualified by design-defect carvebacks, with a pioneer override at higher project values.
-
-```
-aethis_decide({
-  ruleset_id: "aethis/construction-all-risks",
-  field_values: {
-    "car.policy.period_valid": true,
-    "car.property.category": "permanent_works",
-    "car.loss.is_physical": true,
-    "car.component.is_defective": true,
-    "car.defect.origin": "design",
-    "car.claim.is_rectification": false,
-    "car.claim.is_access_damage": true,
-    "car.damage.consequence_of_failure": false,
-    "car.project.value_millions_gbp": 600,
-    "car.notification.within_period": true,
-    "car.contract.jct_compliant": true
-  },
-  include_trace: true
-})
-```
-
-```json
-{
-  "decision": "eligible",
-  "ruleset_version": "v3",
-  "fields_provided": 11,
-  "fields_evaluated": 11,
-  "trace": {
-    "not_rectification": "PASS — claim is not for rectification",
-    "carveback_qualification": "PASS — Route B: not solely access damage for removal",
-    "access_exclusion": "TRIGGERED — access damage claimed",
-    "enhanced_cover": "PASS — project value 600M >= 100M threshold",
-    "design_defect_check": "TRIGGERED — defect origin is design",
-    "pioneer_override": "PASS — project value 600M >= 500M, pioneer override applies"
-  }
-}
-```
-
-<1ms median decision, 0 LLM calls in the request path, same trace every time. Run the full reproducer (all 11 scenarios): [aethis-examples/construction-all-risks](https://github.com/aethis-ai/aethis-examples/tree/main/construction-all-risks).
-
----
-
-## When to use this
-
-Aethis is appropriate when:
-
-- The decision has regulatory, legal, or financial consequences
-- You need an audit trail that traces back to source text
-- Rules involve nested exceptions, conditional thresholds, or override chains
-- **You're making decisions at scale** — the engine evaluates at <1ms median decision (1000x faster than an LLM call). A batch of 10,000 evaluations completes in seconds, not hours
-- **Your agent needs to ask the right questions** — the engine computes the optimal next question to ask given what it already knows, finding the shortest path to a decision. Two applicants with different facts get different question sequences — the engine adapts in real time
-
-**Domains:** Loan eligibility, insurance underwriting, immigration compliance, HR policy, benefits qualification, medical device clearance, trade compliance — any domain where rules are written in legislation or policy documents.
-
-**You probably don't need this for:**
-
-- Content recommendations, search ranking, sentiment analysis
-- Decisions where "close enough" is fine
-- One-off questions that don't repeat
-
----
-
-## How it works
-
-The LLM is used once, at authoring time, to compile source text into formal logic. After that, every decision is pure constraint evaluation.
-
-```
-Source text ──→ LLM compiles to rules ──→ Test suite validates ──→ Published rule ruleset
-                (authoring time only)                                      │
-                                                                           ▼
-                                                                 Eligibility engine evaluates
-                                                                 (deterministic, no LLM)
-                                                                           │
-                                                                           ▼
-                                                                 eligible / not_eligible / undetermined
-                                                                 + trace back to source clause
-```
-
----
-
-## Quick start
-
-**Two use cases — decide which is yours:**
+## Install
 
 > **Authoring is in private beta.** Decision tools (`aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_next_question`) are public — no key required. Authoring tools (rule generation, test refinement, publishing) require an invite. Request access at [aethis.ai/developer-access](https://aethis.ai/developer-access).
-
-- **Evaluate existing rules** — a ruleset already exists, you want to evaluate eligibility against it. No API key needed. Start with `aethis_decide` or `aethis_next_question`.
-- **Author new rules** — you have a policy document and want to compile it into logic. Requires an API key and Anthropic key. Start with `aethis_create_ruleset` and follow the TDD workflow.
-
-No sign-up needed to evaluate. Decision tools work immediately.
 
 **Recommended — one command via [aethis-cli](https://github.com/Aethis-ai/aethis-cli):**
 
 ```bash
-# Install once:
 uv tool install aethis-cli
-
-# Wire up your MCP client (claude-code, cursor, claude-desktop, windsurf — or all):
 aethis mcp install --target all
 ```
 
-Idempotent, preserves any other MCP servers you have configured, and re-runs cleanly after `aethis account generate` rotates your key. Restart your editor to pick up the change. Full options: `aethis mcp install --help`.
+Wires the server into claude-code, cursor, claude-desktop, or windsurf. Idempotent. Restart your editor to pick up the change. Re-run after `aethis account generate` rotates a key. Full options: `aethis mcp install --help`.
 
-**Manual install** (if you don't use aethis-cli):
+**Manual install:**
 
 ```bash
 claude mcp add aethis -- npx -y aethis-mcp
 ```
 
-For Cursor / Claude Desktop / Windsurf manual config, see [Setup](#setup) below.
+For Cursor / Claude Desktop / Windsurf manual config, see [Setup](#setup).
 
-Try it immediately with the public demo ruleset (Spacecraft Crew Certification Act 2049):
+---
 
-> Is a Vogon eligible for crew certification?
+## Quick start
+
+```
+aethis_decide({
+  ruleset_id: "aethis/spacecraft-crew-certification",
+  field_values: { species: "Vogon" },
+  include_trace: true
+})
+```
 
 ```json
 {
@@ -169,294 +58,62 @@ Try it immediately with the public demo ruleset (Spacecraft Crew Certification A
 }
 ```
 
-One field provided. Decision reached instantly — the engine knew a Vogon is disqualified regardless of flight hours, medical certs, or anything else. No further questions asked.
+Public rulesets work without a key. Browse: `aethis_list_rulesets({})` or [docs.aethis.ai](https://docs.aethis.ai).
 
-> Is a 35-year-old human with 600 flight hours, a pilot licence, GAA exam, valid medical cert, on a suborbital mission with conventional propulsion and a towel — eligible?
-
-```json
-{
-  "decision": "eligible",
-  "fields_provided": 11,
-  "fields_evaluated": 11
-}
-```
-
-Every decision traces back to the exact section and clause in the source legislation. Pass `include_trace: true` for the full evaluation trail.
-
-> [!TIP]
-> Want to create your own rules from a policy document? See [Author your own rules](#author-your-own-rules-private-beta) below. Rule authoring is **invite-only private beta**. Decision tools (above) stay public and free. [Request access →](https://aethis.ai/developer-access)
-
----
-
-## Author your own rules (private beta)
-
-> [!NOTE]
-> Rule authoring is **invite-only private beta** — approval required. Decision tools (above) work publicly with no keys.
->
-> **What you'll need once approved:** an Aethis API key (we provision one for approved tenants) and your own Anthropic key for generation (passed per-request, never stored). Attempting authoring tools without approval returns `403 Forbidden`. [Request access →](https://aethis.ai/developer-access)
-
-<!-- aethis-bible: public-messaging.md#5-how-rule-authoring-works -->
-Aethis is not just a decision engine — it lets your agent compile legislation into executable logic. Paste a policy document, write test cases, and iterate until the rules pass.
-
-### Three-phase authoring workflow
-
-Complex legislation that spans multiple sections needs a structured approach before you write rules. The three phases build on each other: discover the structure, nail the field vocabulary, then generate and test rules.
-
-> [!TIP]
-> **Simple single-section rules?** Skip Phases 1–2. Go straight to `aethis_create_ruleset` → `aethis_discover_fields` → write tests → `aethis_generate_and_test`. The phase structure is for multi-section domains where getting the decomposition right matters.
-
-#### Phase 1 — Section discovery
-
-Use when you have complex legislation that needs to be split into separate, independently-evaluable sections.
-
-```
-aethis_discover_sections({
-  domain: "uk_fsm",
-  sources: [{ name: "fsm_legislation.md", content: "..." }]
-})
-→ Suggests: child_eligibility, household_qualifying_criteria, universal_infant_fsm
-
-aethis_validate_sections({
-  domain: "uk_fsm",
-  expected_sections: ["child_eligibility", "household_qualifying_criteria", "universal_infant_fsm"],
-  discovered_sections: [... result from above ...]
-})
-→ all_match: true
-```
-
-If sections don't match your expectation, refine and re-discover:
-
-```
-aethis_refine_sections({
-  domain: "uk_fsm",
-  feedback: "Universal Infant Free School Meals must be a separate section with no income test.",
-  sources: [...]
-})
-```
-
-#### Phase 2 — Field vocabulary
-
-Use before writing test cases to ensure the field names the engine produces match what you expect. If you skip this, you may write tests with invented field names that silently mismatch.
-
-```
-// Tell the engine what fields you expect (SME-defined spec):
-aethis_set_field_spec({
-  project_id: "proj_abc123",
-  expected_fields: [
-    { key: "child.age", sort: "Int" },
-    { key: "child.school_type", sort: "Enum", enum_values: ["state_funded", "independent"] }
-  ]
-})
-
-// Discover fields from source text — auto-validates against the spec:
-aethis_discover_fields({ project_id: "proj_abc123" })
-→ field list + validation_result if spec was set (shows missing/mismatched fields)
-
-// Refine if fields are wrong:
-aethis_refine_fields({
-  project_id: "proj_abc123",
-  feedback: "child.school_type should include 'home_educated' as a value"
-})
-
-// Explicit validation against spec:
-aethis_validate_fields({
-  project_id: "proj_abc123",
-  expected_fields: [...]
-})
-```
-
-#### Phase 3 — Generate and test
-
-What's documented below as Steps 1–4. Once sections are agreed and fields are validated, create rulesets and run the TDD loop.
-
----
-
-### Step 1: Create
-
-```
-aethis_create_ruleset({
-  name: "Consumer Credit Pre-Qualification",
-  section_id: "consumer-credit",
-  domain: "consumer_credit",                          // optional — groups related sections
-  source_text: "Section 3: Adverse credit history\n(1) An applicant with adverse credit history...",
-  test_cases: [
-    { name: "Adverse credit — decline", field_values: { "credit.has_adverse_history": true }, expected_outcome: "not_eligible" },
-    { name: "Good applicant — approve", field_values: { "credit.has_adverse_history": false, "credit.employment_status": "employed", ... }, expected_outcome: "eligible" },
-    { name: "High DTI, existing customer — approve", field_values: { "credit.dti_percent": 55, "credit.is_existing_customer": true, ... }, expected_outcome: "eligible" }
-  ]
-})
-```
-
-Returns a `project_id`.
-
-> [!TIP]
-> **Discover field names before writing tests.** Call `aethis_discover_fields({ project_id })` after creating a ruleset to get the exact field names the engine will use. Writing tests with invented field names causes silent mismatches. Run discover → write tests → generate.
-
-> [!TIP]
-> **Use `domain` to share guidance across sections.** If you have multiple related rulesets (e.g. `residence`, `english_language`, `good_character` under `uk_citizenship`), set the same `domain` on each. Guidance added with `aethis_add_domain_guidance` for that domain applies automatically to all projects in it — no need to repeat cross-section principles on every ruleset.
-
-### Step 2: Generate and test
-
-```
-aethis_generate_and_test({ project_id: "proj_abc123" })
-```
-
-```
-Generation complete. Test results: 2/3 passing.
-
-PASS  Adverse credit — decline
-PASS  Good applicant — approve
-FAIL  High DTI, existing customer — approve
-      Expected: eligible  Got: not_eligible
-      The existing customer exemption (Section 10) is not yet captured.
-```
-
-### Step 3: Refine
-
-```
-aethis_refine({
-  project_id: "proj_abc123",
-  feedback: "Section 10 says existing customers (24+ months good standing) are exempt from the DTI threshold in Section 6."
-})
-```
-
-```
-Generation complete. Test results: 3/3 passing.
-
-PASS  Adverse credit — decline
-PASS  Good applicant — approve
-PASS  High DTI, existing customer — approve  (was: FAIL → now: PASS)
-```
-
-You can also add guidance directly without regenerating, and inspect what's accumulated:
-
-```
-// Add targeted guidance for a specific failing test
-aethis_add_guidance({
-  project_id: "proj_abc123",
-  guidance_text: "When DTI > 45%, existing customers with 24+ months good standing are exempt (Section 10).",
-  process_type: "rule_generation"    // default; use "field_extraction" for field design principles
-})
-
-// Check what guidance is in place before adding more
-aethis_list_guidance({ project_id: "proj_abc123" })
-```
-
-For cross-section principles that apply to multiple rulesets in the same domain:
-
-```
-// Add once — applies to all projects in the domain automatically
-aethis_add_domain_guidance({
-  domain: "consumer_credit",
-  guidance_text: "The system flags, never decides. Discretionary clauses ('we will consider', 'may be waived') must produce 'undetermined', not 'not_eligible'.",
-  process_type: "rule_generation",
-  notes: "Core discretion principle — do not remove."   // stored for SME context, never sent to LLM
-})
-
-aethis_list_domain_guidance({ domain: "consumer_credit" })
-```
-
-**Diagnosing a specific failure:**
-
-```
-aethis_explain_failure({
-  // explain-failure currently requires the concrete ruleset_id from the
-  // /decide envelope (slugs not yet supported on this endpoint)
-  ruleset_id: "<ruleset_id from your /decide response>",
-  field_values: { "credit.dti_percent": 55, "credit.is_existing_customer": true },
-  expected_outcome: "eligible",
-  test_name: "High DTI, existing customer — approve"
-})
-// Returns: criterion statuses, which rule failed, and a targeted fix hint
-```
-
-### Step 4: Publish
-
-```
-aethis_publish({ project_id: "proj_abc123" })
-```
-
-Returns a `ruleset_id` — ready to use with `aethis_decide`.
-
-> [!NOTE]
-> **Test-driven iteration:** Aethis generates rules from your source text and guidance — not from your tests. Tests validate the output and show you what guidance to add next. Better tests = faster convergence on correct rules.
-
-> [!IMPORTANT]
-> **Anthropic key required for authoring.** Rule generation uses Anthropic LLM calls. Pass your key as `anthropic_key` on `aethis_generate_and_test` or `aethis_refine`. The key is used for the request only and **never stored**. Decision tools do not use Anthropic.
-
-> [!IMPORTANT]
-> **DATE fields use integer ordinals, not ISO strings.** Pass dates as Python `date.toordinal()` values (days since year 1). Example: `2025-04-13` = `739354`, `2026-04-13` = `739719`. Passing `"2025-04-13"` will fail with a type error. Quick conversion: `python3 -c "from datetime import date; print(date(2025, 4, 13).toordinal())"`.
-
+Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark](https://github.com/Aethis-ai/confidently-wrong-benchmark).
 
 ---
 
 ## Tools
 
-25 tools in four groups. Most agents use Decision (2 calls). Authors use the full Authoring workflow.
+25 tools across five groups.
 
-| Group | Tools | What they do |
-|-------|-------|-------------|
-| **Decision** | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure` | Evaluate eligibility, inspect fields, conversational checks, rule explanations, diagnose failures |
-| **Authoring — section & field phases** | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` | Decompose legislation into sections (Phase 1); establish and validate field vocabulary (Phase 2) |
-| **Authoring — rule generation** | `aethis_create_ruleset`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` | Create, iterate, and publish rule rulesets (TDD workflow); manage project and domain guidance |
-| **Discovery** | `aethis_list_projects`, `aethis_list_rulesets` | Find projects, browse ruleset versions |
-| **Management** | `aethis_archive_project`, `aethis_archive_ruleset` | Archive projects and rulesets (permanent) |
+| Group | Access | Tools |
+|-------|--------|-------|
+| **Decision** | public | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure` |
+| **Authoring — sections & fields** | private beta | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` |
+| **Authoring — generation** | private beta | `aethis_create_ruleset`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` |
+| **Discovery** | public | `aethis_list_projects`, `aethis_list_rulesets` |
+| **Management** | private beta | `aethis_archive_project`, `aethis_archive_ruleset` |
 
-### Prompts
+### Workflows
 
-MCP prompts are pre-built workflow guides that compatible clients (Claude Desktop, Cursor, VS Code Copilot) can surface as selectable templates.
-
-| Prompt | Description |
-|--------|-------------|
-| `aethis-author` | Step-by-step TDD workflow: gather requirements → create ruleset → generate → refine → publish |
-| `aethis-decide` | Decision workflow: find ruleset → get schema → evaluate (quick or conversational). Accepts optional `ruleset_id` argument |
-
----
-
-## Workflows
-
-### Evaluate eligibility (2 calls)
+**Evaluate eligibility (2 calls):**
 
 ```
-aethis_schema(ruleset_id)          → Learn what fields are needed
+aethis_schema(ruleset_id)          → fields needed
 aethis_decide(ruleset_id, fields)  → eligible / not_eligible / undetermined
 ```
 
-- `include_trace: true` — full evaluation trace with source citations for each criterion
-- `include_explanation: true` — human-readable rule descriptions (useful for surfacing to end users)
+Pass `include_trace: true` for the per-criterion evaluation trail. Pass `include_explanation: true` for human-readable rule descriptions.
 
-### Conversational eligibility — optimal question routing
-
-The engine doesn't just evaluate — it tells your agent what to ask next. Given the facts collected so far, it computes the single most informative question and returns the shortest remaining path to a decision.
+**Conversational eligibility (next-question routing):**
 
 ```
-aethis_next_question(ruleset_id, {})
-→ "What is the applicant's species?" (10 questions remaining)
-
-aethis_next_question(ruleset_id, {species: "Vogon"})
-→ Decision: not eligible. No more questions needed.
+aethis_next_question(ruleset_id, field_values)
 ```
 
-One fact was enough. A Vogon is disqualified immediately — the engine doesn't ask about flight hours, medical certs, or towel compliance. A different applicant might need 5 questions. Another might need 8. The engine adapts the path based on the answers it receives, always choosing the question that resolves the most uncertainty.
+Returns the most informative remaining question and the `optimal_path` of remaining questions. Call again after each answer; the engine recomputes from the updated state. Stops when a decision is reachable.
 
-This means your agent can run a guided assessment — asking only the questions that matter, in the order that matters — and reach a provable decision in the fewest possible steps.
+**Authoring** (private beta): see [Authoring](#authoring-private-beta).
 
-The response includes `optimal_path` — the full ranked list of remaining questions. You don't need to ask all of them: call `aethis_next_question` again after each answer and the engine recomputes the shortest path from the updated state. Once a decision is reachable, `is_eligible` is returned and no further questions are needed.
+### Prompts
 
-### Author rules
-
-See [Author your own rules](#author-your-own-rules-private-beta) for the full TDD workflow.
+| Prompt | Description |
+|--------|-------------|
+| `aethis-author` | Step-by-step TDD authoring workflow |
+| `aethis-decide` | Decision workflow guide; accepts optional `ruleset_id` |
 
 ---
 
 ## Setup
 
-Decision tools work with no API key. Add `AETHIS_API_KEY` when you have authoring access. For most users the [aethis-cli](https://github.com/Aethis-ai/aethis-cli) one-liner in [Quick start](#quick-start) is the fastest path; the manual options below are for environments where you don't want to install the Python CLI.
+Decision tools work with no key. Add `AETHIS_API_KEY` for authoring access (private beta).
 
 ### Claude Code
 
 ```bash
-# Decision tools only (no key needed)
+# Decision tools only
 claude mcp add aethis -- npx -y aethis-mcp
 
 # With authoring access
@@ -478,18 +135,130 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 }
 ```
 
-To enable authoring, add `"env": { "AETHIS_API_KEY": "<your-key>" }` to the config above.
+For authoring, add `"env": { "AETHIS_API_KEY": "<your-key>" }`.
 
 ### Cursor / Windsurf
 
-Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
+Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON shape).
 
-### Keys & security
+### Keys
 
-- `AETHIS_API_KEY` (`ak_live_...`) is your platform key. Mint with `aethis login` (cli) or via the dashboard. **Set it in the MCP client's config**, not your shell profile — the MCP server process doesn't inherit your shell environment.
-- `ANTHROPIC_API_KEY` is forwarded per-request to `aethis_generate_and_test`. The MCP server never stores it; it accompanies the one request and is discarded server-side.
-- Rotate by minting a new key (`aethis account generate` in the cli) and revoking the old one (`aethis account revoke <key_id>`). For multi-machine setups, mint one key per machine so revocation is surgical.
-- Both keys live next to each other in your MCP client config; treat that file like any other secrets store (don't commit to a public repo, sync via your normal credential pathway).
+- `AETHIS_API_KEY` (`ak_live_...`) — Aethis platform key. **Set in the MCP client config**, not your shell — the MCP server doesn't inherit shell env. Mint with `aethis login` or via the dashboard.
+- `ANTHROPIC_API_KEY` — forwarded per-request to `aethis_generate_and_test`. Used per-call, never stored.
+- Rotate via `aethis account generate` + `aethis account revoke <key_id>`. Mint one key per machine for surgical revocation.
+
+---
+
+## Authoring (private beta)
+
+> Authoring requires an invite. [Request access](https://aethis.ai/developer-access). Decision tools (above) are public.
+
+Three-phase workflow. Phases 1–2 are for multi-section domains; skip them for single-section rules and go straight to Phase 3.
+
+### Phase 1 — Section discovery
+
+```
+aethis_discover_sections({ domain, sources: [{ name, content }, ...] })
+aethis_validate_sections({ domain, expected_sections, discovered_sections })
+aethis_refine_sections({ domain, feedback, sources })
+```
+
+### Phase 2 — Field vocabulary
+
+```
+aethis_set_field_spec({
+  project_id,
+  expected_fields: [{ key, sort, enum_values? }, ...]
+})
+aethis_discover_fields({ project_id })           // auto-validates against the spec if set
+aethis_refine_fields({ project_id, feedback })
+aethis_validate_fields({ project_id, expected_fields })
+```
+
+### Phase 3 — Generate, test, publish
+
+```
+aethis_create_ruleset({
+  name, section_id, domain?, source_text,
+  test_cases: [{ name, field_values, expected_outcome }, ...]
+})
+aethis_generate_and_test({ project_id })
+aethis_refine({ project_id, feedback })          // iterate until tests pass
+aethis_publish({ project_id })                   // returns ruleset_id
+```
+
+### Guidance
+
+Targeted hints without regenerating, plus cross-section principles for a domain:
+
+```
+aethis_add_guidance({ project_id, guidance_text, process_type })
+aethis_list_guidance({ project_id })
+
+aethis_add_domain_guidance({ domain, guidance_text, process_type, notes? })
+aethis_list_domain_guidance({ domain })
+```
+
+`process_type` is `rule_generation` (default) or `field_extraction`.
+
+### Diagnose a failing test
+
+```
+aethis_explain_failure({
+  ruleset_id, field_values, expected_outcome, test_name
+})
+// Returns criterion statuses, the failing rule, and a targeted fix hint.
+```
+
+> [!NOTE]
+> Aethis generates rules from source text + guidance, not from your tests. Tests validate the output. Better tests = faster convergence.
+
+> [!IMPORTANT]
+> Anthropic key required for authoring. Pass as `anthropic_key` on `aethis_generate_and_test` and `aethis_refine`. Used per-request, never stored.
+
+> [!IMPORTANT]
+> DATE fields use integer ordinals (`date.toordinal()`), not ISO strings. `2025-04-13` = `739354`. Quick conversion: `python3 -c "from datetime import date; print(date(2025,4,13).toordinal())"`.
+
+---
+
+<details>
+<summary><strong>DSL capabilities</strong></summary>
+
+### Field types
+
+| Type | Description |
+|------|-------------|
+| `Bool` | True / false |
+| `Int` | Integer (counts, money as pence, percentages as integers) |
+| `Enum` | Closed set of named values |
+| `Date` | Integer ordinal — `date.toordinal()` |
+| `Duration` | Integer days |
+| `String` | Free text — prefer `Enum` for known sets |
+
+### Operators
+
+| Category | Operators |
+|----------|-----------|
+| Logic | `AND`, `OR`, `NOT`, `IMPLIES` |
+| Comparison | `=`, `≠`, `<`, `≤`, `>`, `≥` |
+| Membership | `IN [v1, v2, ...]` |
+| Arithmetic | `+`, `−` for `Int`/`Date`; `*` for `Int` |
+| Aggregation | `min(...)`, `max(...)` |
+
+### Helpers
+
+- `days_between(date_a, date_b)` → `Int`
+- `min(a, b, ...)`, `max(a, b, ...)` → `Int`
+- Constant arithmetic folded at authoring time (`5 * 365` → `1825`)
+
+### Not supported
+
+- Division between runtime field values
+- Weighted scoring or probabilistic outcomes
+- Lists as field values (use pre-aggregated `Int` / `Bool`)
+- More than 3 outcome tiers (`eligible` / `not_eligible` / `undetermined`)
+
+</details>
 
 ---
 
@@ -497,72 +266,27 @@ Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON as above).
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| "API key is required" | `AETHIS_API_KEY` not set (authoring tools only) | Configure in MCP client settings (not shell profile). Decision tools don't need a key |
-| "X-Anthropic-Key header is required" | Missing Anthropic key on generation | Pass `anthropic_key` parameter on authoring tools |
-| "Ruleset not found" (404) | Wrong ID or archived | Use `aethis_list_projects` → `aethis_list_rulesets` |
-| "Rate limit exceeded" (429) | Daily limit hit | Client retries automatically. Contact [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
-| "Cannot publish: tests failing" | Tests don't pass | Fix with `aethis_refine`, or `force=true` to override |
-| Generation timeout (504) | The client timed out waiting (normal for complex rules — generation can take 5–15 min server-side) | **The server continues generating after the timeout.** Wait 10–15 min, then call `aethis_list_rulesets({ project_id })` to check if a new ruleset appeared. If yes, call `aethis_publish`. If not, the server may still be running — wait and check again rather than re-triggering generation |
-| `"Expected an integer for <field>, got str"` | DATE field passed as ISO string | Pass as `date.toordinal()` integer — e.g. `739354` for 2025-04-13. Quick: `python3 -c "from datetime import date; print(date(2025,4,13).toordinal())"` |
-
----
-
-<details>
-<summary><strong>DSL capabilities</strong></summary>
-
-### Supported field types
-
-| Type | Description |
-|------|-------------|
-| `Bool` | True / false |
-| `Int` | Integer (includes counts, money as pence, percentages as integers) |
-| `Enum` | Closed set of named values |
-| `Date` | Stored as integer ordinal (days since year 1). Pass via `date.toordinal()` |
-| `Duration` | Integer number of days |
-| `String` | Free text (use sparingly — prefer Enum for known value sets) |
-
-### Supported operators
-
-| Category | Operators |
-|----------|-----------|
-| Logic | AND, OR, NOT, IMPLIES |
-| Comparison | `=`, `≠`, `<`, `≤`, `>`, `≥` |
-| Membership | `IN` — field IN [v1, v2, ...] |
-| Arithmetic | `+` and `−` for Int/Date fields; `*` (multiply) for Int fields |
-| Aggregation | `min(a, b, ...)` and `max(a, b, ...)` — return the smallest/largest Int |
-
-### Helpers
-
-- `days_between(date_a, date_b)` — returns Int (number of days, `date_b − date_a`)
-- `min(a, b, ...)` — minimum of 2+ Int values
-- `max(a, b, ...)` — maximum of 2+ Int values
-- Constant arithmetic is folded at authoring time: `5 * 365` becomes `1825` in the compiled rule
-
-### Not supported
-
-- Division between runtime field values
-- Weighted scoring or probabilistic outcomes
-- Lists as field values (model as pre-aggregated Int or Bool fields instead)
-- More than 3 outcome tiers (`eligible` / `not_eligible` / `undetermined`)
-
-</details>
+| `API key is required` | `AETHIS_API_KEY` not set (authoring) | Configure in MCP client settings, not shell profile |
+| `X-Anthropic-Key header is required` | Missing Anthropic key | Pass `anthropic_key` on the tool call |
+| `Ruleset not found` (404) | Wrong ID or archived | `aethis_list_projects` → `aethis_list_rulesets` |
+| `Rate limit exceeded` (429) | Daily limit | Client retries automatically. [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
+| `Cannot publish: tests failing` | Tests don't pass | `aethis_refine`, or `force=true` to override |
+| Generation timeout (504) | Server still generating (5–15 min normal) | Wait, then `aethis_list_rulesets({ project_id })` to check. Don't re-trigger |
+| `Expected an integer for <field>, got str` | DATE field passed as ISO string | Use `date.toordinal()` integer |
 
 ---
 
 ## Related
 
-**[aethis-cli](https://github.com/aethis-ai/aethis-cli)** — Python CLI for file-based rule authoring with YAML test cases and Rich terminal output.
-
-**[aethis-examples](https://github.com/aethis-ai/aethis-examples)** — Benchmark data, test scenarios, and LLM comparison results for construction insurance, consumer credit, and spacecraft certification.
+- [aethis-cli](https://github.com/Aethis-ai/aethis-cli) — Python CLI; file-based authoring with YAML test cases
+- [aethis-examples](https://github.com/Aethis-ai/aethis-examples) — runnable rulesets (spacecraft, construction-CAR, consumer credit) and benchmark scenarios
+- [confidently-wrong-benchmark](https://github.com/Aethis-ai/confidently-wrong-benchmark) — paper, 225-scenario benchmark, LegalBench harness
 
 ## Development
 
 ```bash
-git clone https://github.com/aethis-ai/aethis-mcp.git
-cd aethis-mcp
-npm install
-npm test       # 107 tests
-npm run build
+git clone https://github.com/Aethis-ai/aethis-mcp.git
+cd aethis-mcp && npm install && npm test && npm run build
 ```
 
 ## License
