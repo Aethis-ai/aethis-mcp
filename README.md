@@ -35,6 +35,8 @@ claude mcp add aethis -- npx -y aethis-mcp
 
 For Cursor / Claude Desktop / Windsurf manual config, see [Setup](#setup).
 
+> Onboarding an AI coding agent end-to-end? See [docs.aethis.ai/agents/onboarding](https://docs.aethis.ai/agents/onboarding) — install + verify + auth + workflow patterns in one page.
+
 ---
 
 ## Quick start
