@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.4 (2026-05-07)
+- docs: link to docs.aethis.ai/agents/onboarding from Install section
+
 ## 0.3.3 (2026-05-06)
 - docs: restructure README as dev MCP docs — Install / Quick start / Tools / Setup leads, positioning sections (Problem, Accuracy, When to use this, How it works, Example walkthrough) removed; their content belongs in docs.aethis.ai or the benchmarks repo
 - docs: trim narrative paragraphs across Quick start, Conversational eligibility, and Authoring; collapse repeated Tips into terse callouts
