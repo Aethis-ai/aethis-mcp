@@ -68,7 +68,7 @@ Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark
 
 ## Tools
 
-25 tools across five groups.
+24 tools across five groups.
 
 | Group | Access | Tools |
 |-------|--------|-------|
@@ -186,7 +186,7 @@ aethis_create_ruleset({
 })
 aethis_generate_and_test({ project_id })
 aethis_refine({ project_id, feedback })          // iterate until tests pass
-aethis_publish({ project_id })                   // returns ruleset_id
+aethis_publish({ project_id })                   // refuses if tests fail; returns ruleset_id on success
 ```
 
 ### Guidance
@@ -212,8 +212,8 @@ aethis_explain_failure({
 // Returns criterion statuses, the failing rule, and a targeted fix hint.
 ```
 
-> [!NOTE]
-> Aethis generates rules from source text + guidance, not from your tests. Tests validate the output. Better tests = faster convergence.
+> [!IMPORTANT]
+> **Tests are the publish gate.** `aethis_publish` refuses to publish a ruleset with a failing test. SMEs write the tests; the LLM generates the rules from source text + guidance; the platform refuses to ship rules that don't satisfy the tests. Better tests = faster convergence.
 
 > [!IMPORTANT]
 > Anthropic key required for authoring. Pass as `anthropic_key` on `aethis_generate_and_test` and `aethis_refine`. Used per-request, never stored.
@@ -272,7 +272,7 @@ aethis_explain_failure({
 | `X-Anthropic-Key header is required` | Missing Anthropic key | Pass `anthropic_key` on the tool call |
 | `Ruleset not found` (404) | Wrong ID or archived | `aethis_list_projects` → `aethis_list_rulesets` |
 | `Rate limit exceeded` (429) | Daily limit | Client retries automatically. [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
-| `Cannot publish: tests failing` | Tests don't pass | `aethis_refine`, or `force=true` to override |
+| `Cannot publish: tests failing` | Tests don't pass | `aethis_refine` until all tests pass |
 | Generation timeout (504) | Server still generating (5–15 min normal) | Wait, then `aethis_list_rulesets({ project_id })` to check. Don't re-trigger |
 | `Expected an integer for <field>, got str` | DATE field passed as ISO string | Use `date.toordinal()` integer |
 

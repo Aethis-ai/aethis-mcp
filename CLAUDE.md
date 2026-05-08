@@ -4,7 +4,7 @@ Agent notes for `aethis-mcp`. Human-facing docs in [README.md](README.md) and [d
 
 ## What this is
 
-Node.js MCP server that exposes 25 tools for the Aethis platform so coding agents (Claude Code, Claude Desktop, Cursor, Windsurf) can call `aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_generate_and_test`, `aethis_publish`, etc. directly from a conversation. Published to npm as `aethis-mcp`.
+Node.js MCP server that exposes 24 tools for the Aethis platform so coding agents (Claude Code, Claude Desktop, Cursor, Windsurf) can call `aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_generate_and_test`, `aethis_publish`, etc. directly from a conversation. Published to npm as `aethis-mcp`.
 
 Decision tools work with no API key. Authoring tools require `AETHIS_API_KEY` in the MCP client config.
 
@@ -30,7 +30,7 @@ npx aethis-mcp
 - [src/tools/](src/tools/) — one file per tool; each exports a name, JSONSchema params, and a handler that calls the appropriate `/api/v1/public/*` endpoint
 - [src/client.ts](src/client.ts) — thin httpx-style wrapper with retries + `AETHIS_BASE_URL` / `AETHIS_API_KEY` config
 
-The server-side HTTP targets are always on aethis-core; this package is a client shim. The 25 tools map 1:1 to public API endpoints plus a few MCP-ergonomics tools (e.g. `aethis_next_question` wraps an incremental decide loop).
+The server-side HTTP targets are always on aethis-core; this package is a client shim. The 24 tools map 1:1 to public API endpoints plus a few MCP-ergonomics tools (e.g. `aethis_next_question` wraps an incremental decide loop).
 
 ## Gotchas
 

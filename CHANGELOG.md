@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.5 (2026-05-07)
+- docs: surface the test-gate guarantee — `aethis_publish` refuses to publish a ruleset with a failing test, derived from positioning bible §5/§7. Strengthens the existing Note to an Important callout and annotates the publish line in the four-stage workflow
+- docs: drop `force=true` mention from troubleshooting — surfacing the override on the public README undermines the "cannot be published with failing tests" guarantee. The API parameter remains in the engine; whether to deprecate it is tracked separately
+- docs: fix tool count (25 → 24); tools table sums to 24 (5 + 7 + 8 + 2 + 2). Fixed in README header and in CLAUDE.md
+
 ## 0.3.4 (2026-05-07)
 - docs: link to docs.aethis.ai/agents/onboarding from Install section
 
