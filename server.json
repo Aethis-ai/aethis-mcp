@@ -7,19 +7,19 @@
     "source": "github"
   },
   "websiteUrl": "https://docs.aethis.ai",
-  "version": "0.2.4",
+  "version": "0.4.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "aethis-mcp",
-      "version": "0.2.4",
+      "version": "0.4.1",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "AETHIS_API_KEY",
-          "description": "API key for rule authoring tools (create/generate/publish). Decision tools (decide/schema/explain on public bundles) work without a key. Get one via 'aethis login' in aethis-cli.",
+          "description": "API key for rule authoring tools (create/generate/publish). Decision tools (decide/schema/explain on public rulesets) work without a key. Get one via 'aethis login' in aethis-cli.",
           "isRequired": false,
           "isSecret": true,
           "format": "string"

@@ -19,12 +19,12 @@ GPT-5.3, a production-tier OpenAI model, scores **64% on this exception chain** 
 
 ---
 
-## Step 1: Create the rule bundle
+## Step 1: Create the ruleset
 
 Paste the policy wording and define test cases. The test cases drive the authoring process — better tests, faster convergence.
 
 ```
-aethis_create_bundle({
+aethis_create_ruleset({
   name: "CAR Policy Defect Exclusion Endorsement 2025",
   section_id: "car_defect_endorsement",
   domain: "insurance",
@@ -46,7 +46,7 @@ aethis_create_bundle({
 ```
 
 ```
-Rule bundle created successfully.
+Ruleset created successfully.
   Project ID: proj_nVKX4EnfOzOkkmj-
   Section: car_defect_endorsement
   Source: 11,774 characters uploaded
@@ -79,7 +79,7 @@ Progress updates stream in real-time:
 
 All tests passing! Call aethis_publish to publish.
 
-Bundle: car_defect_endorsement:20260408-285d1720
+Ruleset: car_defect_endorsement:20260408-285d1720
 ```
 
 **11 out of 11 tests pass.** Including the five-level exception chain that GPT-5.3 and GPT-5.4 at low reasoning effort each score 7/11 (63.6%) on (Simpson, Kozak, Doake, v3.8, 2026 — Table 8b). The same paper's §6.10 reports external validation across 9 LegalBench tasks (949 held-out cases) where the engine is significantly more accurate than Sonnet 4.6, Opus 4.7, and GPT-5.4 by combined paired-binomial McNemar's test (all *p* ≤ 0.003); see [`confidently-wrong-benchmark/legalbench/`](https://github.com/Aethis-ai/confidently-wrong-benchmark/tree/main/legalbench) for the full harness.
@@ -94,12 +94,12 @@ aethis_publish({ project_id: "proj_nVKX4EnfOzOkkmj-" })
 
 ```
 Published successfully!
-  Bundle: car_defect_endorsement:20260408-285d1720
+  Ruleset: car_defect_endorsement:20260408-285d1720
   Version: v2
   Tests: 11/11 passing
 ```
 
-The bundle is now a live API endpoint. Every decision from here uses formal constraint evaluation — no LLM, no probability, no temperature.
+The ruleset is now a live API endpoint. Every decision from here uses formal constraint evaluation — no LLM, no probability, no temperature.
 
 ---
 
@@ -111,7 +111,7 @@ A £600M pioneer infrastructure project. Design defect. Access damage claim.
 
 ```
 aethis_decide({
-  bundle_id: "car_defect_endorsement:20260408-285d1720",
+  ruleset_id: "car_defect_endorsement:20260408-285d1720",
   field_values: {
     "car.policy.period_valid": true,
     "car.property.category": "permanent_works",
@@ -215,7 +215,7 @@ aethis_decide({
 ## Step 5: Explain the rules
 
 ```
-aethis_explain({ bundle_id: "car_defect_endorsement:20260408-285d1720" })
+aethis_explain({ ruleset_id: "car_defect_endorsement:20260408-285d1720" })
 ```
 
 Returns every rule in human-readable form with clause references:

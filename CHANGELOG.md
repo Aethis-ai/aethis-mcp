@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 (2026-05-10)
+- docs: fix stale `bundle`/`bundle_id`/`aethis_create_bundle` terminology in `docs/demo-construction-insurance.md` and `docs/agentic-decision-systems.md` — these files were not caught by the v0.3.0 rename sweep. All references now use `ruleset`/`ruleset_id`/`aethis_create_ruleset`
+- chore: bump `server.json` version to 0.4.1 (was lagging behind `package.json`)
+- security: regenerate `package-lock.json` — bumps `hono` 4.12.12 → 4.12.18, `fast-uri` 3.1.0 → 3.1.2, `ip-address` 10.1.0 → 10.2.0, `postcss` 8.5.8 → 8.5.14; clears all 6 open Dependabot alerts (closes #19)
+
 ## 0.4.0 (2026-05-10)
 - feat: new `aethis_discover_rulesets` tool — lists the cross-tenant
   public showcase catalogue (no authentication required). Mirrors the

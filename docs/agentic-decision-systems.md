@@ -12,7 +12,7 @@ An AI agent designs the decision system. A formal engine executes the decisions.
 │       ↓                                                          │
 │  Agent writes test cases (expected outcomes)                     │
 │       ↓                                                          │
-│  aethis_create_bundle({ source_text, test_cases })               │
+│  aethis_create_ruleset({ source_text, test_cases })              │
 │       ↓                                                          │
 │  aethis_generate_and_test()  ←→  iterate until tests pass        │
 │       ↓                                                          │
@@ -20,12 +20,12 @@ An AI agent designs the decision system. A formal engine executes the decisions.
 │                                                                  │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
-                         published bundle
+                        published ruleset
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
 │  RUNTIME (no LLM)                                                │
 │                                                                  │
-│  aethis_decide({ bundle_id, field_values })                      │
+│  aethis_decide({ ruleset_id, field_values })                      │
 │       ↓                                                          │
 │  SMT constraint evaluation  →  eligible / not_eligible           │
 │       +                                                          │
@@ -61,7 +61,7 @@ Claude Code / Cursor / Windsurf
        ↓ (REST API)
   Aethis platform (api.aethis.ai)
        ↓
-  Published rule bundle
+  Published ruleset
 ```
 
 The agent handles the creative work: reading the policy, writing test cases, refining guidance when tests fail. The platform handles compilation and formal evaluation.
@@ -77,7 +77,7 @@ source_text = agent.extract_from_document("regulation-2025.pdf")
 # Agent designs test cases based on its understanding
 test_cases = agent.design_test_suite(source_text)
 
-# Create the rule bundle
+# Create the ruleset
 project = aethis.create_project(name="Regulation 2025", section_id="reg_2025")
 aethis.upload_source(project.id, source_text)
 aethis.add_tests(project.id, test_cases)
@@ -100,7 +100,7 @@ At runtime, no MCP server or agent is needed. Any application calls the REST API
 curl -X POST https://api.aethis.ai/api/v1/public/decide \
   -H "Content-Type: application/json" \
   -d '{
-    "bundle_id": "car_defect_endorsement:20260408-285d1720",
+    "ruleset_id": "car_defect_endorsement:20260408-285d1720",
     "field_values": {
       "car.project.value_millions_gbp": 600,
       "car.defect.origin": "design",
