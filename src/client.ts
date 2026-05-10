@@ -229,6 +229,17 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/rulesets`);
   }
 
+  /**
+   * List published rulesets visible to anonymous callers (the cross-tenant
+   * showcase catalogue). The endpoint filters on `visibility="public"`
+   * regardless of whether a key is present, so this works the same for
+   * authenticated and unauthenticated clients.
+   */
+  async discoverRulesets(limit: number = 20, offset: number = 0): Promise<unknown> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    return this.request("GET", `/api/v1/public/rulesets?${params.toString()}`);
+  }
+
   async archiveProject(projectId: string): Promise<unknown> {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/archive`);
   }

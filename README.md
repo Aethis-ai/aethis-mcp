@@ -60,7 +60,7 @@ aethis_decide({
 }
 ```
 
-Public rulesets work without a key. Browse: `aethis_list_rulesets({})` or [docs.aethis.ai](https://docs.aethis.ai).
+Public rulesets work without a key. Browse: `aethis_discover_rulesets({})` or [docs.aethis.ai](https://docs.aethis.ai).
 
 Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark](https://github.com/Aethis-ai/confidently-wrong-benchmark).
 
@@ -68,14 +68,15 @@ Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark
 
 ## Tools
 
-24 tools across five groups.
+25 tools across five groups.
 
 | Group | Access | Tools |
 |-------|--------|-------|
 | **Decision** | public | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure` |
+| **Discovery — public catalogue** | public | `aethis_discover_rulesets` |
+| **Discovery — your tenant** | private beta | `aethis_list_projects`, `aethis_list_rulesets` |
 | **Authoring — sections & fields** | private beta | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` |
 | **Authoring — generation** | private beta | `aethis_create_ruleset`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` |
-| **Discovery** | public | `aethis_list_projects`, `aethis_list_rulesets` |
 | **Management** | private beta | `aethis_archive_project`, `aethis_archive_ruleset` |
 
 ### Workflows

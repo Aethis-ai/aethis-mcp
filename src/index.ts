@@ -365,6 +365,17 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_discover_rulesets(args: { limit?: number; offset?: number }): Promise<ToolResult> {
+      // No auth guard — this is the cross-tenant public catalogue. Same
+      // anonymous policy as aethis_decide / aethis_schema / aethis_explain.
+      const limit = args.limit ?? 20;
+      const offset = args.offset ?? 0;
+      try {
+        const result = await client.discoverRulesets(limit, offset);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
     // -- Management tools --
 
     async aethis_archive_project(args: { project_id: string }): Promise<ToolResult> {
@@ -990,6 +1001,16 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   );
 
   server.tool(
+    "aethis_discover_rulesets",
+    "List public showcase rulesets across all tenants. No authentication required. Use this for first-time discovery, demos, or whenever the user asks 'what rulesets are available?' without referencing a specific project. Returns slug, ruleset_id, description, field_count, rule_count for each — pass the slug or ruleset_id to aethis_decide / aethis_schema / aethis_explain to interact with one. Distinct from aethis_list_rulesets, which is tenant-scoped.",
+    {
+      limit: z.number().int().min(1).max(50).optional().describe("Maximum rulesets to return (default 20, max 50)."),
+      offset: z.number().int().min(0).optional().describe("Pagination offset (default 0)."),
+    },
+    (args) => handlers.aethis_discover_rulesets(args),
+  );
+
+  server.tool(
     "aethis_archive_project",
     "Archive a project. Archived projects are preserved but excluded from listing. This is permanent.",
     { project_id: z.string().describe("The project ID to archive") },
@@ -1310,7 +1331,7 @@ When all tests pass, call aethis_publish. This validates tests pass, activates t
 export function decidePromptText(rulesetId?: string): string {
   const rulesetHint = rulesetId
     ? `The user wants to evaluate ruleset "${rulesetId}". Start by calling aethis_schema with this ruleset_id.`
-    : "Start by helping the user find their ruleset: call aethis_list_projects, then aethis_list_rulesets for the relevant project.";
+    : "Start by helping the user find a ruleset. For public showcase rulesets (any user, no key required) call aethis_discover_rulesets. For the user's own private rulesets (requires AETHIS_API_KEY) call aethis_list_projects then aethis_list_rulesets for the relevant project.";
 
   return `You are guiding the user through evaluating eligibility using the Aethis platform.
 
@@ -1399,12 +1420,14 @@ async function main(): Promise<void> {
         "**Author rules** (TDD): aethis_create_ruleset → aethis_discover_fields → write tests with discovered field names → aethis_generate_and_test (60-120s) → aethis_refine (if failures) → aethis_publish",
         "**Evaluate eligibility**: aethis_schema (discover fields) → aethis_decide (with optional include_trace/include_explanation)",
         "**Conversational check**: aethis_next_question iteratively with growing field_values until decision reached",
-        "**Discover**: aethis_list_projects → aethis_list_rulesets",
+        "**Discover (public catalogue)**: aethis_discover_rulesets — no auth required; cross-tenant showcase rulesets",
+        "**Discover (your tenant)**: aethis_list_projects → aethis_list_rulesets — requires AETHIS_API_KEY",
         "",
         "## Key Principles",
         "- Tests come FIRST — define expected outcomes before generating rules",
         "- Guidance must reference specific source text — vague feedback like 'fix it' won't help",
         "- Decision tools (aethis_decide, aethis_schema, aethis_explain, aethis_next_question) need no authentication",
+        "- aethis_discover_rulesets is the no-auth catalogue browser — use it whenever the user wants to explore what's available without committing to a tenant",
         "- Authoring tools need an API key (AETHIS_API_KEY or 'aethis login')",
         "- Decisions are deterministic, <5ms, no LLM at inference time — all rules are pre-compiled",
         "",

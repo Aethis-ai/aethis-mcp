@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0 (2026-05-10)
+- feat: new `aethis_discover_rulesets` tool — lists the cross-tenant
+  public showcase catalogue (no authentication required). Mirrors the
+  no-auth policy of `aethis_decide` / `aethis_schema` /
+  `aethis_explain`. Returns slug, ruleset_id, description, field_count,
+  rule_count for each entry; the slug or ruleset_id can then be passed
+  to the existing decision tools. Distinct from `aethis_list_rulesets`,
+  which remains tenant-scoped and authenticated. Tool count: 24 → 25.
+- feat: `client.discoverRulesets(limit, offset)` wrapping
+  `GET /api/v1/public/rulesets`.
+- docs: `aethis-decide` prompt and server-instructions now point at
+  `aethis_discover_rulesets` for first-time discovery (no key) before
+  falling back to `aethis_list_projects` → `aethis_list_rulesets` for
+  authenticated tenant browsing.
+
 ## 0.3.5 (2026-05-07)
 - docs: surface the test-gate guarantee — `aethis_publish` refuses to publish a ruleset with a failing test, derived from positioning bible §5/§7. Strengthens the existing Note to an Important callout and annotates the publish line in the four-stage workflow
 - docs: drop `force=true` mention from troubleshooting — surfacing the override on the public README undermines the "cannot be published with failing tests" guarantee. The API parameter remains in the engine; whether to deprecate it is tracked separately

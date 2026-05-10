@@ -4,9 +4,9 @@ Agent notes for `aethis-mcp`. Human-facing docs in [README.md](README.md) and [d
 
 ## What this is
 
-Node.js MCP server that exposes 24 tools for the Aethis platform so coding agents (Claude Code, Claude Desktop, Cursor, Windsurf) can call `aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_generate_and_test`, `aethis_publish`, etc. directly from a conversation. Published to npm as `aethis-mcp`.
+Node.js MCP server that exposes 25 tools for the Aethis platform so coding agents (Claude Code, Claude Desktop, Cursor, Windsurf) can call `aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_discover_rulesets`, `aethis_generate_and_test`, `aethis_publish`, etc. directly from a conversation. Published to npm as `aethis-mcp`.
 
-Decision tools work with no API key. Authoring tools require `AETHIS_API_KEY` in the MCP client config.
+Decision tools and `aethis_discover_rulesets` (the public-catalogue browser) work with no API key. Tenant-scoped tools (`aethis_list_projects`, `aethis_list_rulesets`, all authoring) require `AETHIS_API_KEY` in the MCP client config.
 
 The documented install path for end users is `aethis mcp install --target <client>` from [aethis-cli](../aethis-cli/) (added in aethis-cli v0.5.0, May 2026). The README's "Manual install" section (`claude mcp add ...` and per-client JSON snippets) is the fallback for users who don't have aethis-cli. When updating install instructions, keep the cli one-liner as the primary path.
 
