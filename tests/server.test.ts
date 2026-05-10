@@ -71,10 +71,10 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 25 tool handlers", () => {
+  it("returns all 26 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(25);
+    expect(names).toHaveLength(26);
     // Decision
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
@@ -84,6 +84,7 @@ describe("createToolHandlers", () => {
     // Ruleset / project listing
     expect(names).toContain("aethis_list_projects");
     expect(names).toContain("aethis_list_rulesets");
+    expect(names).toContain("aethis_discover_rulesets");
     expect(names).toContain("aethis_archive_project");
     expect(names).toContain("aethis_archive_ruleset");
     // Authoring lifecycle
@@ -746,14 +747,14 @@ describe("A3 aethis_source tool visibility", () => {
   });
 
   it("tool handler count matches expected public tools (aethis_source excluded from server.tool)", () => {
-    // createToolHandlers returns 25 handlers including aethis_source (internal).
-    // registerTools is expected to publish 24 of them — aethis_source is the
+    // createToolHandlers returns 26 handlers including aethis_source (internal).
+    // registerTools is expected to publish 25 of them — aethis_source is the
     // single handler that exists but is not registered as an MCP tool.
     const handlers = createToolHandlers(mockClient());
-    expect(Object.keys(handlers)).toHaveLength(25);
+    expect(Object.keys(handlers)).toHaveLength(26);
   });
 
-  it("registerTools publishes 24 tools and does NOT register aethis_source", () => {
+  it("registerTools publishes 25 tools and does NOT register aethis_source", () => {
     // We intercept the McpServer-like object's .tool() calls to see exactly
     // which names are registered. Even if the count drifts in future, the
     // intent is: aethis_source is handler-only, never a public tool.
@@ -767,7 +768,7 @@ describe("A3 aethis_source tool visibility", () => {
 
     registerTools(fakeServer, createToolHandlers(mockClient()));
 
-    expect(registered).toHaveLength(24);
+    expect(registered).toHaveLength(25);
     expect(registered).not.toContain("aethis_source");
   });
 });
@@ -775,6 +776,7 @@ describe("A3 aethis_source tool visibility", () => {
 describe("decidePromptText", () => {
   it("without ruleset_id suggests discovery", () => {
     const text = decidePromptText();
+    expect(text).toContain("aethis_discover_rulesets");
     expect(text).toContain("aethis_list_projects");
     expect(text).toContain("aethis_list_rulesets");
   });
