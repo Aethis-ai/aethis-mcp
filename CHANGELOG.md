@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.3 (2026-05-11)
+- fix: align `package.json` repository metadata with GitHub provenance so npm Trusted Publishing can verify the package source.
+
 ## 0.4.2 (2026-05-11)
 - fix: pin `zod` to v3 so the MCP SDK tool registration types match the build-time schema shape; `npm publish` now runs the `prepublishOnly` TypeScript build successfully.
 
