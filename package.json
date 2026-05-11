@@ -1,6 +1,6 @@
 {
   "name": "aethis-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "MCP server for the Aethis developer API — eligibility checks via Claude, Cursor, Windsurf",
   "mcpName": "io.github.aethis-ai/aethis-mcp",
   "type": "module",
@@ -51,7 +51,8 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1"
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

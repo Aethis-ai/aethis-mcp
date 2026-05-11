@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.2 (2026-05-11)
+- fix: pin `zod` to v3 so the MCP SDK tool registration types match the build-time schema shape; `npm publish` now runs the `prepublishOnly` TypeScript build successfully.
+
 ## 0.4.1 (2026-05-10)
 - docs: fix stale `bundle`/`bundle_id`/`aethis_create_bundle` terminology in `docs/demo-construction-insurance.md` and `docs/agentic-decision-systems.md` — these files were not caught by the v0.3.0 rename sweep. All references now use `ruleset`/`ruleset_id`/`aethis_create_ruleset`
 - chore: bump `server.json` version to 0.4.1 (was lagging behind `package.json`)
