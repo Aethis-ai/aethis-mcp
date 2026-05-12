@@ -8,7 +8,7 @@ MCP server for the Aethis decision engine. Compile legislation, policy, contract
 [![Docs](https://img.shields.io/badge/docs-docs.aethis.ai-blue)](https://docs.aethis.ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[Install](#install) · [Quick start](#quick-start) · [Tools](#tools) · [Setup](#setup) · [Authoring](#authoring-private-beta) · [DSL](#dsl-capabilities) · [Troubleshooting](#troubleshooting)
+[Install](#install) · [Skills](#skills) · [Quick start](#quick-start) · [Tools](#tools) · [Setup](#setup) · [Authoring](#authoring-private-beta) · [DSL](#dsl-capabilities) · [Troubleshooting](#troubleshooting)
 
 </div>
 
@@ -36,6 +36,18 @@ claude mcp add aethis -- npx -y aethis-mcp
 For Cursor / Claude Desktop / Windsurf manual config, see [Setup](#setup).
 
 > Onboarding an AI coding agent end-to-end? See [docs.aethis.ai/agents/onboarding](https://docs.aethis.ai/agents/onboarding) — install + verify + auth + workflow patterns in one page.
+
+---
+
+## Skills
+
+After the MCP server is installed, add reusable agent workflows with [`aethis-skills`](https://github.com/Aethis-ai/aethis-skills):
+
+```bash
+npx skills add Aethis-ai/aethis-skills
+```
+
+The skills package provides workflows for policy-to-ruleset authoring, test/refine/publish loops, decisions with trace, and regression comparison. It calls the MCP tools in this package; it does not replace the MCP server.
 
 ---
 

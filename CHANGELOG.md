@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.4 (2026-05-12)
+- docs: surface `aethis-skills` as the optional agent workflow layer on top of MCP.
+
 ## 0.4.3 (2026-05-11)
 - fix: align `package.json` repository metadata with GitHub provenance so npm Trusted Publishing can verify the package source.
 
