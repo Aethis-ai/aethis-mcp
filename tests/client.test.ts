@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AethisClient, AethisAPIError } from "../src/client.js";
+import { AethisClient, AethisAPIError, sanitizeProgressDetail } from "../src/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -435,5 +435,53 @@ describe("AethisClient generateAndTest", () => {
     }));
 
     await expect(client.generateAndTest("p_1")).rejects.toThrow(/timed out/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeProgressDetail (#34) — stderr log redaction
+// ---------------------------------------------------------------------------
+
+describe("sanitizeProgressDetail", () => {
+  it("strips C0 control characters except TAB", () => {
+    const raw = "hello\x00world\x07\x08\x1bdone\ttab";
+    expect(sanitizeProgressDetail(raw)).toBe("helloworlddone\ttab");
+  });
+
+  it("strips embedded newlines and CR", () => {
+    expect(sanitizeProgressDetail("a\nb\rc")).toBe("abc");
+  });
+
+  it("strips DEL (0x7F)", () => {
+    expect(sanitizeProgressDetail("a\x7Fb")).toBe("ab");
+  });
+
+  it("caps long output at 120 visible characters and appends …", () => {
+    const raw = "x".repeat(500);
+    const out = sanitizeProgressDetail(raw);
+    // Truncated body + the ellipsis character.
+    expect(out.length).toBe(121);
+    expect(out.endsWith("…")).toBe(true);
+    expect(out.startsWith("x".repeat(120))).toBe(true);
+  });
+
+  it("returns the body untouched when at or below the cap", () => {
+    const raw = "x".repeat(120);
+    expect(sanitizeProgressDetail(raw)).toBe(raw);
+  });
+
+  it("redacts control chars even when AETHIS_MCP_VERBOSE would gate full output (helper itself ignores the env)", () => {
+    // sanitizeProgressDetail is invariant under env; the env gate is in
+    // the caller. Confirm by setting and unsetting.
+    const saved = process.env.AETHIS_MCP_VERBOSE;
+    try {
+      process.env.AETHIS_MCP_VERBOSE = "1";
+      expect(sanitizeProgressDetail("a\x00b")).toBe("ab");
+      delete process.env.AETHIS_MCP_VERBOSE;
+      expect(sanitizeProgressDetail("a\x00b")).toBe("ab");
+    } finally {
+      if (saved === undefined) delete process.env.AETHIS_MCP_VERBOSE;
+      else process.env.AETHIS_MCP_VERBOSE = saved;
+    }
   });
 });

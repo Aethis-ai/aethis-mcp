@@ -159,8 +159,42 @@ Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON shape).
 ### Keys
 
 - `AETHIS_API_KEY` (`ak_live_...`) — Aethis platform key. **Set in the MCP client config**, not your shell — the MCP server doesn't inherit shell env. Mint with `aethis login` or via the dashboard.
-- `ANTHROPIC_API_KEY` — forwarded per-request to `aethis_generate_and_test`. Used per-call, never stored.
+- `ANTHROPIC_API_KEY` — forwarded per-request to `aethis_generate_and_test`. Used per-call, never stored. See [Passing your Anthropic key safely](#passing-your-anthropic-key-safely) below — prefer the env-var or keychain reference forms over passing the raw key as a tool argument.
 - Rotate via `aethis account generate` + `aethis account revoke <key_id>`. Mint one key per machine for surgical revocation.
+
+### Passing your Anthropic key safely
+
+Authoring tools (`aethis_generate_and_test`, `aethis_refine`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_discover_sections`, `aethis_refine_sections`) need an Anthropic API key per call. Three accepted forms — listed in **preferred order**:
+
+1. **`anthropic_key_env`** (recommended). Name of an env var (set in the MCP client config) that holds the key. The raw value never appears in the tool call payload, so it does not land in the MCP host's session transcript on disk.
+
+   ```jsonc
+   // claude_desktop_config.json
+   {
+     "mcpServers": {
+       "aethis": {
+         "command": "npx",
+         "args": ["aethis-mcp"],
+         "env": {
+           "AETHIS_API_KEY": "ak_live_...",
+           "ANTHROPIC_API_KEY": "sk-ant-..."   // never echoed back to the LLM
+         }
+       }
+     }
+   }
+   ```
+
+   ```
+   aethis_generate_and_test({ project_id, anthropic_key_env: "ANTHROPIC_API_KEY" })
+   ```
+
+2. **`anthropic_key_keychain`** (macOS). A keychain reference — either `"account"` (service defaults to `aethis-anthropic-key`) or `"service:account"`. Store the key once with `security add-generic-password -U -s aethis-anthropic-key -a my-anthropic -w 'sk-ant-...'`, then call:
+
+   ```
+   aethis_generate_and_test({ project_id, anthropic_key_keychain: "my-anthropic" })
+   ```
+
+3. **`anthropic_key`** (deprecated). Pass the raw key as a tool argument. Accepted for backwards compatibility, but the raw value is written verbatim to the host's session transcript JSONL on disk. If a key was ever passed this way, rotate it before relying on the safer forms.
 
 ---
 
@@ -229,7 +263,7 @@ aethis_explain_failure({
 > **Tests are the publish gate.** `aethis_publish` refuses to publish a ruleset with a failing test. SMEs write the tests; the LLM generates the rules from source text + guidance; the platform refuses to ship rules that don't satisfy the tests. Better tests = faster convergence.
 
 > [!IMPORTANT]
-> Anthropic key required for authoring. Pass as `anthropic_key` on `aethis_generate_and_test` and `aethis_refine`. Used per-request, never stored.
+> Anthropic key required for authoring. Prefer `anthropic_key_env` (env var name) or `anthropic_key_keychain` (macOS keychain ref) over the raw `anthropic_key` argument — see [Passing your Anthropic key safely](#passing-your-anthropic-key-safely). Used per-request, never stored server-side; the raw form, however, lands in the MCP host's session transcript on disk.
 
 > [!IMPORTANT]
 > DATE fields use integer ordinals (`date.toordinal()`), not ISO strings. `2025-04-13` = `739354`. Quick conversion: `python3 -c "from datetime import date; print(date(2025,4,13).toordinal())"`.
@@ -282,7 +316,7 @@ aethis_explain_failure({
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `API key is required` | `AETHIS_API_KEY` not set (authoring) | Configure in MCP client settings, not shell profile |
-| `X-Anthropic-Key header is required` | Missing Anthropic key | Pass `anthropic_key` on the tool call |
+| `X-Anthropic-Key header is required` | Missing Anthropic key | Pass `anthropic_key_env` (preferred) / `anthropic_key_keychain` / `anthropic_key` on the tool call. See [Passing your Anthropic key safely](#passing-your-anthropic-key-safely). |
 | `Ruleset not found` (404) | Wrong ID or archived | `aethis_list_projects` → `aethis_list_rulesets` |
 | `Rate limit exceeded` (429) | Daily limit | Client retries automatically. [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
 | `Cannot publish: tests failing` | Tests don't pass | `aethis_refine` until all tests pass |

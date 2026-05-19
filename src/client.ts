@@ -23,6 +23,25 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "host.docker.i
 
 const DEFAULT_POLL_INTERVAL_MS = 3000;
 const DEFAULT_POLL_TIMEOUT_MS = 300_000; // 5 minutes
+const PROGRESS_DETAIL_MAX_CHARS = 120;
+
+// Match any C0 control char except TAB (0x09), plus DEL (0x7F).
+// Source-server-supplied `progress_detail` is logged to stderr verbatim
+// today; we strip non-printables so a malicious or buggy upstream can't
+// inject terminal escape sequences or break log parsers. (#34)
+// eslint-disable-next-line no-control-regex
+const PROGRESS_DETAIL_CONTROL_RE = /[\x00-\x08\x0A-\x1F\x7F]/g;
+
+/**
+ * Strip control characters from `progress_detail` text before writing it to
+ * stderr, and cap the length at `PROGRESS_DETAIL_MAX_CHARS`. Exported so the
+ * test suite can exercise the redaction directly.
+ */
+export function sanitizeProgressDetail(s: string): string {
+  const stripped = s.replace(PROGRESS_DETAIL_CONTROL_RE, "");
+  if (stripped.length <= PROGRESS_DETAIL_MAX_CHARS) return stripped;
+  return stripped.slice(0, PROGRESS_DETAIL_MAX_CHARS) + "…";
+}
 
 export interface AethisClientOptions {
   fetchFn?: FetchFn;
@@ -373,12 +392,16 @@ export class AethisClient {
       if (jobData) {
         const jobStatus = jobData.status as string;
 
-        // Log progress changes to stderr so the MCP client can surface them
+        // Log progress changes to stderr so the MCP client can surface them.
+        // Sanitise by default (strip control chars + cap length); full
+        // fidelity only when AETHIS_MCP_VERBOSE=1.
         const pct = (jobData.progress_percent as number) ?? 0;
         const detail = (jobData.progress_detail as string) ?? "";
         if (detail && detail !== lastDetail) {
           lastDetail = detail;
-          process.stderr.write(`[aethis] ${pct}% — ${detail}\n`);
+          const verbose = process.env.AETHIS_MCP_VERBOSE === "1";
+          const rendered = verbose ? detail : sanitizeProgressDetail(detail);
+          process.stderr.write(`[aethis] ${pct}% — ${rendered}\n`);
         }
 
         if (jobStatus === "success") {

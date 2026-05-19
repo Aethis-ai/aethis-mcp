@@ -1,6 +1,6 @@
 {
   "name": "aethis-mcp",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "description": "MCP server for the Aethis developer API — eligibility checks via Claude, Cursor, Windsurf",
   "mcpName": "io.github.aethis-ai/aethis-mcp",
   "type": "module",
