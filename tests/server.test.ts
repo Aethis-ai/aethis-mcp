@@ -392,7 +392,7 @@ describe("aethis_generate_and_test", () => {
       }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_generate_and_test({ project_id: "p_1" });
+    const result = await h.aethis_generate_and_test({ project_id: "p_1", anthropic_key: "ak_test" });
     const t = text(result);
     expect(t).toContain("2/2 passing");
     expect(t).toContain("aethis_publish");
@@ -410,7 +410,7 @@ describe("aethis_generate_and_test", () => {
       }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_generate_and_test({ project_id: "p_1" });
+    const result = await h.aethis_generate_and_test({ project_id: "p_1", anthropic_key: "ak_test" });
     const t = text(result);
     expect(t).toContain("STILL FAILING");
     expect(t).toContain("dolphin_test");
@@ -430,7 +430,7 @@ describe("aethis_generate_and_test", () => {
         { name: "c2", expected: "not_eligible", actual: "eligible", passed: false },
       ],
     });
-    await h.aethis_generate_and_test({ project_id: "p_1" });
+    await h.aethis_generate_and_test({ project_id: "p_1", anthropic_key: "ak_test" });
 
     // Second iteration: c2 now passes but c1 regresses
     genTest.mockResolvedValueOnce({
@@ -440,7 +440,7 @@ describe("aethis_generate_and_test", () => {
         { name: "c2", expected: "not_eligible", actual: "not_eligible", passed: true },
       ],
     });
-    const result = await h.aethis_generate_and_test({ project_id: "p_1" });
+    const result = await h.aethis_generate_and_test({ project_id: "p_1", anthropic_key: "ak_test" });
     const t = text(result);
     expect(t).toContain("Iteration 2");
     expect(t).toContain("REGRESSION");
@@ -460,7 +460,7 @@ describe("aethis_generate_and_test", () => {
       }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_generate_and_test({ project_id: "p_1" });
+    const result = await h.aethis_generate_and_test({ project_id: "p_1", anthropic_key: "ak_test" });
     const t = text(result);
     expect(t).toContain("Iteration 1");
     expect(t).toContain("space:20260405-abc");
@@ -475,7 +475,7 @@ describe("aethis_generate_and_test", () => {
       }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_generate_and_test({ project_id: "p_new" });
+    const result = await h.aethis_generate_and_test({ project_id: "p_new", anthropic_key: "ak_test" });
     const t = text(result);
     expect(t).toContain("Iteration 1");
     expect(t).not.toContain("REGRESSION");
@@ -489,7 +489,7 @@ describe("aethis_refine", () => {
     const client = mockClient();
     const h = createToolHandlers(client);
     const result = await h.aethis_refine({
-      project_id: "p_1", feedback: "Dolphins excluded per Section 3(a).",
+      project_id: "p_1", feedback: "Dolphins excluded per Section 3(a).", anthropic_key: "ak_test",
     });
     expect((client.addGuidance as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("p_1", "Dolphins excluded per Section 3(a).");
     expect((client.generateAndTest as ReturnType<typeof vi.fn>)).toHaveBeenCalledOnce();
@@ -499,7 +499,7 @@ describe("aethis_refine", () => {
   it("without feedback: generates directly", async () => {
     const client = mockClient();
     const h = createToolHandlers(client);
-    await h.aethis_refine({ project_id: "p_1", feedback: "" });
+    await h.aethis_refine({ project_id: "p_1", feedback: "", anthropic_key: "ak_test" });
     expect((client.addGuidance as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
     expect((client.generateAndTest as ReturnType<typeof vi.fn>)).toHaveBeenCalledOnce();
   });
@@ -507,7 +507,7 @@ describe("aethis_refine", () => {
   it("whitespace-only feedback skips guidance", async () => {
     const client = mockClient();
     const h = createToolHandlers(client);
-    await h.aethis_refine({ project_id: "p_1", feedback: "   " });
+    await h.aethis_refine({ project_id: "p_1", feedback: "   ", anthropic_key: "ak_test" });
     expect((client.addGuidance as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 });
@@ -629,7 +629,7 @@ describe("aethis_discover_fields", () => {
   it("returns field list and completeness score", async () => {
     const client = mockClient();
     const h = createToolHandlers(client);
-    const result = await h.aethis_discover_fields({ project_id: "p_1" });
+    const result = await h.aethis_discover_fields({ project_id: "p_1", anthropic_key: "ak_test" });
     const t = text(result);
     expect(t).toContain("Field Discovery");
     expect(t).toContain("applicant.age");
@@ -640,7 +640,7 @@ describe("aethis_discover_fields", () => {
   it("suggests refine when recommendation is continue", async () => {
     const client = mockClient();
     const h = createToolHandlers(client);
-    const result = await h.aethis_discover_fields({ project_id: "p_1" });
+    const result = await h.aethis_discover_fields({ project_id: "p_1", anthropic_key: "ak_test" });
     const t = text(result);
     expect(t).toContain("aethis_refine_fields");
   });
@@ -656,7 +656,7 @@ describe("aethis_discover_fields", () => {
       }),
     });
     const h = createToolHandlers(client);
-    const result = await h.aethis_discover_fields({ project_id: "p_1" });
+    const result = await h.aethis_discover_fields({ project_id: "p_1", anthropic_key: "ak_test" });
     const t = text(result);
     expect(t).toContain("test cases");
     expect(t).toContain("aethis_generate_and_test");
@@ -670,6 +670,7 @@ describe("aethis_refine_fields", () => {
     const result = await h.aethis_refine_fields({
       project_id: "p_1",
       feedback: "Section 7 implies a criminal record check",
+      anthropic_key: "ak_test",
     });
     const t = text(result);
     expect(t).toContain("Guidance added");

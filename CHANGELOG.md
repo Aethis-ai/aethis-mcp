@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.5.0 (2026-05-19)
+
+Security hardening pass. Bundles the v0.5 security review fixes into one
+release. Closes #33, #34, #35; addresses GHSA-ph7q-r9q4-922g (disclosed
+on publish).
+
+### Security
+
+- **GHSA-ph7q-r9q4-922g** (high) — prompt injection via unsanitised API
+  response text in `aethis_explain_failure`. `formatExplainFailure` now
+  wraps every API-supplied free-text field (`diagnosis`, `dsl_hint`,
+  criterion `title` / `rule_text` / `source_refs`) in an
+  `<api_response>` fence and prepends a one-line preface telling the
+  model the contents are data, not instructions. Literal closing tags
+  inside payloads are neutralised so a payload cannot break out of the
+  fence. The same `fenceUntrusted` helper has been applied to other
+  free-text API surfaces (`aethis_next_question`,
+  `aethis_discover_sections`, `aethis_refine_sections`,
+  `aethis_discover_fields`, `formatTestResults`).
+- **#33** — `src/credentials.ts` now resolves the credentials file via
+  `fs.realpath` and asserts the canonical path sits under `$HOME` (or
+  under an absolute `XDG_CONFIG_HOME` the user controls); refuses with
+  `UnsafeCredentialsError` otherwise. Permissions check now matches
+  `ssh` / `aws-cli` behaviour: any group/other bit set on the
+  credentials file → refuse with `Permissions 0NNN ... too open. Run:
+  chmod 600 <path>`.
+- **#34** — `progress_detail` from the polling API is sanitised before
+  it lands on stderr: control characters are stripped (TAB preserved)
+  and the body is capped at 120 visible chars + `…`. Full-fidelity
+  output is gated behind `AETHIS_MCP_VERBOSE=1`. Prevents the server
+  from injecting terminal escape sequences or PII into anything that
+  captures the MCP process stderr.
+
+### Changed
+
+- **#35** — Authoring tools now accept safer per-call key forms.
+  - New `anthropic_key_env: string` — name of an env var the MCP server
+    reads at call time. **Preferred.** The raw value never appears in
+    the tool call so it does not land in the MCP host's session
+    transcript JSONL.
+  - New `anthropic_key_keychain: string` — macOS keychain reference,
+    either `service:account` or just `account` (service defaults to
+    `aethis-anthropic-key`).
+  - Raw `anthropic_key` / `openai_key` arguments remain accepted for
+    backwards compatibility but are now marked `[sensitive — do not
+    echo or log]` in the schema; deprecated in tool descriptions.
+  - `resolveLlmKey` (exported from `src/credentials.ts`) consolidates
+    the resolution chain and throws `MissingLlmKeyError` if every form
+    is empty.
+  - Applies to `aethis_generate_and_test`, `aethis_refine`,
+    `aethis_discover_fields`, `aethis_refine_fields`,
+    `aethis_discover_sections`, `aethis_refine_sections`.
+
+### Docs
+
+- README: new "Passing your Anthropic key safely" section showing env /
+  keychain forms first; raw-key form marked deprecated.
+- CLAUDE.md: new gotchas covering safe-key resolution and the
+  untrusted-content fencing helper.
+
 ## 0.4.4 (2026-05-12)
 - docs: surface `aethis-skills` as the optional agent workflow layer on top of MCP.
 

@@ -7,12 +7,12 @@
     "source": "github"
   },
   "websiteUrl": "https://docs.aethis.ai",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "aethis-mcp",
-      "version": "0.4.3",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
