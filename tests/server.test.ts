@@ -28,6 +28,7 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     explain: vi.fn().mockResolvedValue({ rules: [] }),
     listProjects: vi.fn().mockResolvedValue([]),
     listRulesets: vi.fn().mockResolvedValue([]),
+    discoverRulesets: vi.fn().mockResolvedValue([]),
     archiveProject: vi.fn().mockResolvedValue({ message: "Archived" }),
     archiveRuleset: vi.fn().mockResolvedValue({ message: "Archived" }),
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_abc" }),
@@ -255,7 +256,7 @@ describe("aethis_list_rulesets", () => {
   it("returns rulesets JSON", async () => {
     const client = mockClient({
       listRulesets: vi.fn().mockResolvedValue([
-        { ruleset_id: "b_1", status: "active", version: "v1" },
+        { ruleset_id: "b_1", name: "Knowledge of language and life in the UK", status: "active", version: "v1" },
       ]),
     });
     const h = createToolHandlers(client);
@@ -263,12 +264,47 @@ describe("aethis_list_rulesets", () => {
     const data = JSON.parse(text(result));
     expect(data).toHaveLength(1);
     expect(data[0].ruleset_id).toBe("b_1");
+    // aethis-core v0.18.0 added `name` (human-readable section title) — must
+    // pass through to the LLM unchanged.
+    expect(data[0].name).toBe("Knowledge of language and life in the UK");
   });
 
   it("rejects empty project_id", async () => {
     const h = createToolHandlers(mockClient());
     const result = await h.aethis_list_rulesets({ project_id: "" });
     expect(text(result)).toMatch(/must not be empty/i);
+  });
+});
+
+describe("aethis_discover_rulesets", () => {
+  it("returns rulesets JSON including name", async () => {
+    const client = mockClient({
+      discoverRulesets: vi.fn().mockResolvedValue([
+        {
+          ruleset_id: "b_1",
+          slug: "uk-naturalisation",
+          name: "Naturalisation as a British citizen",
+          description: "Eligibility for UK naturalisation",
+          field_count: 12,
+          rule_count: 8,
+        },
+      ]),
+    });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_discover_rulesets({});
+    const data = JSON.parse(text(result));
+    expect(data).toHaveLength(1);
+    expect(data[0].slug).toBe("uk-naturalisation");
+    // aethis-core v0.18.0 added `name` to the public catalogue response.
+    expect(data[0].name).toBe("Naturalisation as a British citizen");
+  });
+
+  it("passes limit and offset to the client", async () => {
+    const discoverRulesets = vi.fn().mockResolvedValue([]);
+    const client = mockClient({ discoverRulesets });
+    const h = createToolHandlers(client);
+    await h.aethis_discover_rulesets({ limit: 5, offset: 10 });
+    expect(discoverRulesets).toHaveBeenCalledWith(5, 10);
   });
 });
 
