@@ -363,9 +363,12 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/test-run`);
   }
 
-  async publish(projectId: string, label?: string): Promise<unknown> {
-    const body = label !== undefined ? { label } : undefined;
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/publish`, body);
+  async publish(projectId: string, label?: string, name?: string): Promise<unknown> {
+    const body: Record<string, string> = {};
+    if (label !== undefined) body.label = label;
+    if (name !== undefined) body.name = name;
+    const hasBody = Object.keys(body).length > 0;
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/publish`, hasBody ? body : undefined);
   }
 
   // -- Compound operations --

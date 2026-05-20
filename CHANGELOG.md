@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.0 (2026-05-20)
+
+Add optional `name` parameter to `aethis_publish` tool — lets clients
+override the human-readable section name when publishing a ruleset.
+Companion to aethis-core v0.18.0's `PublishRequest.name` field.
+
+### Added
+
+- `aethis_publish` tool now accepts an optional `name` parameter. When
+  supplied, it overrides the section name stored on the ruleset (default
+  is a titlecase of `section_id`, e.g. `"english_language"` →
+  `"English Language"`). Section names are surfaced in rulebook
+  responses so end users can see which sections compose a rulebook.
+- `AethisClient.publish()` now accepts a third `name?: string` argument
+  and includes it in the POST body when set.
+
+### Tests
+
+- `server.test.ts` — two new `aethis_publish` cases: forwarding `name`
+  to the client and echoing it in output; confirming `name` is omitted
+  when not provided.
+- `client.test.ts` — two new `publish()` cases: body contains `name`
+  when provided; body is absent when neither `label` nor `name` is set.
+
 ## 0.5.1 (2026-05-20)
 
 Surface the human-readable section `name` in `aethis_list_rulesets` and

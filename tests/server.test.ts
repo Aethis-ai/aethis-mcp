@@ -591,6 +591,31 @@ describe("aethis_publish", () => {
     expect(text(result)).toContain("Published successfully");
     expect((client.publish as ReturnType<typeof vi.fn>)).toHaveBeenCalledOnce();
   });
+
+  it("forwards name to client.publish and echoes it in output", async () => {
+    const publishMock = vi.fn().mockResolvedValue({ ruleset_id: "b_1", version: "v3", deprecated_rulesets: [] });
+    const client = mockClient({
+      runTests: vi.fn().mockResolvedValue({ total: 1, passed: 1, failed: 0, errors: 0, results: [] }),
+      publish: publishMock,
+    });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_publish({ project_id: "p_1", name: "Knowledge of Language and Life" });
+    const t = text(result);
+    expect(t).toContain("Published successfully");
+    expect(t).toContain("Knowledge of Language and Life");
+    expect(publishMock).toHaveBeenCalledWith("p_1", undefined, "Knowledge of Language and Life");
+  });
+
+  it("omits name from client.publish when not provided", async () => {
+    const publishMock = vi.fn().mockResolvedValue({ ruleset_id: "b_1", version: "v3", deprecated_rulesets: [] });
+    const client = mockClient({
+      runTests: vi.fn().mockResolvedValue({ total: 1, passed: 1, failed: 0, errors: 0, results: [] }),
+      publish: publishMock,
+    });
+    const h = createToolHandlers(client);
+    await h.aethis_publish({ project_id: "p_1" });
+    expect(publishMock).toHaveBeenCalledWith("p_1", undefined, undefined);
+  });
 });
 
 // ---------------------------------------------------------------------------

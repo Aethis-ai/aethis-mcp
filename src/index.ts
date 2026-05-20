@@ -926,7 +926,7 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_publish(args: { project_id: string; force?: boolean; label?: string }): Promise<ToolResult> {
+    async aethis_publish(args: { project_id: string; force?: boolean; label?: string; name?: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
@@ -955,7 +955,7 @@ export function createToolHandlers(client: AethisClient) {
           return err(lines.join("\n"));
         }
 
-        const pubResult = await client.publish(args.project_id, args.label) as Record<string, unknown>;
+        const pubResult = await client.publish(args.project_id, args.label, args.name) as Record<string, unknown>;
         const rulesetId = (pubResult.ruleset_id ?? "unknown") as string;
         const version = (pubResult.version ?? "unknown") as string;
         const deprecated = (pubResult.deprecated_rulesets ?? []) as string[];
@@ -966,6 +966,9 @@ export function createToolHandlers(client: AethisClient) {
           `  Version: ${version}`,
           `  Tests: ${passed}/${total} passing`,
         ];
+        if (args.name) {
+          lines.push(`  Name: ${args.name}`);
+        }
         if (args.label) {
           lines.push(`  Label: ${args.label}`);
         }
@@ -1322,6 +1325,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       project_id: z.string().describe("The project ID"),
       force: z.boolean().optional().describe("Publish even if tests are not all passing"),
       label: z.string().optional().describe("Human-readable label for this ruleset version, e.g. 'v5 — raw facts, date arithmetic'. Stored on the ruleset and shown in aethis_list_rulesets."),
+      name: z.string().optional().describe("Override the human-readable section name for this ruleset. When omitted, the ruleset keeps the name set at generation time (a titlecase of section_id, e.g. 'english_language' → 'English Language'). Section names are surfaced in rulebook responses so end users can see which sections compose a rulebook."),
     },
     (args) => handlers.aethis_publish(args),
   );

@@ -351,6 +351,20 @@ describe("AethisClient API methods", () => {
     expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/publish");
   });
 
+  it("publish() forwards name in request body when provided", async () => {
+    await client.publish("p_1", undefined, "Knowledge of Language and Life");
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string);
+    expect(body.name).toBe("Knowledge of Language and Life");
+    expect(body.label).toBeUndefined();
+  });
+
+  it("publish() sends no body when neither label nor name is provided", async () => {
+    await client.publish("p_1");
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBeUndefined();
+  });
+
   it("encodes path parameters to prevent traversal", async () => {
     await client.getSchema("../../admin/secrets");
     const [url] = fetchSpy.mock.calls[0];
