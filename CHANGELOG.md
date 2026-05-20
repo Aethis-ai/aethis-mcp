@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.1 (2026-05-20)
+
+Surface the human-readable section `name` in `aethis_list_rulesets` and
+`aethis_discover_rulesets` tool output. The engine has been returning
+`name` on both `RulesetSummary` (public catalogue) and `RulesetListItem`
+(project-scoped) responses since aethis-core v0.18.0; the MCP server
+already forwarded every API field verbatim via `JSON.stringify`, so the
+data was reaching the LLM, but the tool descriptions didn't advertise
+the field. The descriptions now mention `name` so models know to read
+and surface it to users (e.g. "Knowledge of language and life in the
+UK" instead of just `b_123…`).
+
+### Changed
+
+- `aethis_list_rulesets` tool description now mentions the
+  human-readable `name` field returned alongside ruleset ID, status,
+  version, field count, and rule count.
+- `aethis_discover_rulesets` tool description now lists `name` in the
+  documented response shape.
+
+### Tests
+
+- `aethis_list_rulesets` and `aethis_discover_rulesets` server tests
+  assert the `name` field passes through to the LLM-facing JSON output.
+
 ## 0.5.0 (2026-05-19)
 
 Security hardening pass. Bundles the v0.5 security review fixes into one

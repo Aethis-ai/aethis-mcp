@@ -1074,14 +1074,14 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_list_rulesets",
-    "List all rule rulesets for a project, including version history. Shows ruleset ID, status (active/archived), version, field count, and rule count.",
+    "List all rule rulesets for a project, including version history. Shows ruleset ID, human-readable name (the section title the ruleset covers, e.g. 'Knowledge of language and life in the UK'), status (active/archived), version, field count, and rule count.",
     { project_id: z.string().describe("The project ID") },
     (args) => handlers.aethis_list_rulesets(args),
   );
 
   server.tool(
     "aethis_discover_rulesets",
-    "List public showcase rulesets across all tenants. No authentication required. Use this for first-time discovery, demos, or whenever the user asks 'what rulesets are available?' without referencing a specific project. Returns slug, ruleset_id, description, field_count, rule_count for each — pass the slug or ruleset_id to aethis_decide / aethis_schema / aethis_explain to interact with one. Distinct from aethis_list_rulesets, which is tenant-scoped.",
+    "List public showcase rulesets across all tenants. No authentication required. Use this for first-time discovery, demos, or whenever the user asks 'what rulesets are available?' without referencing a specific project. Returns slug, ruleset_id, name (the human-readable section title), description, field_count, rule_count for each — pass the slug or ruleset_id to aethis_decide / aethis_schema / aethis_explain to interact with one. Distinct from aethis_list_rulesets, which is tenant-scoped.",
     {
       limit: z.number().int().min(1).max(50).optional().describe("Maximum rulesets to return (default 20, max 50)."),
       offset: z.number().int().min(0).optional().describe("Pagination offset (default 0)."),
