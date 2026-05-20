@@ -26,6 +26,16 @@ jobs:
 
       - run: npm ci
 
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$PACKAGE_VERSION" != "$VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $PACKAGE_VERSION"
+            exit 1
+          fi
+
       - run: npm run build
 
       - run: npm test
@@ -35,3 +45,33 @@ jobs:
       # authorises the publish itself.
       - name: Publish (Trusted Publishing via OIDC)
         run: npm publish --access public
+
+      - name: Verify npm received release
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          for attempt in {1..12}; do
+            PUBLISHED="$(npm view aethis-mcp version)"
+            if [[ "$PUBLISHED" == "$VERSION" ]]; then
+              echo "npm has aethis-mcp $VERSION"
+              exit 0
+            fi
+            echo "npm reports $PUBLISHED, waiting for $VERSION (attempt $attempt/12)"
+            sleep 10
+          done
+          exit 1
+
+      - name: Trigger workspace release sync
+        env:
+          WORKSPACE_SYNC_TOKEN: ${{ secrets.WORKSPACE_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${WORKSPACE_SYNC_TOKEN:-}" ]]; then
+            echo "WORKSPACE_SYNC_TOKEN not configured; skipping workspace dispatch."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $WORKSPACE_SYNC_TOKEN" \
+            https://api.github.com/repos/Aethis-ai/aethis-workspace/dispatches \
+            -d "{\"event_type\":\"release-package-published\",\"client_payload\":{\"package\":\"aethis-mcp\",\"version\":\"${GITHUB_REF_NAME#v}\",\"tag\":\"$GITHUB_REF_NAME\"}}"
