@@ -24,6 +24,7 @@ import {
 function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}): AethisClient {
   const defaults: Record<string, unknown> = {
     decide: vi.fn().mockResolvedValue({ outcome: "eligible" }),
+    decideRulebook: vi.fn().mockResolvedValue({ outcome: "eligible", rulebook_id: "rb_test" }),
     getSchema: vi.fn().mockResolvedValue({ ruleset_id: "b_123", fields: [] }),
     explain: vi.fn().mockResolvedValue({ rules: [] }),
     listProjects: vi.fn().mockResolvedValue([]),
@@ -157,10 +158,10 @@ describe("aethis_decide", () => {
     expect(data.outcome).toBe("eligible");
   });
 
-  it("rejects empty ruleset_id", async () => {
+  it("rejects empty ruleset_id (whitespace doesn't count as provided)", async () => {
     const h = createToolHandlers(mockClient());
     const result = await h.aethis_decide({ ruleset_id: "  ", field_values: {} });
-    expect(text(result)).toMatch(/must not be empty/i);
+    expect(text(result)).toMatch(/exactly one of ruleset_id or rulebook_id/i);
   });
 
   it("passes include_trace and include_explanation to client", async () => {
@@ -174,6 +175,60 @@ describe("aethis_decide", () => {
       include_explanation: true,
     });
     expect(decideFn).toHaveBeenCalledWith("b_123", { age: 30 }, {
+      includeTrace: true,
+      includeExplanation: true,
+    });
+  });
+
+  // -- Rulebook surface (Aethis-ai/aethis-core#150 closure) --
+
+  it("dispatches rulebook_id to client.decideRulebook", async () => {
+    const decideFn = vi.fn().mockResolvedValue({ decision: "eligible", outcome: "eligible" });
+    const decideRulebookFn = vi.fn().mockResolvedValue({
+      decision: "eligible", rulebook_id: "rb_kzZ_td0tbKW_OLRB",
+    });
+    const client = mockClient({ decide: decideFn, decideRulebook: decideRulebookFn });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_decide({
+      rulebook_id: "aethis/uk-fsm",
+      field_values: { "child.age": 10 },
+    });
+    expect(decideRulebookFn).toHaveBeenCalledWith("aethis/uk-fsm", { "child.age": 10 }, {
+      includeTrace: undefined,
+      includeExplanation: undefined,
+    });
+    expect(decideFn).not.toHaveBeenCalled();
+    const data = JSON.parse(text(result));
+    expect(data.rulebook_id).toBe("rb_kzZ_td0tbKW_OLRB");
+  });
+
+  it("rejects providing both ruleset_id and rulebook_id", async () => {
+    const h = createToolHandlers(mockClient());
+    const result = await h.aethis_decide({
+      ruleset_id: "aethis/uk-fsm/child-eligibility",
+      rulebook_id: "aethis/uk-fsm",
+      field_values: {},
+    });
+    expect(text(result)).toMatch(/exactly one of ruleset_id or rulebook_id/i);
+  });
+
+  it("rejects neither id provided", async () => {
+    const h = createToolHandlers(mockClient());
+    const result = await h.aethis_decide({ field_values: {} });
+    expect(text(result)).toMatch(/exactly one of ruleset_id or rulebook_id/i);
+  });
+
+  it("passes options through on rulebook path", async () => {
+    const decideRulebookFn = vi.fn().mockResolvedValue({ decision: "eligible" });
+    const client = mockClient({ decideRulebook: decideRulebookFn });
+    const h = createToolHandlers(client);
+    await h.aethis_decide({
+      rulebook_id: "rb_x",
+      field_values: { a: 1 },
+      include_trace: true,
+      include_explanation: true,
+    });
+    expect(decideRulebookFn).toHaveBeenCalledWith("rb_x", { a: 1 }, {
       includeTrace: true,
       includeExplanation: true,
     });

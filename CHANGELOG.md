@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.0 (2026-05-22)
+
+Add rulebook surface to `aethis_decide` — closes the converged-2-term
+client-completeness gap for MCP. The tool now accepts either
+`ruleset_id` (single ruleset) or `rulebook_id` (composed rulebook),
+mutually exclusive. Mirrors `aethis-sdk-python` v0.5.0 and
+`aethis-cli` `rulebooks decide`.
+
+### Added
+
+- `aethis_decide` tool accepts `rulebook_id` as an alternative to
+  `ruleset_id`. Pass an opaque `rb_<id>` or a slug like
+  `aethis/uk-fsm`. Composed-rulebook evaluation is always
+  scope-gated by the engine — anonymous callers get HTTP 401.
+- `AethisClient.decideRulebook(rulebookId, fieldValues, options?)` —
+  parallel to `decide()`; sends `rulebook_id` in the `/decide` payload.
+
+### Changed
+
+- `aethis_decide` description and schema updated to reflect both
+  paths. Tool validates that exactly one of `ruleset_id` / `rulebook_id`
+  is provided.
+
+### Requires
+
+- aethis-core v0.27.0+ live on the target API for slug-form rulebook
+  paths. The `rulebook_id` body field on `/decide` has been supported
+  since aethis-core v0.18.x.
+
 ## 0.6.0 (2026-05-20)
 
 Add optional `name` parameter to `aethis_publish` tool — lets clients

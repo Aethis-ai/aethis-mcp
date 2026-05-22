@@ -195,6 +195,22 @@ export class AethisClient {
     });
   }
 
+  async decideRulebook(
+    rulebookId: string,
+    fieldValues: Record<string, unknown>,
+    options?: { includeTrace?: boolean; includeExplanation?: boolean },
+  ): Promise<unknown> {
+    // Same `/decide` endpoint as decide(), but sends rulebook_id instead of
+    // ruleset_id. Composed-rulebook evaluation is always scope-gated by the
+    // engine — anonymous callers get HTTP 401 here.
+    return this.request("POST", "/api/v1/public/decide", {
+      rulebook_id: rulebookId,
+      field_values: fieldValues,
+      ...(options?.includeTrace ? { include_trace: true } : {}),
+      ...(options?.includeExplanation ? { include_explanation: true } : {}),
+    });
+  }
+
   async getSchema(rulesetId: string): Promise<unknown> {
     return this.request("GET", `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/schema`);
   }
