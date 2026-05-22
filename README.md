@@ -56,7 +56,7 @@ The skills package provides workflows for policy-to-ruleset authoring, test/refi
 ```
 aethis_decide({
   ruleset_id: "aethis/spacecraft-crew-certification",
-  field_values: { species: "Vogon" },
+  field_values: { "space.crew.species": "Vogon" },
   include_trace: true
 })
 ```
@@ -101,6 +101,8 @@ aethis_decide(ruleset_id, fields)  → eligible / not_eligible / undetermined
 ```
 
 Pass `include_trace: true` for the per-criterion evaluation trail. Pass `include_explanation: true` for human-readable rule descriptions.
+
+`aethis_decide` accepts either `ruleset_id` (single ruleset, may be public) or `rulebook_id` (composed multi-ruleset rulebook) — the two are mutually exclusive. Rulebook decide always requires an API key (`AETHIS_API_KEY`); anonymous callers get HTTP 401.
 
 **Conversational eligibility (next-question routing):**
 
@@ -154,7 +156,7 @@ For authoring, add `"env": { "AETHIS_API_KEY": "<your-key>" }`.
 
 ### Cursor / Windsurf
 
-Add to `.cursor/mcp.json` or `.windsurf/mcp.json` (same JSON shape).
+Add to `~/.cursor/mcp.json` or `~/.codeium/windsurf/mcp_config.json` (same JSON shape).
 
 ### Keys
 

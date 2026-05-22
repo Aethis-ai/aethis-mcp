@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1 (2026-05-22)
+
+- **docs(readme): v0.27.0 accuracy pass.** Three fixes for fresh-developer accuracy:
+  - Documented `rulebook_id` as an alternative to `ruleset_id` on `aethis_decide` — mutually exclusive; composed-rulebook evaluation always requires an API key.
+  - Quickstart example: corrected field name from `species` to `space.crew.species` (the actual field ID in the spacecraft-crew-certification ruleset).
+  - Windsurf config path: corrected from `.windsurf/mcp.json` to `~/.codeium/windsurf/mcp_config.json` (canonical path per aethis-cli README).
+
 ## 0.7.0 (2026-05-22)
 
 Add rulebook surface to `aethis_decide` — closes the converged-2-term
