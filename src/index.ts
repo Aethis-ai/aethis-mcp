@@ -279,18 +279,34 @@ export function createToolHandlers(client: AethisClient) {
     },
 
     async aethis_decide(args: {
-      ruleset_id: string;
+      ruleset_id?: string;
+      rulebook_id?: string;
       field_values: Record<string, unknown>;
       include_trace?: boolean;
       include_explanation?: boolean;
     }): Promise<ToolResult> {
-      const idErr = validateId(args.ruleset_id, "ruleset_id");
-      if (idErr) return err(idErr);
+      // Exactly one of ruleset_id / rulebook_id required. Rulebook composes
+      // multiple rulesets via outcome_logic; single ruleset is the
+      // gate-only form. Engine endpoint is the same /decide — the id field
+      // discriminates which path runs server-side.
+      const hasRuleset = typeof args.ruleset_id === "string" && args.ruleset_id.trim() !== "";
+      const hasRulebook = typeof args.rulebook_id === "string" && args.rulebook_id.trim() !== "";
+      if (hasRuleset === hasRulebook) {
+        return err(
+          "Provide exactly one of ruleset_id or rulebook_id. " +
+          "ruleset_id evaluates a single ruleset; rulebook_id evaluates a composed rulebook (always requires an API key).",
+        );
+      }
       try {
-        const result = await client.decide(args.ruleset_id, args.field_values, {
-          includeTrace: args.include_trace,
-          includeExplanation: args.include_explanation,
-        });
+        const result = hasRulebook
+          ? await client.decideRulebook(args.rulebook_id!, args.field_values, {
+              includeTrace: args.include_trace,
+              includeExplanation: args.include_explanation,
+            })
+          : await client.decide(args.ruleset_id!, args.field_values, {
+              includeTrace: args.include_trace,
+              includeExplanation: args.include_explanation,
+            });
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -1030,9 +1046,10 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_decide",
-    "Evaluate eligibility against a published rule ruleset. Returns eligible/not_eligible/undetermined with optional trace and explanation. When undetermined, includes next_question and optimal_path.",
+    "Evaluate eligibility against either a single published ruleset (ruleset_id) or a composed rulebook (rulebook_id). Provide exactly one. A rulebook composes multiple rulesets via outcome_logic — use it for the whole-form decision (e.g. `aethis/uk-fsm`). A ruleset is one section in isolation (e.g. `aethis/uk-fsm/child-eligibility`). Returns eligible/not_eligible/undetermined with optional trace and explanation. When undetermined, includes next_question and optimal_path. Rulebook evaluation always requires an API key; ruleset evaluation can be anonymous against public rulesets.",
     {
-      ruleset_id: z.string().describe("The ID of the published rule ruleset"),
+      ruleset_id: z.string().optional().describe("The ID or slug of a single published ruleset. Mutually exclusive with rulebook_id."),
+      rulebook_id: z.string().optional().describe("The ID or slug of a composed rulebook (e.g. `aethis/uk-fsm`). Mutually exclusive with ruleset_id. Requires an API key — anonymous callers get HTTP 401."),
       field_values: z.record(z.string(), z.unknown()).describe("Input field values (see aethis_schema for required fields)"),
       include_trace: z.boolean().optional().describe("Include the full evaluation trace showing how each rule was evaluated"),
       include_explanation: z.boolean().optional().describe("Include human-readable rule explanations with source citations"),
