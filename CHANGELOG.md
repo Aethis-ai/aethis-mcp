@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2 (2026-05-26)
+
+- **chore(server): tighten MCP instructions against decision extrapolation.** Adds a "Reporting decisions" section to the server `instructions` block (visible to every client model as part of its system prompt on connect). New rules forbid asserting facts that are not in the tool response, generalising a single-ruleset decision to a composite outcome, naming rulesets/rulebooks not yet observed in the session, and offering follow-up calls against unverified slugs. Triggered by a real user trace where a model summarising a `uk-fsm-child-eligibility` decision closed with an offer to run the broader `aethis/uk-fsm` rulebook "to get the complete household-level decision" — the rulebook exists but currently 422s on prod (empty `ruleset_refs`, see aethis-core#90), so the offer overstated what would actually happen. Advisory, not enforced — but client models reliably honour `instructions` blocks.
+
 ## 0.7.1 (2026-05-22)
 
 - **docs(readme): v0.27.0 accuracy pass.** Three fixes for fresh-developer accuracy:
