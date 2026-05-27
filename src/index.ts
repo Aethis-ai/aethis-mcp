@@ -422,6 +422,36 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    // -- Rulebook surface --
+    //
+    // Rulebooks are the composed-whole counterpart to rulesets. These tools
+    // mirror aethis_list_rulesets / aethis_schema but operate on the rulebook
+    // tier so an agent can answer "what rulebooks exist?" and "how do this
+    // rulebook's rulesets compose?" without dropping into MongoDB. Both
+    // currently auth-required + tenant-scoped because the engine doesn't
+    // expose a public rulebook catalogue (would be aethis_discover_rulebooks,
+    // tracked separately).
+
+    async aethis_list_rulebooks(_args: Record<string, never>): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      try {
+        const result = await client.listRulebooks();
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_rulebook_schema(args: { rulebook_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.rulebook_id, "rulebook_id");
+      if (idErr) return err(idErr);
+      try {
+        const result = await client.getRulebookSchema(args.rulebook_id);
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
     // -- Management tools --
 
     async aethis_archive_project(args: { project_id: string }): Promise<ToolResult> {
@@ -1107,6 +1137,19 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       offset: z.number().int().min(0).optional().describe("Pagination offset (default 0)."),
     },
     (args) => handlers.aethis_discover_rulesets(args),
+  );
+
+  server.tool(
+    "aethis_list_rulebooks",
+    "List rulebooks (composed wholes that bridge multiple rulesets) in the current tenant. Returns rulebook_id, slug (e.g. `aethis/uk-fsm`), name, domain, status (draft/active/archived), version, outcome_logic (the composition Expr AST), ruleset_refs, and timestamps. Use this when the user asks 'what rulebooks exist?' or to disambiguate whether several `<ns>/<x>/*` rulesets are bridged into one parent rulebook. Tenant-scoped — requires an API key. Pass a returned rulebook_id or slug to aethis_decide (rulebook_id arg) or aethis_rulebook_schema.",
+    () => handlers.aethis_list_rulebooks({}),
+  );
+
+  server.tool(
+    "aethis_rulebook_schema",
+    "Get the composition + aggregated input fields for a rulebook. Returns the outcome_logic Expr AST (how the bridged rulesets compose, e.g. `A AND (B OR C)`), the list of bridged rulesets (ruleset_name, ruleset_id, slug, status), and the union of all required input fields. Use this BEFORE aethis_decide on a rulebook_id to know what field_values to supply, or to inspect how a rulebook is wired. Pass a rulebook slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`).",
+    { rulebook_id: z.string().describe("The slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`) of the rulebook") },
+    (args) => handlers.aethis_rulebook_schema(args),
   );
 
   server.tool(

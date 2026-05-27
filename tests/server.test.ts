@@ -30,6 +30,8 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     listProjects: vi.fn().mockResolvedValue([]),
     listRulesets: vi.fn().mockResolvedValue([]),
     discoverRulesets: vi.fn().mockResolvedValue([]),
+    listRulebooks: vi.fn().mockResolvedValue([]),
+    getRulebookSchema: vi.fn().mockResolvedValue({ rulebook_id: "rb_test", outcome_logic: null, rulesets: [], fields: [] }),
     archiveProject: vi.fn().mockResolvedValue({ message: "Archived" }),
     archiveRuleset: vi.fn().mockResolvedValue({ message: "Archived" }),
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_abc" }),
@@ -73,10 +75,10 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 26 tool handlers", () => {
+  it("returns all 28 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(26);
+    expect(names).toHaveLength(28);
     // Decision
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
@@ -87,6 +89,8 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_list_projects");
     expect(names).toContain("aethis_list_rulesets");
     expect(names).toContain("aethis_discover_rulesets");
+    expect(names).toContain("aethis_list_rulebooks");
+    expect(names).toContain("aethis_rulebook_schema");
     expect(names).toContain("aethis_archive_project");
     expect(names).toContain("aethis_archive_ruleset");
     // Authoring lifecycle
@@ -360,6 +364,92 @@ describe("aethis_discover_rulesets", () => {
     const h = createToolHandlers(client);
     await h.aethis_discover_rulesets({ limit: 5, offset: 10 });
     expect(discoverRulesets).toHaveBeenCalledWith(5, 10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rulebook surface (aethis-mcp#43)
+// ---------------------------------------------------------------------------
+
+describe("aethis_list_rulebooks", () => {
+  it("returns rulebooks JSON for the current tenant", async () => {
+    const listRulebooks = vi.fn().mockResolvedValue([
+      {
+        rulebook_id: "rb_kzZ_td0tbKW_OLRB",
+        slug: "aethis/uk-fsm",
+        name: "UK Free School Meals Eligibility",
+        domain: "uk_fsm",
+        status: "active",
+        version: "1",
+        outcome_logic: { type: "op", operator: "and", args: [] },
+        ruleset_refs: [],
+      },
+    ]);
+    const client = mockClient({ listRulebooks });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_list_rulebooks({});
+    const data = JSON.parse(text(result));
+    expect(data).toHaveLength(1);
+    expect(data[0].slug).toBe("aethis/uk-fsm");
+    // outcome_logic and ruleset_refs are the discriminators that answer
+    // "is this one rulebook composing three or three independent rulesets?"
+    // — they MUST pass through unchanged.
+    expect(data[0].outcome_logic).toEqual({ type: "op", operator: "and", args: [] });
+    expect(data[0].ruleset_refs).toEqual([]);
+    expect(listRulebooks).toHaveBeenCalledWith();
+  });
+
+  it("includes error detail on API failure", async () => {
+    const { AethisAPIError } = await import("../src/client.js");
+    const client = mockClient({
+      listRulebooks: vi.fn().mockRejectedValue(new AethisAPIError(403, "Forbidden")),
+    });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_list_rulebooks({});
+    expect(text(result)).toContain("403");
+    expect(text(result)).toContain("Forbidden");
+  });
+});
+
+describe("aethis_rulebook_schema", () => {
+  it("returns composition + bridged rulesets", async () => {
+    const getRulebookSchema = vi.fn().mockResolvedValue({
+      rulebook_id: "rb_kzZ_td0tbKW_OLRB",
+      slug: "aethis/uk-fsm",
+      outcome_logic: {
+        type: "op",
+        operator: "and",
+        args: [
+          { type: "field_ref", key: "child_eligibility" },
+          { type: "op", operator: "or", args: [
+            { type: "field_ref", key: "household_criteria" },
+            { type: "field_ref", key: "universal_infant" },
+          ] },
+        ],
+      },
+      rulesets: [
+        { ruleset_name: "child_eligibility", slug: "aethis/uk-fsm/child-eligibility", ruleset_id: "uk-fsm-child-eligibility:abc" },
+        { ruleset_name: "household_criteria", slug: "aethis/uk-fsm/household-criteria", ruleset_id: "uk-fsm-household-criteria:def" },
+        { ruleset_name: "universal_infant", slug: "aethis/uk-fsm/universal-infant", ruleset_id: "uk-fsm-universal-infant:ghi" },
+      ],
+      fields: [],
+    });
+    const client = mockClient({ getRulebookSchema });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_rulebook_schema({ rulebook_id: "aethis/uk-fsm" });
+    const data = JSON.parse(text(result));
+    expect(data.rulebook_id).toBe("rb_kzZ_td0tbKW_OLRB");
+    expect(data.rulesets).toHaveLength(3);
+    expect(data.outcome_logic.operator).toBe("and");
+    // The slug is passed verbatim to the client — the client decides
+    // whether to URL-encode based on slug vs opaque id shape.
+    expect(getRulebookSchema).toHaveBeenCalledWith("aethis/uk-fsm");
+  });
+
+  it("rejects empty rulebook_id", async () => {
+    const h = createToolHandlers(mockClient());
+    const result = await h.aethis_rulebook_schema({ rulebook_id: "" });
+    expect(text(result)).toMatch(/must not be empty/i);
   });
 });
 
@@ -864,14 +954,14 @@ describe("A3 aethis_source tool visibility", () => {
   });
 
   it("tool handler count matches expected public tools (aethis_source excluded from server.tool)", () => {
-    // createToolHandlers returns 26 handlers including aethis_source (internal).
-    // registerTools is expected to publish 25 of them — aethis_source is the
+    // createToolHandlers returns 28 handlers including aethis_source (internal).
+    // registerTools is expected to publish 27 of them — aethis_source is the
     // single handler that exists but is not registered as an MCP tool.
     const handlers = createToolHandlers(mockClient());
-    expect(Object.keys(handlers)).toHaveLength(26);
+    expect(Object.keys(handlers)).toHaveLength(28);
   });
 
-  it("registerTools publishes 25 tools and does NOT register aethis_source", () => {
+  it("registerTools publishes 27 tools and does NOT register aethis_source", () => {
     // We intercept the McpServer-like object's .tool() calls to see exactly
     // which names are registered. Even if the count drifts in future, the
     // intent is: aethis_source is handler-only, never a public tool.
@@ -885,8 +975,12 @@ describe("A3 aethis_source tool visibility", () => {
 
     registerTools(fakeServer, createToolHandlers(mockClient()));
 
-    expect(registered).toHaveLength(25);
+    expect(registered).toHaveLength(27);
     expect(registered).not.toContain("aethis_source");
+    // Rulebook surface is registered (auth-gated handlers, but the registration
+    // surfaces the tool to MCP clients regardless of key state).
+    expect(registered).toContain("aethis_list_rulebooks");
+    expect(registered).toContain("aethis_rulebook_schema");
   });
 });
 

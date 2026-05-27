@@ -371,6 +371,41 @@ describe("AethisClient API methods", () => {
     expect(url).toBe("https://api.aethis.ai/api/v1/public/rulesets/..%2F..%2Fadmin%2Fsecrets/schema");
     expect(url).not.toContain("../../");
   });
+
+  it("listRulebooks() gets /api/v1/public/rulebooks/", async () => {
+    await client.listRulebooks();
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/");
+    expect(init.method).toBe("GET");
+    // Auth header MUST be present — the rulebooks list is tenant-scoped on
+    // the engine side; an anonymous call gets HTTP 401.
+    expect((init.headers as Record<string, string>)["X-API-Key"]).toBe("ak_test");
+  });
+
+  it("getRulebookSchema() preserves slug forward-slashes (namespace/name route)", async () => {
+    await client.getRulebookSchema("aethis/uk-fsm");
+    const [url] = fetchSpy.mock.calls[0];
+    // The slash in `aethis/uk-fsm` is intentional — the engine has two route
+    // variants and the slug form needs the literal `/` in the URL to hit the
+    // `{namespace}/{name}/schema` matcher. Encoding it to `%2F` would route
+    // to the opaque-id matcher and 404.
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/aethis/uk-fsm/schema");
+  });
+
+  it("getRulebookSchema() encodes opaque rulebook_ids that don't contain a slash", async () => {
+    await client.getRulebookSchema("rb_kzZ_td0tbKW_OLRB");
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/rb_kzZ_td0tbKW_OLRB/schema");
+  });
+
+  it("getRulebookSchema() defends against traversal for opaque ids", async () => {
+    // Opaque ids should never legitimately contain `/`, but if a caller
+    // sneaks `..` in (no slash), the encoder still strips traversal escapes.
+    await client.getRulebookSchema("..admin");
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/..admin/schema");
+    expect(url).not.toContain("../");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -246,6 +246,27 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/archive`);
   }
 
+  // -- Rulebooks API --
+  //
+  // Rulebooks are the composed-whole counterpart to rulesets. Today both list
+  // and schema endpoints are tenant-scoped (auth required, no anonymous
+  // cross-tenant catalogue) — tracked in aethis-core#TBD. Slugs in the
+  // `aethis/uk-fsm` shape contain a forward slash; pass them as-is without
+  // encoding so they hit the engine's `{namespace}/{name}` route variant.
+
+  async listRulebooks(): Promise<unknown> {
+    return this.request("GET", "/api/v1/public/rulebooks/");
+  }
+
+  async getRulebookSchema(rulebookId: string): Promise<unknown> {
+    // Slugs are `<ns>/<name>`. The engine has two route variants:
+    // `{rulebook_id}/schema` for opaque ids, `{namespace}/{name}/schema`
+    // for slugs. Both accept the raw value — only the path segment
+    // separator changes how FastAPI matches. Don't encode the slash.
+    const path = rulebookId.includes("/") ? rulebookId : encodeURIComponent(rulebookId);
+    return this.request("GET", `/api/v1/public/rulebooks/${path}/schema`);
+  }
+
   // -- Projects API --
 
   async listProjects(): Promise<unknown> {
