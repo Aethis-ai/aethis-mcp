@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.8.0 (2026-05-27)
+
+Add the rulebook tier to the MCP read surface. Closes
+[aethis-mcp#43](https://github.com/Aethis-ai/aethis-mcp/issues/43) for the
+two endpoints the engine exposes today; the public-catalogue equivalent
+(`aethis_discover_rulebooks`) is deferred until aethis-core ships a no-auth
+rulebooks catalogue endpoint.
+
+Why this matters: until now, an agent connected via MCP could see the parts
+(rulesets via `aethis_discover_rulesets` / `aethis_list_rulesets`) and
+evaluate the whole (`aethis_decide` with `rulebook_id`), but had no way to
+*find* a rulebook or inspect *how* its rulesets compose. Concrete failure
+mode from a real 2026-05-27 session: asked whether `aethis/uk-fsm` was
+"three rulebooks or one rulebook with three rulesets", the MCP gave no
+read path that could answer.
+
+### Added
+
+- `aethis_list_rulebooks` — lists rulebooks in the current tenant
+  (auth-required, tenant-scoped). Returns the fields needed to
+  distinguish one composed rulebook from N independent rulesets:
+  `rulebook_id`, `slug`, `name`, `domain`, `status`, `version`,
+  `outcome_logic` (the composition Expr AST), `ruleset_refs`,
+  timestamps. Mirrors `aethis_list_rulesets`.
+- `aethis_rulebook_schema` — fetches one rulebook's composition,
+  bridged rulesets (with names + slugs + ruleset_ids), and aggregated
+  input fields. Accepts either a slug (`aethis/uk-fsm`) or an opaque
+  `rb_*` id. Mirrors `aethis_schema` but at the rulebook tier.
+- `AethisClient.listRulebooks()` / `getRulebookSchema()` — wrap
+  `GET /api/v1/public/rulebooks/` and
+  `GET /api/v1/public/rulebooks/{slug-or-id}/schema`. The schema helper
+  preserves the literal `/` in slugs (so `aethis/uk-fsm` hits the
+  engine's `{namespace}/{name}` matcher) and URL-encodes opaque ids.
+
+### Deferred
+
+- `aethis_discover_rulebooks` — the cross-tenant public catalogue
+  equivalent of `aethis_discover_rulesets`. The engine's
+  `/api/v1/public/rulebooks/` endpoint is tenant-scoped + auth-required
+  on prod today; no anonymous catalogue variant exists. Will land
+  once aethis-core adds it.
+
 ## 0.7.2 (2026-05-26)
 
 - **chore(server): tighten MCP instructions against decision extrapolation.** Adds a "Reporting decisions" section to the server `instructions` block (visible to every client model as part of its system prompt on connect). New rules forbid asserting facts that are not in the tool response, generalising a single-ruleset decision to a composite outcome, naming rulesets/rulebooks not yet observed in the session, and offering follow-up calls against unverified slugs. Triggered by a real user trace where a model summarising a `uk-fsm-child-eligibility` decision closed with an offer to run the broader `aethis/uk-fsm` rulebook "to get the complete household-level decision" — the rulebook exists but currently 422s on prod (empty `ruleset_refs`, see aethis-core#90), so the offer overstated what would actually happen. Advisory, not enforced — but client models reliably honour `instructions` blocks.

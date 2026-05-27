@@ -25,6 +25,18 @@ const DEFAULT_POLL_INTERVAL_MS = 3000;
 const DEFAULT_POLL_TIMEOUT_MS = 300_000; // 5 minutes
 const PROGRESS_DETAIL_MAX_CHARS = 120;
 
+// Allowed shapes for rulebook references. These are the only inputs
+// getRulebookSchema() will send to the wire — anything else is rejected
+// before URL construction so a malicious caller can't smuggle `..`, `?`,
+// `#`, whitespace, or extra path segments through the slug branch.
+//
+// Slug grammar mirrors the engine's `{namespace}/{name}` route: each
+// segment starts with a lowercase letter or digit and contains only
+// lowercase letters, digits, and `-`. Two segments separated by one `/`.
+// Opaque id is the engine's `rb_<urlsafe>` shape.
+export const RULEBOOK_SLUG_RE = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/;
+export const RULEBOOK_OPAQUE_ID_RE = /^rb_[A-Za-z0-9_-]+$/;
+
 // Match any C0 control char except TAB (0x09), plus DEL (0x7F).
 // Source-server-supplied `progress_detail` is logged to stderr verbatim
 // today; we strip non-printables so a malicious or buggy upstream can't
@@ -244,6 +256,45 @@ export class AethisClient {
 
   async archiveRuleset(rulesetId: string): Promise<unknown> {
     return this.request("POST", `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/archive`);
+  }
+
+  // -- Rulebooks API --
+  //
+  // Rulebooks are the composed-whole counterpart to rulesets. Today both list
+  // and schema endpoints are tenant-scoped (auth required, no anonymous
+  // cross-tenant catalogue) — tracked in aethis-core#160. Slugs in the
+  // `aethis/uk-fsm` shape contain a forward slash; pass them as-is without
+  // encoding so they hit the engine's `{namespace}/{name}` route variant.
+
+  async listRulebooks(): Promise<unknown> {
+    return this.request("GET", "/api/v1/public/rulebooks/");
+  }
+
+  async getRulebookSchema(rulebookId: string): Promise<unknown> {
+    // Two valid input shapes — anything else is rejected before it
+    // touches the URL, so a slug-shaped string can never smuggle
+    // `..`, `?`, `#`, whitespace, or extra `/` past the client.
+    //
+    //   slug:      `<namespace>/<name>`, lowercase + digits + `-`
+    //              (engine grammar; e.g. `aethis/uk-fsm`)
+    //   opaque id: `rb_<urlsafe>` — letters, digits, `_`, `-`
+    //
+    // Slug form preserves the literal `/` so the engine's
+    // `{namespace}/{name}/schema` route matches; opaque ids go through
+    // `encodeURIComponent` for defense-in-depth even though they can't
+    // contain reserved characters by grammar.
+    if (RULEBOOK_SLUG_RE.test(rulebookId)) {
+      return this.request("GET", `/api/v1/public/rulebooks/${rulebookId}/schema`);
+    }
+    if (RULEBOOK_OPAQUE_ID_RE.test(rulebookId)) {
+      return this.request("GET", `/api/v1/public/rulebooks/${encodeURIComponent(rulebookId)}/schema`);
+    }
+    throw new AethisAPIError(
+      400,
+      `Invalid rulebook reference '${rulebookId}'. ` +
+        "Expected a slug like 'aethis/uk-fsm' (lowercase, digits, '-') " +
+        "or an opaque id like 'rb_abc123' (letters, digits, '_', '-').",
+    );
   }
 
   // -- Projects API --

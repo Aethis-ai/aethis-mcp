@@ -86,7 +86,7 @@ Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark
 |-------|--------|-------|
 | **Decision** | public | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure` |
 | **Discovery — public catalogue** | public | `aethis_discover_rulesets` |
-| **Discovery — your tenant** | private beta | `aethis_list_projects`, `aethis_list_rulesets` |
+| **Discovery — your tenant** | private beta | `aethis_list_projects`, `aethis_list_rulesets`, `aethis_list_rulebooks`, `aethis_rulebook_schema` |
 | **Authoring — sections & fields** | private beta | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` |
 | **Authoring — generation** | private beta | `aethis_create_ruleset`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` |
 | **Management** | private beta | `aethis_archive_project`, `aethis_archive_ruleset` |

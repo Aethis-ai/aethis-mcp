@@ -4,7 +4,7 @@ Agent notes for `aethis-mcp`. Human-facing docs in [README.md](README.md) and [d
 
 ## What this is
 
-Node.js MCP server that exposes 25 tools for the Aethis platform so coding agents (Claude Code, Claude Desktop, Cursor, Windsurf) can call `aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_discover_rulesets`, `aethis_generate_and_test`, `aethis_publish`, etc. directly from a conversation. Published to npm as `aethis-mcp`.
+Node.js MCP server that exposes 27 tools for the Aethis platform so coding agents (Claude Code, Claude Desktop, Cursor, Windsurf) can call `aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_discover_rulesets`, `aethis_list_rulebooks`, `aethis_generate_and_test`, `aethis_publish`, etc. directly from a conversation. Published to npm as `aethis-mcp`.
 
 Decision tools and `aethis_discover_rulesets` (the public-catalogue browser) work with no API key. Tenant-scoped tools (`aethis_list_projects`, `aethis_list_rulesets`, all authoring) require `AETHIS_API_KEY` in the MCP client config.
 
@@ -30,7 +30,7 @@ npx aethis-mcp
 - [src/tools/](src/tools/) — one file per tool; each exports a name, JSONSchema params, and a handler that calls the appropriate `/api/v1/public/*` endpoint
 - [src/client.ts](src/client.ts) — thin httpx-style wrapper with retries + `AETHIS_BASE_URL` / `AETHIS_API_KEY` config
 
-The server-side HTTP targets are always on aethis-core; this package is a client shim. The 24 tools map 1:1 to public API endpoints plus a few MCP-ergonomics tools (e.g. `aethis_next_question` wraps an incremental decide loop).
+The server-side HTTP targets are always on aethis-core; this package is a client shim. The 27 tools map 1:1 to public API endpoints plus a few MCP-ergonomics tools (e.g. `aethis_next_question` wraps an incremental decide loop).
 
 ## Gotchas
 
@@ -49,5 +49,5 @@ The server-side HTTP targets are always on aethis-core; this package is a client
 ## See also
 
 - Public MCP docs: [docs.aethis.ai/mcp-server](https://docs.aethis.ai/mcp-server/overview)
-- Tools reference (all 25): [docs.aethis.ai/mcp-server/tools](https://docs.aethis.ai/mcp-server/tools)
+- Tools reference (all 27): [docs.aethis.ai/mcp-server/tools](https://docs.aethis.ai/mcp-server/tools)
 - Workspace operational index: [../docs/OPERATIONAL_INDEX.md](../docs/OPERATIONAL_INDEX.md)

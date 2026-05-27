@@ -371,6 +371,76 @@ describe("AethisClient API methods", () => {
     expect(url).toBe("https://api.aethis.ai/api/v1/public/rulesets/..%2F..%2Fadmin%2Fsecrets/schema");
     expect(url).not.toContain("../../");
   });
+
+  it("listRulebooks() gets /api/v1/public/rulebooks/", async () => {
+    await client.listRulebooks();
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/");
+    expect(init.method).toBe("GET");
+    // Auth header MUST be present — the rulebooks list is tenant-scoped on
+    // the engine side; an anonymous call gets HTTP 401.
+    expect((init.headers as Record<string, string>)["X-API-Key"]).toBe("ak_test");
+  });
+
+  it("getRulebookSchema() preserves slug forward-slashes (namespace/name route)", async () => {
+    await client.getRulebookSchema("aethis/uk-fsm");
+    const [url] = fetchSpy.mock.calls[0];
+    // The slash in `aethis/uk-fsm` is intentional — the engine has two route
+    // variants and the slug form needs the literal `/` in the URL to hit the
+    // `{namespace}/{name}/schema` matcher. Encoding it to `%2F` would route
+    // to the opaque-id matcher and 404.
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/aethis/uk-fsm/schema");
+  });
+
+  it("getRulebookSchema() encodes opaque rulebook_ids that don't contain a slash", async () => {
+    await client.getRulebookSchema("rb_kzZ_td0tbKW_OLRB");
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/rb_kzZ_td0tbKW_OLRB/schema");
+  });
+
+  it("getRulebookSchema() rejects free-text 'opaque id' inputs that don't match the rb_ grammar", async () => {
+    // The old branch (just `includes('/')`) accepted anything as an opaque
+    // id. The new validator demands the rb_ prefix + url-safe charset,
+    // so a bare string like '..admin' is rejected before hitting the URL.
+    await expect(client.getRulebookSchema("..admin")).rejects.toThrow(/Invalid rulebook reference/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  describe("getRulebookSchema() rejects path-injection-shaped slug inputs", () => {
+    // Each of these previously would have been waved through by the
+    // `includes('/')` branch and shipped to the wire verbatim. The slug
+    // regex is the trust boundary now.
+    const adversarial = [
+      ["traversal in namespace", "../admin/secrets"],
+      ["traversal in name", "aethis/../admin"],
+      ["query-string injection", "aethis/uk-fsm?evil=1"],
+      ["fragment injection", "aethis/uk-fsm#frag"],
+      ["whitespace in segment", "aethis/uk fsm"],
+      ["three segments", "aethis/uk-fsm/extra"],
+      ["empty namespace", "/uk-fsm"],
+      ["empty name", "aethis/"],
+      ["uppercase rejected", "Aethis/Uk-Fsm"],
+      ["leading dash", "-aethis/uk-fsm"],
+      ["null byte", "aethis/uk-fsm\x00"],
+    ] as const;
+
+    for (const [label, input] of adversarial) {
+      it(label, async () => {
+        await expect(client.getRulebookSchema(input)).rejects.toThrow(/Invalid rulebook reference/);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      });
+    }
+  });
+
+  it("getRulebookSchema() accepts well-formed slugs verbatim", async () => {
+    await client.getRulebookSchema("aethis/uk-fsm");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("getRulebookSchema() accepts well-formed opaque ids", async () => {
+    await client.getRulebookSchema("rb_kzZ_td0tbKW_OLRB");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
