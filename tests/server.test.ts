@@ -372,6 +372,24 @@ describe("aethis_discover_rulesets", () => {
 // ---------------------------------------------------------------------------
 
 describe("aethis_list_rulebooks", () => {
+  // Force resolveApiKey to fail so requireAuth's catch branch fires.
+  // Without this the dev-machine credentials file resolves a key.
+  it("returns auth-required hint when no key can be resolved", async () => {
+    vi.resetModules();
+    vi.doMock("../src/credentials.js", () => ({
+      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
+      MissingLlmKeyError: class MissingLlmKeyError extends Error {},
+    }));
+    const { createToolHandlers: freshHandlers } = await import("../src/index.js");
+    const client = mockClient({ hasApiKey: false });
+    const h = freshHandlers(client);
+    const result = await h.aethis_list_rulebooks({});
+    expect(text(result)).toMatch(/authentication required/i);
+    vi.doUnmock("../src/credentials.js");
+    vi.resetModules();
+  });
+
   it("returns rulebooks JSON for the current tenant", async () => {
     const listRulebooks = vi.fn().mockResolvedValue([
       {
@@ -450,6 +468,22 @@ describe("aethis_rulebook_schema", () => {
     const h = createToolHandlers(mockClient());
     const result = await h.aethis_rulebook_schema({ rulebook_id: "" });
     expect(text(result)).toMatch(/must not be empty/i);
+  });
+
+  it("returns auth-required hint when no key can be resolved", async () => {
+    vi.resetModules();
+    vi.doMock("../src/credentials.js", () => ({
+      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
+      MissingLlmKeyError: class MissingLlmKeyError extends Error {},
+    }));
+    const { createToolHandlers: freshHandlers } = await import("../src/index.js");
+    const client = mockClient({ hasApiKey: false });
+    const h = freshHandlers(client);
+    const result = await h.aethis_rulebook_schema({ rulebook_id: "aethis/uk-fsm" });
+    expect(text(result)).toMatch(/authentication required/i);
+    vi.doUnmock("../src/credentials.js");
+    vi.resetModules();
   });
 });
 
@@ -953,18 +987,12 @@ describe("A3 aethis_source tool visibility", () => {
     expect(typeof handlers.aethis_source).toBe("function");
   });
 
-  it("tool handler count matches expected public tools (aethis_source excluded from server.tool)", () => {
-    // createToolHandlers returns 28 handlers including aethis_source (internal).
-    // registerTools is expected to publish 27 of them — aethis_source is the
-    // single handler that exists but is not registered as an MCP tool.
+  it("registerTools publishes every handler except aethis_source", () => {
+    // Invariant: handlers.length === registered.length + 1. aethis_source is
+    // the single handler that exists for internal use but is not exposed
+    // as a public MCP tool. Expressed as a relation so this test doesn't
+    // need updating every time a new tool ships.
     const handlers = createToolHandlers(mockClient());
-    expect(Object.keys(handlers)).toHaveLength(28);
-  });
-
-  it("registerTools publishes 27 tools and does NOT register aethis_source", () => {
-    // We intercept the McpServer-like object's .tool() calls to see exactly
-    // which names are registered. Even if the count drifts in future, the
-    // intent is: aethis_source is handler-only, never a public tool.
     const registered: string[] = [];
     const fakeServer = {
       tool: (name: string, ..._args: unknown[]) => {
@@ -972,13 +1000,13 @@ describe("A3 aethis_source tool visibility", () => {
       },
       prompt: () => {},
     } as unknown as Parameters<typeof registerTools>[0];
+    registerTools(fakeServer, handlers);
 
-    registerTools(fakeServer, createToolHandlers(mockClient()));
-
-    expect(registered).toHaveLength(27);
     expect(registered).not.toContain("aethis_source");
-    // Rulebook surface is registered (auth-gated handlers, but the registration
-    // surfaces the tool to MCP clients regardless of key state).
+    expect(Object.keys(handlers)).toContain("aethis_source");
+    expect(registered.length).toBe(Object.keys(handlers).length - 1);
+    // Spot-check the new rulebook surface to catch a missing
+    // registration (an easy mistake when adding a tool).
     expect(registered).toContain("aethis_list_rulebooks");
     expect(registered).toContain("aethis_rulebook_schema");
   });

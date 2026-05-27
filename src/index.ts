@@ -430,7 +430,13 @@ export function createToolHandlers(client: AethisClient) {
     // rulebook's rulesets compose?" without dropping into MongoDB. Both
     // currently auth-required + tenant-scoped because the engine doesn't
     // expose a public rulebook catalogue (would be aethis_discover_rulebooks,
-    // tracked separately).
+    // tracked separately in aethis-core#160).
+    //
+    // Free-text fields (`name`, `description`, `domain`) are passed through
+    // verbatim inside the JSON blob, matching the sibling list/discover
+    // tools. The JSON-passthrough fencing question is tracked in
+    // aethis-mcp#45 — when it's resolved, fix it across all such tools at
+    // once rather than diverging here.
 
     async aethis_list_rulebooks(_args: Record<string, never>): Promise<ToolResult> {
       const authErr = await requireAuth(client);
