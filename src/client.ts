@@ -250,7 +250,7 @@ export class AethisClient {
   //
   // Rulebooks are the composed-whole counterpart to rulesets. Today both list
   // and schema endpoints are tenant-scoped (auth required, no anonymous
-  // cross-tenant catalogue) — tracked in aethis-core#TBD. Slugs in the
+  // cross-tenant catalogue) — tracked in aethis-core#160. Slugs in the
   // `aethis/uk-fsm` shape contain a forward slash; pass them as-is without
   // encoding so they hit the engine's `{namespace}/{name}` route variant.
 

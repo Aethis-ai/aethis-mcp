@@ -1561,6 +1561,7 @@ async function main(): Promise<void> {
         "**Conversational check**: aethis_next_question iteratively with growing field_values until decision reached",
         "**Discover (public catalogue)**: aethis_discover_rulesets — no auth required; cross-tenant showcase rulesets",
         "**Discover (your tenant)**: aethis_list_projects → aethis_list_rulesets — requires AETHIS_API_KEY",
+        "**Discover rulebooks (composed wholes)**: aethis_list_rulebooks → aethis_rulebook_schema(rulebook_id) — answers 'what rulebooks exist?' and 'how do this rulebook's rulesets compose?'; requires AETHIS_API_KEY",
         "",
         "## Key Principles",
         "- Tests come FIRST — define expected outcomes before generating rules",
