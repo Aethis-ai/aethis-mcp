@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0 (2026-05-29)
+
+`aethis_refine` now performs **finding-driven incremental re-authoring**: it
+seeds generation from the section's active ruleset and asks the engine for the
+**minimal edit** to fix failing test cases while keeping passing tests green,
+instead of re-authoring the whole section from scratch. `aethis_generate_and_test`
+is unchanged (from-scratch authoring).
+
+Why this matters: fixing one wrong case in a published ruleset previously meant a
+full-section regenerate — expensive, and prone to silently regressing carefully
+tuned behaviour (e.g. caseworker-review criteria that intentionally yield
+`undetermined`). Refine keeps the blast radius to the criteria that actually need
+to change; the full-suite gate still guarantees no regression ships.
+
+Requires aethis-core with the `mode` parameter on `/generate` (engine ≥ the
+release shipping seed-from-existing refine). Older engines ignore the body and
+fall back to from-scratch generation.
+
+- `client.generate()` / `generateAndTest()` accept an optional `mode` and send
+  `{mode:"refine"}` on the generation request body.
+
 ## 0.8.0 (2026-05-27)
 
 Add the rulebook tier to the MCP read surface. Closes
