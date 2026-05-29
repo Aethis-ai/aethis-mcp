@@ -294,6 +294,15 @@ describe("AethisClient API methods", () => {
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/generate");
     expect(init.method).toBe("POST");
+    // No mode → no body (fresh authoring, backwards-compatible).
+    expect(init.body).toBeUndefined();
+  });
+
+  it("generate() with mode='refine' sends a {mode:'refine'} body", async () => {
+    await client.generate("p_1", undefined, "refine");
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ mode: "refine" });
   });
 
   it("listRulesets() gets /api/v1/public/projects/:id/rulesets", async () => {

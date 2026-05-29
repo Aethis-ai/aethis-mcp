@@ -307,8 +307,12 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/status`);
   }
 
-  async generate(projectId: string, llmKey?: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, undefined, llmKey);
+  async generate(projectId: string, llmKey?: string, mode?: "fresh" | "refine"): Promise<unknown> {
+    // mode="refine" seeds generation from the section's active ruleset and asks
+    // for the minimal edit to fix failing tests (finding-driven incremental
+    // re-authoring); omitting it / "fresh" authors from scratch.
+    const body = mode ? { mode } : undefined;
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, body, llmKey);
   }
 
   async listRulesets(projectId: string): Promise<unknown> {
@@ -444,9 +448,9 @@ export class AethisClient {
    * Generate rules then poll until complete, then run tests.
    * Mirrors the CLI's generate --poll + test workflow.
    */
-  async generateAndTest(projectId: string, llmKey?: string): Promise<unknown> {
-    // 1. Trigger generation
-    const job = await this.generate(projectId, llmKey) as Record<string, unknown>;
+  async generateAndTest(projectId: string, llmKey?: string, mode?: "fresh" | "refine"): Promise<unknown> {
+    // 1. Trigger generation (mode="refine" → seed-from-existing incremental edit)
+    const job = await this.generate(projectId, llmKey, mode) as Record<string, unknown>;
     const jobId = job.job_id as string;
 
     // 2. Poll until done

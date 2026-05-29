@@ -963,7 +963,9 @@ export function createToolHandlers(client: AethisClient) {
         if (feedback) {
           await client.addGuidance(args.project_id, args.feedback!);
         }
-        const result = await client.generateAndTest(args.project_id, llmKey) as TestRunResult;
+        // Refine = seed from the section's active ruleset and make the MINIMAL
+        // edit to fix failing tests, rather than re-authoring the whole section.
+        const result = await client.generateAndTest(args.project_id, llmKey, "refine") as TestRunResult;
         const prev = previousTestResults.get(args.project_id) ?? null;
         const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
         iterationCounts.set(args.project_id, iteration);
@@ -1375,7 +1377,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_refine",
-    "Refine rules with optional feedback, then regenerate and test. Shortcut for add_guidance + generate_and_test.",
+    "Refine an existing published ruleset: add optional feedback, then make the MINIMAL edit to fix failing test cases while keeping passing tests green, and re-run the full suite (seed-from-existing incremental re-authoring). Use this to fix a specific finding without re-authoring the whole section; use aethis_generate_and_test for a from-scratch rebuild.",
     {
       project_id: z.string().describe("The project ID"),
       feedback: z.string().optional().describe("Optional correction or domain knowledge to add before regenerating"),
