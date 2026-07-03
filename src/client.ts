@@ -112,7 +112,7 @@ export class AethisClient {
           method,
           headers: {
             ...(this.apiKey ? { "X-API-Key": this.apiKey } : {}),
-            ...(llmKey ? { "X-Anthropic-Key": llmKey, "X-OpenAI-Key": llmKey } : {}),
+            ...(llmKey ? { "X-Anthropic-Key": llmKey } : {}),
             ...(body !== undefined && !(body instanceof FormData)
               ? { "Content-Type": "application/json" }
               : {}),
