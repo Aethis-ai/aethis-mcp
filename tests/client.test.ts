@@ -94,6 +94,22 @@ describe("AethisClient requests", () => {
     expect(init.headers["X-API-Key"]).toBeUndefined();
   });
 
+  it("sends the per-request LLM key only as X-Anthropic-Key, never X-OpenAI-Key", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ job_id: "j_1" }));
+    await client.generate("p_1", "sk-ant-secret");
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["X-Anthropic-Key"]).toBe("sk-ant-secret");
+    expect(init.headers["X-OpenAI-Key"]).toBeUndefined();
+  });
+
+  it("omits the Anthropic header entirely when no LLM key is passed", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ job_id: "j_1" }));
+    await client.generate("p_1");
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["X-Anthropic-Key"]).toBeUndefined();
+    expect(init.headers["X-OpenAI-Key"]).toBeUndefined();
+  });
+
   it("returns parsed JSON on success", async () => {
     const data = { ruleset_id: "b_123", fields: [] };
     fetchSpy.mockResolvedValueOnce(jsonResponse(data));

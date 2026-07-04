@@ -18,7 +18,7 @@ pnpm run build       # tsc compile
 pnpm test            # vitest
 
 # Run against a local aethis-core:
-AETHIS_BASE_URL=http://localhost:8080 AETHIS_API_KEY=test node dist/server.js
+AETHIS_BASE_URL=http://localhost:8080 AETHIS_API_KEY=test node dist/index.js
 
 # Or via npx once published:
 npx aethis-mcp
@@ -26,11 +26,14 @@ npx aethis-mcp
 
 ## Architecture
 
-- [src/server.ts](src/server.ts) — MCP transport wiring (stdio)
-- [src/tools/](src/tools/) — one file per tool; each exports a name, JSONSchema params, and a handler that calls the appropriate `/api/v1/public/*` endpoint
-- [src/client.ts](src/client.ts) — thin httpx-style wrapper with retries + `AETHIS_BASE_URL` / `AETHIS_API_KEY` config
+The server is a single monolithic module, not a per-tool file tree:
 
-The server-side HTTP targets are always on aethis-core; this package is a client shim. The 27 tools map 1:1 to public API endpoints plus a few MCP-ergonomics tools (e.g. `aethis_next_question` wraps an incremental decide loop).
+- [src/index.ts](src/index.ts) — everything MCP-facing in one file: the `main()` stdio transport wiring, the `createToolHandlers(client)` factory (every `aethis_*` handler), `registerTools()` / `registerPrompts()` that register them on the `McpServer`, the untrusted-content fencing helpers (`fenceUntrusted`, `UNTRUSTED_PREFACE`), and the output formatters (`formatTestResults`, `formatExplainFailure`, …). The package version is read from `package.json` as `PKG_VERSION`; `dist/index.js` is the published `bin`.
+- [src/client.ts](src/client.ts) — `AethisClient`, a thin fetch wrapper with retries/backoff, base-URL validation, and one method per `/api/v1/public/*` endpoint (`AETHIS_BASE_URL` / `AETHIS_API_KEY` config).
+- [src/credentials.ts](src/credentials.ts) — Aethis-API-key resolution (`resolveApiKey`) and per-call LLM-key resolution (`resolveLlmKey`, keychain/env/raw forms).
+- [tests/](tests/) — vitest suites (`index.test.ts`, `server.test.ts`, `client.test.ts`, `credentials.test.ts`) that import the exported handlers/formatters and mock the HTTP client.
+
+The server-side HTTP targets are always on aethis-core; this package is a client shim. The tools map 1:1 to public API endpoints plus a few MCP-ergonomics tools (e.g. `aethis_next_question` wraps an incremental decide loop).
 
 ## Gotchas
 
@@ -44,7 +47,7 @@ The server-side HTTP targets are always on aethis-core; this package is a client
 
 ## Testing
 
-[src/tools/*.test.ts](src/tools/) mocks the HTTP client and asserts the produced request shape. The full-stack integration tests live in a CI workflow that spins up a local aethis-core via Docker — don't reach that tier from unit tests.
+The vitest suites under [tests/](tests/) mock the HTTP client and assert the produced request shape and the LLM-facing output. The full-stack integration tests live in a CI workflow that spins up a local aethis-core via Docker — don't reach that tier from unit tests.
 
 ## See also
 

@@ -321,7 +321,10 @@ export function createToolHandlers(client: AethisClient) {
         if (decision === "eligible") return ok("Decision: eligible. No more questions needed.");
         if (decision === "not_eligible") return ok("Decision: not eligible. No more questions needed.");
 
-        const nq = result.next_question as { field_id: string; question: string; weight: number } | undefined;
+        type QuestionNote = { note_text?: string; source?: string; metadata?: { type?: string } };
+        const nq = result.next_question as
+          | { field_id: string; question: string; weight: number; notes?: QuestionNote[] }
+          | undefined;
         const path = (result.optimal_path ?? []) as Array<{ field_id: string; question: string; weight: number }>;
         const lines: string[] = [
           `Decision: undetermined (${result.fields_provided ?? 0}/${result.fields_evaluated ?? 0} fields provided)`,
@@ -335,6 +338,18 @@ export function createToolHandlers(client: AethisClient) {
           lines.push(`  Field: ${nq.field_id}`);
           lines.push(`  Question: ${fenceUntrusted("question", nq.question)}`);
           lines.push(`  Priority weight: ${nq.weight} (lower = more important)`);
+          // Author-provided notes explain *why* a question is asked (e.g.
+          // metadata.type "why" / "legal_background"). Server free-text, so
+          // each note is fenced like every other untrusted API field.
+          const notes = Array.isArray(nq.notes) ? nq.notes : [];
+          if (notes.length) {
+            lines.push("  Notes:");
+            for (const note of notes) {
+              const type = note.metadata?.type;
+              const prefix = type ? `[${type}] ` : "";
+              lines.push(`    - ${prefix}${fenceUntrusted(type ? `note_${type}` : "note", note.note_text)}`);
+            }
+          }
         }
         if (path.length) {
           lines.push(`\nFull remaining path (${path.length} questions):`);
@@ -538,9 +553,14 @@ export function createToolHandlers(client: AethisClient) {
         const hints = await client.listGuidance(args.project_id) as Array<Record<string, unknown>>;
         if (!hints.length) return ok("No guidance hints added to this project yet.");
         const lines = hints.map((h, i) =>
-          `${i + 1}. [${h.source ?? "human"}] ${h.guidance_text}\n   (hint_id: ${h.hint_id}, active: ${h.active})`
+          `${i + 1}. [source: ${fenceUntrusted("source", h.source ?? "human")}]\n` +
+          `   ${fenceUntrusted("guidance_text", h.guidance_text)}\n` +
+          `   (hint_id: ${h.hint_id}, active: ${h.active})`
         );
-        return ok(`Guidance hints for project ${args.project_id} (${hints.length} total):\n\n${lines.join("\n\n")}`);
+        return ok(
+          `${UNTRUSTED_PREFACE}\n\n` +
+          `Guidance hints for project ${args.project_id} (${hints.length} total):\n\n${lines.join("\n\n")}`,
+        );
       } catch (e) { return apiError(e); }
     },
 
@@ -1097,7 +1117,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_next_question",
-    "Get the optimal next question for a conversational eligibility check. Call with empty field_values for the first question, then add answers and call again until decision is reached.",
+    "Get the optimal next question for a conversational eligibility check. Call with empty field_values for the first question, then add answers and call again until decision is reached. When the ruleset author attached notes to a question (e.g. why it is asked, or legal background), they are surfaced under a Notes block.",
     {
       ruleset_id: z.string().describe("The ID of the published rule ruleset"),
       field_values: z.record(z.string(), z.unknown()).describe("Answers collected so far (empty dict for first question)"),
@@ -1505,7 +1525,7 @@ For interactive eligibility checks where you don't have all inputs upfront:
 
 ## Key Facts
 - Decisions are deterministic: same inputs always produce the same output
-- Decisions are fast (<5ms) — no LLM at inference time, pure constraint evaluation
+- Decisions are fast (<1ms) — no LLM at inference time, pure constraint evaluation
 - The decision API needs no authentication — only the ruleset_id is required
 - Use aethis_explain to show users what rules apply before they start`;
 }
@@ -1577,7 +1597,7 @@ async function main(): Promise<void> {
         "- Decision tools (aethis_decide, aethis_schema, aethis_explain, aethis_next_question) need no authentication",
         "- aethis_discover_rulesets is the no-auth catalogue browser — use it whenever the user wants to explore what's available without committing to a tenant",
         "- Authoring tools need an API key (AETHIS_API_KEY or 'aethis login')",
-        "- Decisions are deterministic, <5ms, no LLM at inference time — all rules are pre-compiled",
+        "- Decisions are deterministic, <1ms, no LLM at inference time — all rules are pre-compiled",
         "",
         "## Reporting decisions",
         "- Every factual claim in your prose must trace to a field in the tool response. If it is not in the JSON, do not assert it.",

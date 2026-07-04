@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.10.0 (2026-07-04)
+
+Cross-surface review batch (aethis-mcp#50).
+
+- **Surface `next_question.notes` (additive).** `aethis_next_question` now renders
+  a **Notes** block after the question when the ruleset author attached notes to
+  it (each note carries `note_text`, `source`, and `metadata`). Notes are labelled
+  by `metadata.type` (e.g. `why`, `legal_background`) when present, and each
+  note's text is wrapped with `fenceUntrusted(...)` since it is author-provided
+  server content. Output is unchanged when no notes are present. The tool
+  description now mentions the Notes block.
+- **Fence `aethis_list_guidance` output.** The `guidance_text` and `source` fields
+  returned by the server were interpolated into the tool result unfenced, unlike
+  every sibling handler. They are now wrapped with `fenceUntrusted(...)` under the
+  `UNTRUSTED_PREFACE` warning (GHSA-ph7q-r9q4-922g hardening).
+- **Send a single provider header.** The per-request LLM key was sent under both
+  `X-Anthropic-Key` and `X-OpenAI-Key`. It is now sent only as `X-Anthropic-Key`,
+  matching how `resolveLlmKey` resolves the key.
+- **Correct the stale latency figure.** Two guidance strings claimed decisions are
+  `<5ms`; corrected to `<1ms` to match the README and the canonical figure.
+- **Docs:** rewrote the `CLAUDE.md` architecture section to the real layout
+  (`src/index.ts` + `src/client.ts` + `src/credentials.ts`, tests under `tests/`)
+  instead of the non-existent `src/server.ts` + `src/tools/` tree.
+
 ## 0.9.0 (2026-05-29)
 
 `aethis_refine` now performs **finding-driven incremental re-authoring**: it
