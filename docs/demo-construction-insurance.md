@@ -252,9 +252,9 @@ uv run llm_comparison.py construction-all-risks/ \
 | GPT-5.4 | default (high reasoning) | 10/11 (91%) | 1 false negative on enhanced access |
 | Claude Sonnet 4.6 | default | 10/11 (91%) | 1 parse error |
 | GPT-5.3 | default | 7/11 (64%) | 4 false negatives on exception chains |
-| **GPT-5.4** | **low reasoning** | **7/11 (64%)** | **Same failures as GPT-5.3** |
+| GPT-5.4 | `reasoning_effort=low` (v3.8 replication) | 11/11 (100%) | earlier 7/11 claim withdrawn in the paper's v3.8 revision |
 
-**GPT-5.4 at low reasoning effort drops from 91% to 64%** — matching GPT-5.3's score, with the same four scenarios failing (enhanced cover, pioneer override, depth-5 unblock). On this benchmark, accuracy appears dependent on how much reasoning compute the model allocates. Opus 4.6 doesn't degrade even at maximum temperature.
+**GPT-5.3 drops to 64%** with four scenarios failing (enhanced cover, pioneer override, depth-5 unblock). An earlier claim that GPT-5.4 at low reasoning effort matched that 7/11 was **withdrawn in the paper's v3.8 revision** — an instrumented replication returned 11/11, and no committed script reproduced the original figure (paper §6.5 Finding 5). Opus 4.6 doesn't degrade even at maximum temperature.
 
 In production, you can't guarantee that every API call uses maximum reasoning effort. You can't guarantee the model version won't change. You can't guarantee the same answer on retry. These aren't hypothetical risks — they're measurable in this benchmark.
 
