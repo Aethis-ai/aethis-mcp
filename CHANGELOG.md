@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.1 (2026-07-08)
+
+- **docs: correct stale paper citation in the construction-insurance demo.** The
+  demo cited the withdrawn v3.6/v3.7 claim that GPT-5.4 at `reasoning_effort=low`
+  scores 7/11 on the exception-chain subset; the paper withdrew that result in
+  v3.8 (instrumented replication: 11/11). The demo now attributes 7/11 to
+  GPT-5.3 only and pins the paper citation at v3.11. No code changes.
+
 ## 0.10.0 (2026-07-04)
 
 Cross-surface review batch (aethis-mcp#50).
