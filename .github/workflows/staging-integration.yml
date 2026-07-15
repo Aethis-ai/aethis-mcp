@@ -1,0 +1,85 @@
+name: staging-integration
+
+# mcp-staging lane (epic Aethis-ai/aethis-workspace#477, P3, L3).
+# Nightly + manual. Report-only: this scheduled workflow gates nothing; it
+# exercises the built MCP server end-to-end over the real protocol against the
+# deployed staging engine and drift-checks the 27 tool schemas against the live
+# OpenAPI document. Missing secrets or unreachable staging fail RED — never
+# green-by-skip (spec Decision 9). Never touches production (Decision 4).
+
+on:
+  schedule:
+    # 03:30 UTC nightly.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: mcp-staging-integration
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AETHIS_BASE_URL: https://staging.api.aethis.ai
+
+jobs:
+  staging-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Preflight — required secrets present (fail loud if not)
+        env:
+          CLERK_SECRET_KEY_DEV_TOOLS: ${{ secrets.CLERK_SECRET_KEY_DEV_TOOLS }}
+          CLERK_E2E_DX_USER_ID: ${{ vars.CLERK_E2E_DX_USER_ID }}
+        run: |
+          missing=0
+          if [ -z "$CLERK_SECRET_KEY_DEV_TOOLS" ]; then echo "::error::CLERK_SECRET_KEY_DEV_TOOLS is unset"; missing=1; fi
+          if [ -z "$CLERK_E2E_DX_USER_ID" ]; then echo "::error::CLERK_E2E_DX_USER_ID is unset"; missing=1; fi
+          if [ "$missing" = "1" ]; then
+            echo "Integration lane cannot run without mint credentials — failing red (spec Decision 9)."
+            exit 1
+          fi
+
+      - name: Drift suite (network-required)
+        id: drift
+        env:
+          DRIFT_NETWORK_REQUIRED: "1"
+        run: npm run test:drift
+
+      - name: Staging integration lane
+        id: integration
+        env:
+          CLERK_SECRET_KEY_DEV_TOOLS: ${{ secrets.CLERK_SECRET_KEY_DEV_TOOLS }}
+          CLERK_E2E_DX_USER_ID: ${{ vars.CLERK_E2E_DX_USER_ID }}
+        run: npm run test:integration
+
+      - name: Emit qa-run record
+        if: always()
+        run: |
+          if [ "${{ steps.drift.outcome }}" = "success" ] && [ "${{ steps.integration.outcome }}" = "success" ]; then
+            verdict=pass
+          else
+            verdict=fail
+          fi
+          node scripts/qa/emit-run-record.mjs --verdict "$verdict" --out qa-run-record.json
+
+      - name: Upload qa-run-record artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-run-record
+          path: qa-run-record.json
+          if-no-files-found: warn
