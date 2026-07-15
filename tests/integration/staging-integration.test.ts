@@ -1,15 +1,14 @@
 /**
- * Staging integration lane (epic Aethis-ai/aethis-workspace#477, P3, L3).
+ * Staging integration lane.
  *
  * Runs the BUILT MCP server as a subprocess with a freshly minted staging key
  * and drives it over the real MCP protocol (`@modelcontextprotocol/sdk` client
  * over stdio): `tools/list` (== 27), a read-only core loop, and `aethis_decide`
- * against a public non-immigration showcase ruleset. A negative path proves an
- * invalid key yields a STRUCTURED error result and the server stays alive.
+ * against a public showcase ruleset. A negative path proves an invalid key
+ * yields a STRUCTURED error result and the server stays alive.
  *
- * Oracle: the deployed staging engine (Decision 1). Nightly-only; never prod
- * (Decision 4). Missing secrets ⇒ this suite fails loud (Decision 9) — it does
- * not skip-green.
+ * Oracle: the deployed staging engine. Nightly-only; staging only, never
+ * production. Missing secrets ⇒ this suite fails loud — it does not skip-green.
  */
 
 import { fileURLToPath } from "node:url";
@@ -43,14 +42,19 @@ function textOf(result: ToolResult): string {
 }
 
 async function connectServer(apiKey: string): Promise<{ client: Client; close: () => Promise<void> }> {
+  // Explicit minimal env — do NOT spread process.env, which would leak the
+  // Clerk mint secret (and everything else) into the server subprocess. Pass
+  // only what the server + Node need: the two AETHIS vars, plus PATH/HOME.
+  const env: Record<string, string> = {
+    AETHIS_API_KEY: apiKey,
+    AETHIS_BASE_URL: STAGING_API,
+  };
+  if (process.env.PATH) env.PATH = process.env.PATH;
+  if (process.env.HOME) env.HOME = process.env.HOME;
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [SERVER_ENTRY],
-    env: {
-      ...(process.env as Record<string, string>),
-      AETHIS_API_KEY: apiKey,
-      AETHIS_BASE_URL: STAGING_API,
-    },
+    env,
   });
   const client = new Client({ name: "aethis-mcp-integration", version: "0" }, { capabilities: {} });
   await client.connect(transport);
@@ -66,7 +70,7 @@ describe("staging integration lane", () => {
     if (!integrationSecretsPresent()) {
       throw new Error(
         "Integration lane requires CLERK_SECRET_KEY_DEV_TOOLS + CLERK_E2E_DX_USER_ID. " +
-          "Absent secrets fail loud (spec Decision 9), never skip-green.",
+          "Absent secrets fail loud, never skip-green.",
       );
     }
     if (!existsSync(SERVER_ENTRY)) {

@@ -1,11 +1,10 @@
 name: staging-integration
 
-# mcp-staging lane (epic Aethis-ai/aethis-workspace#477, P3, L3).
-# Nightly + manual. Report-only: this scheduled workflow gates nothing; it
-# exercises the built MCP server end-to-end over the real protocol against the
-# deployed staging engine and drift-checks the 27 tool schemas against the live
-# OpenAPI document. Missing secrets or unreachable staging fail RED — never
-# green-by-skip (spec Decision 9). Never touches production (Decision 4).
+# mcp-staging lane. Nightly + manual. Report-only: this scheduled workflow
+# gates nothing; it exercises the built MCP server end-to-end over the real
+# protocol against the deployed staging engine and drift-checks the 27 tool
+# schemas against the live OpenAPI document. Missing secrets or unreachable
+# staging fail RED — never green-by-skip. Staging only, never production.
 
 on:
   schedule:
@@ -49,7 +48,7 @@ jobs:
           if [ -z "$CLERK_SECRET_KEY_DEV_TOOLS" ]; then echo "::error::CLERK_SECRET_KEY_DEV_TOOLS is unset"; missing=1; fi
           if [ -z "$CLERK_E2E_DX_USER_ID" ]; then echo "::error::CLERK_E2E_DX_USER_ID is unset"; missing=1; fi
           if [ "$missing" = "1" ]; then
-            echo "Integration lane cannot run without mint credentials — failing red (spec Decision 9)."
+            echo "Integration lane cannot run without mint credentials — failing red."
             exit 1
           fi
 

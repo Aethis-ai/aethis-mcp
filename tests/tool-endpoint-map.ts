@@ -9,7 +9,7 @@
  * *correspondence*: which operation a tool drives and which engine field each
  * zod field maps to (including renames like `force -> force_unsafe`).
  *
- * Discipline (Decision 9): every one of the 27 `server.tool()` registrations
+ * Discipline: every one of the 27 `server.tool()` registrations
  * MUST appear here, and every operation named here MUST exist in the deployed
  * OpenAPI document. A tool missing from this map, an unknown extra tool, or a
  * mapped operation absent from the engine is a FAILURE, never a skip.

@@ -1,11 +1,11 @@
 /**
- * Tool-schema drift suite (epic Aethis-ai/aethis-workspace#477, P3).
+ * Tool-schema drift suite.
  *
  * Guards that the 27 MCP `server.tool()` input schemas never silently drift
- * from the deployed engine. The oracle is the live staging OpenAPI document
- * (Decision 1) — nothing here vendors a copy of engine truth (Decision 2). The
- * only hand-maintained artefact is `tool-endpoint-map.ts`, which carries the
- * tool -> operation correspondence and field renames, not any schema.
+ * from the deployed engine. The oracle is the live staging OpenAPI document —
+ * nothing here vendors a copy of engine truth. The only hand-maintained
+ * artefact is `tool-endpoint-map.ts`, which carries the tool -> operation
+ * correspondence and field renames, not any schema.
  *
  * Two tiers:
  *  - Offline structural checks (always run, even with no network): every tool
@@ -17,10 +17,10 @@
  *    catch an engine-side rename/removal/retype.
  *
  * Network policy: nightly sets `DRIFT_NETWORK_REQUIRED=1`, so an unreachable
- * OpenAPI document fails RED (Decision 9 — never green-by-skip). The PR gate
- * leaves it unset and tolerates ONLY genuine network-unreachability with a loud
- * warning; real drift still fails. A reachable host returning a non-2xx is
- * always red.
+ * OpenAPI document fails RED (never green-by-skip). The PR gate leaves it unset
+ * and tolerates ONLY genuine unreachability (network error or a 5xx from the
+ * host) with a loud warning; real drift still fails. A 4xx (a reachable host
+ * serving a wrong/absent document) is always red.
  */
 
 import { describe, it, expect, beforeAll, vi } from "vitest";
@@ -202,6 +202,31 @@ describe("drift: live alignment against staging OpenAPI", () => {
             problems.push(
               `${tool} ${ep.method} ${ep.path}: field '${engineField}' type ${engine.type} ` +
                 `incompatible with tool field '${zodField}' type ${zodShape.type}`,
+            );
+          }
+        }
+      }
+    }
+    expect(problems, problems.join("\n")).toEqual([]);
+  });
+
+  it("no mcpOnly field is actually a body property on a mapped operation", () => {
+    // mcpOnly is a silent-exclusion channel: a field parked there is never
+    // drift-checked. Guard it — if a field marked mcpOnly IS a request-body
+    // property on any of the tool's operations, it was mis-classified and real
+    // drift would hide behind it.
+    if (unreachable) return;
+    const problems: string[] = [];
+    for (const [tool, entry] of Object.entries(TOOL_ENDPOINT_MAP)) {
+      for (const field of entry.mcpOnly ?? []) {
+        for (const ep of entry.endpoints) {
+          if (ep.form || !ep.body) continue;
+          const op = doc!.operations.get(`${ep.method} ${ep.path}`);
+          if (!op || op.body === null) continue;
+          if (op.body[field]) {
+            problems.push(
+              `${tool} ${ep.method} ${ep.path}: field '${field}' is marked mcpOnly ` +
+                `but is a real body property on the engine model — mis-classified, drift would hide here`,
             );
           }
         }

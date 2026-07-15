@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 /**
- * Emit a `qa_runs`-shaped run record for the mcp-staging lane.
+ * Emit a QA-run-shaped record for the mcp-staging lane, for downstream
+ * ingestion into a quality dashboard.
  *
  * The nightly staging-integration workflow calls this in an `always()` step so a
- * record lands whether the lane passed or failed (never green-by-skip — spec
- * Decision 9). The record shape mirrors `tda-server/tda/models/qa_run.py`
- * (QARun): the reporting-wiring phase (workspace#478 / P6) ingests it via the
- * tda-server#797 upsert pattern. `source: "dev_platform"` is the new lane group
- * P6 adds to the taxonomy; `lane: "mcp-staging"` is this lane.
+ * record lands whether the lane passed or failed (never green-by-skip). The
+ * record is keyed idempotently on the workflow run so a re-ingest never
+ * duplicates. `lane: "mcp-staging"` identifies this lane.
  *
  * Usage: node scripts/qa/emit-run-record.mjs --verdict <pass|fail|blocked> [--out <path>]
  */
@@ -53,8 +52,8 @@ const engine = await engineVersion();
 
 const record = {
   schema_version: 1,
-  // Globally-unique per workflow run (like the smoke lane keys on run id), so
-  // P6's ingest upserts idempotently and a re-run updates in place.
+  // Globally-unique per workflow run, so a downstream ingest can upsert
+  // idempotently and a re-run updates the record in place.
   natural_key: `mcp-staging:${runId}:${attempt}`,
   source: "dev_platform",
   lane: "mcp-staging",

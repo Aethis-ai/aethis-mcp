@@ -22,8 +22,8 @@ Test-infra only — no runtime/behaviour change to the server or its tools.
   Keys are minted via the self-serve path (server-default scopes), named
   `e2e-dx-mcp-*`, and revoked + swept in teardown.
 - **`staging-integration.yml`** — nightly + manual, report-only, emits a
-  `qa_runs`-shaped run record artifact; missing secrets or unreachable staging
-  fail red, never skip-green.
+  QA-run-shaped run record artifact for downstream ingestion; missing secrets
+  or unreachable staging fail red, never skip-green.
 
 ## 0.10.1 (2026-07-08)
 

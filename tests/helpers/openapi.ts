@@ -39,20 +39,37 @@ export interface OpenApiDoc {
 export class OpenApiUnreachableError extends Error {}
 
 export async function fetchOpenApi(url: string = STAGING_OPENAPI_URL): Promise<OpenApiDoc> {
-  let resp: Response;
-  try {
-    resp = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-  } catch (err) {
-    throw new OpenApiUnreachableError(
-      `Could not reach OpenAPI document at ${url}: ${(err as Error).message}`,
-    );
+  // A transient network error or a server-side 5xx (502/503/504 from a
+  // deploying/overloaded staging) is treated as unreachability: the caller
+  // tolerates it on the PR gate and fails red only on the network-required
+  // nightly. A 4xx — a reachable host serving the wrong or absent document —
+  // is a real signal and always red. One retry absorbs a single transient hit.
+  const ATTEMPTS = 2;
+  let lastTransient = "";
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    let resp: Response;
+    try {
+      resp = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    } catch (err) {
+      lastTransient = `network error: ${(err as Error).message}`;
+      continue; // retry, then fall through to unreachable
+    }
+    if (resp.status >= 500) {
+      lastTransient = `HTTP ${resp.status}`;
+      continue; // 5xx → transient, retry then unreachable
+    }
+    if (resp.status >= 400) {
+      throw new Error(`OpenAPI fetch returned HTTP ${resp.status} from ${url}`);
+    }
+    if (!resp.ok) {
+      throw new Error(`OpenAPI fetch returned HTTP ${resp.status} from ${url}`);
+    }
+    const doc = (await resp.json()) as Record<string, unknown>;
+    return parseOpenApi(doc);
   }
-  if (!resp.ok) {
-    // A non-2xx from a reachable host is a real signal, not a network gap.
-    throw new Error(`OpenAPI fetch returned HTTP ${resp.status} from ${url}`);
-  }
-  const doc = (await resp.json()) as Record<string, unknown>;
-  return parseOpenApi(doc);
+  throw new OpenApiUnreachableError(
+    `Could not reach OpenAPI document at ${url} after ${ATTEMPTS} attempts (${lastTransient})`,
+  );
 }
 
 function jsonTypeToFieldType(schema: Record<string, unknown>): FieldType {

@@ -1,12 +1,12 @@
 /**
  * Mint a real, self-serve staging API key for the integration lane — the same
- * path a developer's dashboard uses (Decision 3): a Clerk dev-tools test-user
- * JWT → POST `/api/v1/keys/` with no `scopes` field, so the server default set
- * applies. Every minted key is named `e2e-dx-mcp-<runid>` and revoked in
- * teardown; a sweeper clears crash residue (Decision 4).
+ * path a developer's dashboard uses: a Clerk test-user JWT → POST
+ * `/api/v1/keys/` with no `scopes` field, so the server default set applies.
+ * Every minted key is named `e2e-dx-mcp-<runid>` and revoked in teardown; a
+ * sweeper clears crash residue. Staging only, never production.
  *
  * SECURITY: the sign-in ticket, the JWT, and the full key are secrets — never
- * log them, never write them to the qa-run record.
+ * log them, never write them to the run record.
  */
 
 const CLERK_BACKEND_API = "https://api.clerk.com/v1";
@@ -28,7 +28,7 @@ function requireEnv(name: string): string {
   if (!v) {
     throw new Error(
       `Integration lane requires ${name} but it is unset. ` +
-        `This lane fails loud rather than skipping (spec Decision 9).`,
+        `This lane fails loud rather than skipping.`,
     );
   }
   return v;
@@ -107,7 +107,7 @@ export async function mintStagingKey(): Promise<{ key: MintedKey; jwt: string }>
       Authorization: `Bearer ${jwt}`,
       "Content-Type": "application/json",
     },
-    // No `scopes` field: the server default set applies (Decision 3).
+    // No `scopes` field: the server default set applies.
     body: JSON.stringify({ name }),
     signal: AbortSignal.timeout(30_000),
   });
