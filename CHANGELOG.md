@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.11.0 (2026-07-15)
+
+Test-infra only — no runtime/behaviour change to the server or its tools.
+
+- **Tool-schema drift suite (`tests/drift.test.ts`).** Guards that the 27
+  `server.tool()` input schemas never silently drift from the engine. Reads each
+  tool's real zod shape (no vendored schema copy) and compares field names,
+  types, and required-ness against the deployed staging OpenAPI document — the
+  oracle. An explicit, checked-in `tests/tool-endpoint-map.ts` records the
+  tool → operation correspondence and field renames (e.g. `force → force_unsafe`);
+  a tool missing from the map, an unknown extra tool, an unclassified input
+  field, a mapped operation absent from the engine, or a mapped body field the
+  engine no longer has all fail loud. Runs in the PR gate (network-tolerant) and
+  nightly (network-required).
+- **Staging integration lane (`tests/integration/`, nightly).** Runs the built
+  server as a subprocess with a freshly minted staging key and drives it over
+  the real MCP protocol: `tools/list` (== 27), a read-only core loop, and
+  `aethis_decide` against a public showcase ruleset; a negative path proves an
+  invalid key returns a structured error result while the server stays alive.
+  Keys are minted via the self-serve path (server-default scopes), named
+  `e2e-dx-mcp-*`, and revoked + swept in teardown.
+- **`staging-integration.yml`** — nightly + manual, report-only, emits a
+  QA-run-shaped run record artifact for downstream ingestion; missing secrets
+  or unreachable staging fail red, never skip-green.
+
 ## 0.10.1 (2026-07-08)
 
 - **docs: correct stale paper citation in the construction-insurance demo.** The
