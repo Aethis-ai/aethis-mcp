@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.12.0 (2026-07-17)
+
+Propagates the aethis-core 0.37–0.40 authoring batch to the MCP surface
+(aethis-mcp#49, workspace epic #327). Engine gate: live on `api.aethis.ai`
+0.45.2, confirmed via the drift suite's live-alignment checks before this
+release.
+
+- **`aethis_graph` (new tool).** Fetches the ruleset-map graph — either for a
+  single published ruleset (`ruleset_id`, may be public/anonymous for a public
+  showcase ruleset) or a composed rulebook (`rulebook_id`, always requires an
+  API key) — the same mutual-exclusivity shape as `aethis_decide`. Returns
+  `{ruleset_id|rulebook_id, slug, name, graph: {nodes, edges, sections,
+  stats}, mermaid}`: each node's `display.sentence`/`display.routes`/
+  `display.expr` shows how that branch composes, and `mermaid` is a
+  ready-to-render diagram string.
+- **`include_graph_overlay` on `aethis_decide` (additive).** Stamp a specific
+  decision's per-criterion outcome (`satisfied`/`not_satisfied`/`pending`)
+  onto that same graph and return it as `graph_overlay` in the decide
+  response — a "you are here" map for those inputs. Off by default; the
+  response is unchanged when omitted.
+- **`aethis_create_rulebook` / `aethis_update_rulebook` (new tools).** Create
+  an empty draft Rulebook (name/domain/slug/description) or update one, both
+  accepting `robot_hints` — beat-keyed natural-language guidance for the
+  conversational agent (active beats: `general_context`, `preamble`,
+  `session_start`, `postamble`, `session_end`, `stuck`; reserved:
+  `persona`, `conversational_style`, `section_transition`). An unknown beat is
+  rejected client-side before the round-trip, mirroring aethis-cli's
+  `_validate_robot_hints` (v0.23.0). Rulebook composition (`outcome_logic`,
+  `ruleset_refs`) is a larger surface not covered by these two tools yet.
+- **`years_between` in the DSL helper reference (README).** Documents the new
+  completed-whole-years, leap-correct date operator (mirrors aethis-core
+  `Operator.YEARS_BETWEEN`, commit `3607558`) alongside `days_between` so
+  generation can use it for age-from-date-of-birth instead of
+  `days_between(...) / 365` (division isn't supported anyway).
+- **30 tools, up from 27.** `tests/tool-endpoint-map.ts` and the drift suite
+  are updated in the same change; every new operation/field/param is verified
+  against the live `api.aethis.ai` OpenAPI document (engine 0.45.2).
+- **Tests.** New mocked unit coverage in `tests/client.test.ts` /
+  `tests/server.test.ts` for the graph client methods, the create/update
+  rulebook client methods, `robot_hints` beat validation (known + unknown +
+  reserved), and `include_graph_overlay` pass-through; the nightly staging
+  integration lane gains a real `aethis_graph` fetch, a `aethis_decide
+  include_graph_overlay` round-trip, and an `aethis_create_rulebook` →
+  `aethis_update_rulebook` `robot_hints` round-trip (with best-effort archive
+  cleanup of the probe rulebook).
+
 ## 0.11.0 (2026-07-15)
 
 Test-infra only — no runtime/behaviour change to the server or its tools.

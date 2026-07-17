@@ -197,20 +197,21 @@ export class AethisClient {
   async decide(
     rulesetId: string,
     fieldValues: Record<string, unknown>,
-    options?: { includeTrace?: boolean; includeExplanation?: boolean },
+    options?: { includeTrace?: boolean; includeExplanation?: boolean; includeGraphOverlay?: boolean },
   ): Promise<unknown> {
     return this.request("POST", "/api/v1/public/decide", {
       ruleset_id: rulesetId,
       field_values: fieldValues,
       ...(options?.includeTrace ? { include_trace: true } : {}),
       ...(options?.includeExplanation ? { include_explanation: true } : {}),
+      ...(options?.includeGraphOverlay ? { include_graph_overlay: true } : {}),
     });
   }
 
   async decideRulebook(
     rulebookId: string,
     fieldValues: Record<string, unknown>,
-    options?: { includeTrace?: boolean; includeExplanation?: boolean },
+    options?: { includeTrace?: boolean; includeExplanation?: boolean; includeGraphOverlay?: boolean },
   ): Promise<unknown> {
     // Same `/decide` endpoint as decide(), but sends rulebook_id instead of
     // ruleset_id. Composed-rulebook evaluation is always scope-gated by the
@@ -220,7 +221,38 @@ export class AethisClient {
       field_values: fieldValues,
       ...(options?.includeTrace ? { include_trace: true } : {}),
       ...(options?.includeExplanation ? { include_explanation: true } : {}),
+      ...(options?.includeGraphOverlay ? { include_graph_overlay: true } : {}),
     });
+  }
+
+  // -- Graph API --
+  //
+  // The ruleset-map graph: criterion/field nodes with `display.sentence` /
+  // `display.routes` / `display.expr` showing how each branch composes, plus
+  // a ready-to-render `mermaid` diagram string. Ruleset graphs use the same
+  // anonymous-for-public-showcase policy as getSchema()/explain(); rulebook
+  // graphs are tenant-scoped like getRulebookSchema() (see the comment there).
+
+  async getRulesetGraph(rulesetId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/rulesets/${encodeURIComponent(rulesetId)}/graph`);
+  }
+
+  async getRulebookGraph(rulebookId: string): Promise<unknown> {
+    // Same slug-vs-opaque-id dispatch as getRulebookSchema() — see that
+    // method's comment for why the two forms are validated before touching
+    // the URL.
+    if (RULEBOOK_SLUG_RE.test(rulebookId)) {
+      return this.request("GET", `/api/v1/public/rulebooks/${rulebookId}/graph`);
+    }
+    if (RULEBOOK_OPAQUE_ID_RE.test(rulebookId)) {
+      return this.request("GET", `/api/v1/public/rulebooks/${encodeURIComponent(rulebookId)}/graph`);
+    }
+    throw new AethisAPIError(
+      400,
+      `Invalid rulebook reference '${rulebookId}'. ` +
+        "Expected a slug like 'aethis/uk-fsm' (lowercase, digits, '-') " +
+        "or an opaque id like 'rb_abc123' (letters, digits, '_', '-').",
+    );
   }
 
   async getSchema(rulesetId: string): Promise<unknown> {
@@ -288,6 +320,51 @@ export class AethisClient {
     }
     if (RULEBOOK_OPAQUE_ID_RE.test(rulebookId)) {
       return this.request("GET", `/api/v1/public/rulebooks/${encodeURIComponent(rulebookId)}/schema`);
+    }
+    throw new AethisAPIError(
+      400,
+      `Invalid rulebook reference '${rulebookId}'. ` +
+        "Expected a slug like 'aethis/uk-fsm' (lowercase, digits, '-') " +
+        "or an opaque id like 'rb_abc123' (letters, digits, '_', '-').",
+    );
+  }
+
+  // -- Rulebook authoring (create/update) --
+  //
+  // Rulebook creation/composition (ruleset_refs, outcome_logic) is a larger
+  // surface than this client exposes today; these two methods cover the
+  // fields the MCP authoring tools need: identity (name/domain/slug/
+  // description) and `robot_hints` (assistant guidance, beat -> prose).
+
+  async createRulebook(
+    name: string,
+    options?: { domain?: string; slug?: string; description?: string; robotHints?: Record<string, string> },
+  ): Promise<unknown> {
+    return this.request("POST", "/api/v1/public/rulebooks/", {
+      name,
+      domain: options?.domain ?? "",
+      ...(options?.slug !== undefined ? { slug: options.slug } : {}),
+      ...(options?.description !== undefined ? { description: options.description } : {}),
+      ...(options?.robotHints !== undefined ? { robot_hints: options.robotHints } : {}),
+    });
+  }
+
+  async updateRulebook(
+    rulebookId: string,
+    options?: { name?: string; description?: string; slug?: string; robotHints?: Record<string, string> },
+  ): Promise<unknown> {
+    const body: Record<string, unknown> = {};
+    if (options?.name !== undefined) body.name = options.name;
+    if (options?.description !== undefined) body.description = options.description;
+    if (options?.slug !== undefined) body.slug = options.slug;
+    if (options?.robotHints !== undefined) body.robot_hints = options.robotHints;
+
+    // Same slug-vs-opaque-id dispatch as getRulebookSchema()/getRulebookGraph().
+    if (RULEBOOK_SLUG_RE.test(rulebookId)) {
+      return this.request("PATCH", `/api/v1/public/rulebooks/${rulebookId}`, body);
+    }
+    if (RULEBOOK_OPAQUE_ID_RE.test(rulebookId)) {
+      return this.request("PATCH", `/api/v1/public/rulebooks/${encodeURIComponent(rulebookId)}`, body);
     }
     throw new AethisAPIError(
       400,

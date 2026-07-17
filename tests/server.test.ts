@@ -33,6 +33,10 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     discoverRulesets: vi.fn().mockResolvedValue([]),
     listRulebooks: vi.fn().mockResolvedValue([]),
     getRulebookSchema: vi.fn().mockResolvedValue({ rulebook_id: "rb_test", outcome_logic: null, rulesets: [], fields: [] }),
+    getRulesetGraph: vi.fn().mockResolvedValue({ ruleset_id: "b_123", slug: "aethis/demo", name: "Demo", graph: { nodes: [] }, mermaid: "graph TD" }),
+    getRulebookGraph: vi.fn().mockResolvedValue({ rulebook_id: "rb_test", slug: "aethis/uk-fsm", name: "UK FSM", graph: { nodes: [] }, mermaid: "graph TD" }),
+    createRulebook: vi.fn().mockResolvedValue({ rulebook_id: "rb_new", slug: null, status: "draft" }),
+    updateRulebook: vi.fn().mockResolvedValue({ rulebook_id: "rb_test", status: "draft" }),
     archiveProject: vi.fn().mockResolvedValue({ message: "Archived" }),
     archiveRuleset: vi.fn().mockResolvedValue({ message: "Archived" }),
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_abc" }),
@@ -76,22 +80,25 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 28 tool handlers", () => {
+  it("returns all 31 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(28);
+    expect(names).toHaveLength(31);
     // Decision
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
     expect(names).toContain("aethis_next_question");
     expect(names).toContain("aethis_explain");
     expect(names).toContain("aethis_explain_failure");
+    expect(names).toContain("aethis_graph");
     // Ruleset / project listing
     expect(names).toContain("aethis_list_projects");
     expect(names).toContain("aethis_list_rulesets");
     expect(names).toContain("aethis_discover_rulesets");
     expect(names).toContain("aethis_list_rulebooks");
     expect(names).toContain("aethis_rulebook_schema");
+    expect(names).toContain("aethis_create_rulebook");
+    expect(names).toContain("aethis_update_rulebook");
     expect(names).toContain("aethis_archive_project");
     expect(names).toContain("aethis_archive_ruleset");
     // Authoring lifecycle
@@ -183,6 +190,26 @@ describe("aethis_decide", () => {
       includeTrace: true,
       includeExplanation: true,
     });
+  });
+
+  // -- Graph overlay (aethis-core#212) --
+
+  it("passes include_graph_overlay to client.decide", async () => {
+    const decideFn = vi.fn().mockResolvedValue({ decision: "eligible", graph_overlay: { nodes: [] } });
+    const client = mockClient({ decide: decideFn });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_decide({
+      ruleset_id: "b_123",
+      field_values: { age: 30 },
+      include_graph_overlay: true,
+    });
+    expect(decideFn).toHaveBeenCalledWith("b_123", { age: 30 }, {
+      includeTrace: undefined,
+      includeExplanation: undefined,
+      includeGraphOverlay: true,
+    });
+    const data = JSON.parse(text(result));
+    expect(data.graph_overlay).toBeDefined();
   });
 
   // -- Rulebook surface (Aethis-ai/aethis-core#150 closure) --
@@ -538,6 +565,191 @@ describe("aethis_rulebook_schema", () => {
     const client = mockClient({ hasApiKey: false });
     const h = freshHandlers(client);
     const result = await h.aethis_rulebook_schema({ rulebook_id: "aethis/uk-fsm" });
+    expect(text(result)).toMatch(/authentication required/i);
+    vi.doUnmock("../src/credentials.js");
+    vi.resetModules();
+  });
+});
+
+describe("aethis_graph", () => {
+  it("fetches a ruleset graph anonymously (no auth call) when ruleset_id is given", async () => {
+    const getRulesetGraph = vi.fn().mockResolvedValue({
+      ruleset_id: "b_123",
+      slug: "aethis/demo",
+      name: "Demo",
+      graph: { nodes: [{ id: "criterion:x", type: "criterion" }] },
+      mermaid: "graph TD\n  x",
+    });
+    const client = mockClient({ getRulesetGraph });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_graph({ ruleset_id: "b_123" });
+    const data = JSON.parse(text(result));
+    expect(data.mermaid).toContain("graph TD");
+    expect(data.graph.nodes).toHaveLength(1);
+    expect(getRulesetGraph).toHaveBeenCalledWith("b_123");
+  });
+
+  it("requires auth and fetches a rulebook graph when rulebook_id is given", async () => {
+    const getRulebookGraph = vi.fn().mockResolvedValue({
+      rulebook_id: "rb_test",
+      slug: "aethis/uk-fsm",
+      name: "UK FSM",
+      graph: { nodes: [] },
+      mermaid: "graph TD",
+    });
+    const client = mockClient({ getRulebookGraph, hasApiKey: true });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_graph({ rulebook_id: "aethis/uk-fsm" });
+    const data = JSON.parse(text(result));
+    expect(data.rulebook_id).toBe("rb_test");
+    expect(getRulebookGraph).toHaveBeenCalledWith("aethis/uk-fsm");
+  });
+
+  it("returns auth-required hint for a rulebook graph when no key can be resolved", async () => {
+    vi.resetModules();
+    vi.doMock("../src/credentials.js", () => ({
+      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
+      MissingLlmKeyError: class MissingLlmKeyError extends Error {},
+    }));
+    const { createToolHandlers: freshHandlers } = await import("../src/index.js");
+    const client = mockClient({ hasApiKey: false });
+    const h = freshHandlers(client);
+    const result = await h.aethis_graph({ rulebook_id: "aethis/uk-fsm" });
+    expect(text(result)).toMatch(/authentication required/i);
+    vi.doUnmock("../src/credentials.js");
+    vi.resetModules();
+  });
+
+  it("rejects neither ruleset_id nor rulebook_id", async () => {
+    const h = createToolHandlers(mockClient());
+    const result = await h.aethis_graph({});
+    expect(text(result)).toMatch(/exactly one of ruleset_id or rulebook_id/i);
+  });
+
+  it("rejects both ruleset_id and rulebook_id", async () => {
+    const h = createToolHandlers(mockClient());
+    const result = await h.aethis_graph({ ruleset_id: "b_123", rulebook_id: "aethis/uk-fsm" });
+    expect(text(result)).toMatch(/exactly one of ruleset_id or rulebook_id/i);
+  });
+});
+
+describe("aethis_create_rulebook", () => {
+  it("creates a rulebook and echoes robot_hints beat count", async () => {
+    const createRulebook = vi.fn().mockResolvedValue({ rulebook_id: "rb_new", slug: "aethis/uk-fsm", status: "draft" });
+    const client = mockClient({ createRulebook });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_create_rulebook({
+      name: "UK FSM",
+      domain: "uk_fsm",
+      slug: "aethis/uk-fsm",
+      robot_hints: { preamble: "Greet the applicant." },
+    });
+    expect(createRulebook).toHaveBeenCalledWith("UK FSM", {
+      domain: "uk_fsm",
+      slug: "aethis/uk-fsm",
+      description: undefined,
+      robotHints: { preamble: "Greet the applicant." },
+    });
+    expect(text(result)).toContain("rb_new");
+    expect(text(result)).toContain("1 beat(s) set");
+  });
+
+  it("rejects an empty name", async () => {
+    const h = createToolHandlers(mockClient());
+    const result = await h.aethis_create_rulebook({ name: "" });
+    expect(text(result)).toMatch(/must not be empty/i);
+  });
+
+  it("rejects an unknown robot_hints beat before the round-trip", async () => {
+    const createRulebook = vi.fn();
+    const client = mockClient({ createRulebook });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_create_rulebook({ name: "UK FSM", robot_hints: { not_a_real_beat: "x" } });
+    expect(text(result)).toMatch(/unknown beat/i);
+    expect(createRulebook).not.toHaveBeenCalled();
+  });
+
+  it("accepts a reserved (not-yet-active) beat", async () => {
+    const createRulebook = vi.fn().mockResolvedValue({ rulebook_id: "rb_new", status: "draft" });
+    const client = mockClient({ createRulebook });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_create_rulebook({ name: "UK FSM", robot_hints: { persona: "Warm and formal." } });
+    expect(text(result)).not.toMatch(/unknown beat/i);
+    expect(createRulebook).toHaveBeenCalled();
+  });
+
+  it("returns auth-required hint when no key can be resolved", async () => {
+    vi.resetModules();
+    vi.doMock("../src/credentials.js", () => ({
+      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
+      MissingLlmKeyError: class MissingLlmKeyError extends Error {},
+    }));
+    const { createToolHandlers: freshHandlers } = await import("../src/index.js");
+    const client = mockClient({ hasApiKey: false });
+    const h = freshHandlers(client);
+    const result = await h.aethis_create_rulebook({ name: "UK FSM" });
+    expect(text(result)).toMatch(/authentication required/i);
+    vi.doUnmock("../src/credentials.js");
+    vi.resetModules();
+  });
+});
+
+describe("aethis_update_rulebook", () => {
+  it("updates robot_hints and echoes the beat count", async () => {
+    const updateRulebook = vi.fn().mockResolvedValue({ rulebook_id: "rb_test", status: "draft" });
+    const client = mockClient({ updateRulebook });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_update_rulebook({
+      rulebook_id: "aethis/uk-fsm",
+      robot_hints: { stuck: "Ask one focused follow-up question." },
+    });
+    expect(updateRulebook).toHaveBeenCalledWith("aethis/uk-fsm", {
+      name: undefined,
+      description: undefined,
+      slug: undefined,
+      robotHints: { stuck: "Ask one focused follow-up question." },
+    });
+    expect(text(result)).toContain("updated");
+    expect(text(result)).toContain("1 beat(s) set");
+  });
+
+  it("rejects empty rulebook_id", async () => {
+    const h = createToolHandlers(mockClient());
+    const result = await h.aethis_update_rulebook({ rulebook_id: "" });
+    expect(text(result)).toMatch(/must not be empty/i);
+  });
+
+  it("rejects a call with nothing to update", async () => {
+    const updateRulebook = vi.fn();
+    const client = mockClient({ updateRulebook });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_update_rulebook({ rulebook_id: "aethis/uk-fsm" });
+    expect(text(result)).toMatch(/provide at least one/i);
+    expect(updateRulebook).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown robot_hints beat before the round-trip", async () => {
+    const updateRulebook = vi.fn();
+    const client = mockClient({ updateRulebook });
+    const h = createToolHandlers(client);
+    const result = await h.aethis_update_rulebook({ rulebook_id: "aethis/uk-fsm", robot_hints: { bogus: "x" } });
+    expect(text(result)).toMatch(/unknown beat/i);
+    expect(updateRulebook).not.toHaveBeenCalled();
+  });
+
+  it("returns auth-required hint when no key can be resolved", async () => {
+    vi.resetModules();
+    vi.doMock("../src/credentials.js", () => ({
+      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
+      MissingLlmKeyError: class MissingLlmKeyError extends Error {},
+    }));
+    const { createToolHandlers: freshHandlers } = await import("../src/index.js");
+    const client = mockClient({ hasApiKey: false });
+    const h = freshHandlers(client);
+    const result = await h.aethis_update_rulebook({ rulebook_id: "aethis/uk-fsm", name: "New name" });
     expect(text(result)).toMatch(/authentication required/i);
     vi.doUnmock("../src/credentials.js");
     vi.resetModules();

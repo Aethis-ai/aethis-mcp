@@ -9,7 +9,7 @@
  * *correspondence*: which operation a tool drives and which engine field each
  * zod field maps to (including renames like `force -> force_unsafe`).
  *
- * Discipline: every one of the 27 `server.tool()` registrations
+ * Discipline: every one of the 30 `server.tool()` registrations
  * MUST appear here, and every operation named here MUST exist in the deployed
  * OpenAPI document. A tool missing from this map, an unknown extra tool, or a
  * mapped operation absent from the engine is a FAILURE, never a skip.
@@ -87,7 +87,27 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
           field_values: "field_values",
           include_trace: "include_trace",
           include_explanation: "include_explanation",
+          include_graph_overlay: "include_graph_overlay",
         },
+      },
+    ],
+  },
+
+  // ruleset_id -> GET /rulesets/{id}/graph; rulebook_id -> GET
+  // /rulebooks/{id}/graph. Only one is called per invocation (mutually
+  // exclusive, like aethis_decide), but both operations are real and are
+  // listed here so the existence check covers whichever path a caller takes.
+  aethis_graph: {
+    endpoints: [
+      {
+        method: "GET",
+        path: `${PUB}/rulesets/{ruleset_id}/graph`,
+        pathParams: { ruleset_id: "ruleset_id" },
+      },
+      {
+        method: "GET",
+        path: `${PUB}/rulebooks/{rulebook_id}/graph`,
+        pathParams: { rulebook_id: "rulebook_id" },
       },
     ],
   },
@@ -148,6 +168,38 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
   aethis_rulebook_schema: {
     endpoints: [
       { method: "GET", path: `${PUB}/rulebooks/{rulebook_id}/schema`, pathParams: { rulebook_id: "rulebook_id" } },
+    ],
+  },
+
+  aethis_create_rulebook: {
+    endpoints: [
+      {
+        method: "POST",
+        path: `${PUB}/rulebooks/`,
+        body: {
+          name: "name",
+          domain: "domain",
+          slug: "slug",
+          description: "description",
+          robot_hints: "robot_hints",
+        },
+      },
+    ],
+  },
+
+  aethis_update_rulebook: {
+    endpoints: [
+      {
+        method: "PATCH",
+        path: `${PUB}/rulebooks/{rulebook_id}`,
+        pathParams: { rulebook_id: "rulebook_id" },
+        body: {
+          name: "name",
+          description: "description",
+          slug: "slug",
+          robot_hints: "robot_hints",
+        },
+      },
     ],
   },
 

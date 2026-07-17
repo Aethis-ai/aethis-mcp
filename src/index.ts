@@ -74,6 +74,36 @@ function apiError(e: unknown): ToolResult {
 }
 
 // ---------------------------------------------------------------------------
+// robot_hints validation (Rulebook.robot_hints — aethis-core#220)
+//
+// Mirrors aethis-cli's `_validate_robot_hints` (aethis_cli/commands/
+// rulebooks_cmd.py) so a typo'd beat name fails fast client-side with a
+// friendly message instead of round-tripping to a 422. Natural-language
+// guidance for the conversational agent only — no rule syntax, no field keys.
+// ---------------------------------------------------------------------------
+
+const ACTIVE_ROBOT_HINT_BEATS = new Set([
+  "general_context",
+  "preamble",
+  "session_start",
+  "postamble",
+  "session_end",
+  "stuck",
+]);
+const RESERVED_ROBOT_HINT_BEATS = new Set(["persona", "conversational_style", "section_transition"]);
+const KNOWN_ROBOT_HINT_BEATS = new Set([...ACTIVE_ROBOT_HINT_BEATS, ...RESERVED_ROBOT_HINT_BEATS]);
+
+function validateRobotHints(hints: Record<string, string> | undefined): string | null {
+  if (hints === undefined) return null;
+  for (const beat of Object.keys(hints)) {
+    if (!KNOWN_ROBOT_HINT_BEATS.has(beat)) {
+      return `Error: robot_hints has unknown beat '${beat}'. Known beats: ${[...KNOWN_ROBOT_HINT_BEATS].sort().join(", ")}.`;
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Untrusted-content fencing (GHSA-ph7q-r9q4-922g)
 // API response fields are concatenated into tool output handed back to the
 // LLM by the MCP host. Wrap free-text API fields in explicit data
@@ -284,6 +314,7 @@ export function createToolHandlers(client: AethisClient) {
       field_values: Record<string, unknown>;
       include_trace?: boolean;
       include_explanation?: boolean;
+      include_graph_overlay?: boolean;
     }): Promise<ToolResult> {
       // Exactly one of ruleset_id / rulebook_id required. Rulebook composes
       // multiple rulesets via outcome_logic; single ruleset is the
@@ -302,11 +333,37 @@ export function createToolHandlers(client: AethisClient) {
           ? await client.decideRulebook(args.rulebook_id!, args.field_values, {
               includeTrace: args.include_trace,
               includeExplanation: args.include_explanation,
+              includeGraphOverlay: args.include_graph_overlay,
             })
           : await client.decide(args.ruleset_id!, args.field_values, {
               includeTrace: args.include_trace,
               includeExplanation: args.include_explanation,
+              includeGraphOverlay: args.include_graph_overlay,
             });
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_graph(args: { ruleset_id?: string; rulebook_id?: string }): Promise<ToolResult> {
+      // Same mutual-exclusivity shape as aethis_decide: exactly one of
+      // ruleset_id (single ruleset, may be public) or rulebook_id (composed
+      // rulebook, always tenant-scoped).
+      const hasRuleset = typeof args.ruleset_id === "string" && args.ruleset_id.trim() !== "";
+      const hasRulebook = typeof args.rulebook_id === "string" && args.rulebook_id.trim() !== "";
+      if (hasRuleset === hasRulebook) {
+        return err(
+          "Provide exactly one of ruleset_id or rulebook_id. " +
+          "ruleset_id returns the map for a single published ruleset; rulebook_id returns the composed rulebook's map.",
+        );
+      }
+      if (hasRulebook) {
+        const authErr = await requireAuth(client);
+        if (authErr) return authErr;
+      }
+      try {
+        const result = hasRulebook
+          ? await client.getRulebookGraph(args.rulebook_id!)
+          : await client.getRulesetGraph(args.ruleset_id!);
         return ok(fmt(result));
       } catch (e) { return apiError(e); }
     },
@@ -470,6 +527,81 @@ export function createToolHandlers(client: AethisClient) {
       try {
         const result = await client.getRulebookSchema(args.rulebook_id);
         return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_create_rulebook(args: {
+      name: string;
+      domain?: string;
+      slug?: string;
+      description?: string;
+      robot_hints?: Record<string, string>;
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.name, "name");
+      if (idErr) return err(idErr);
+      const hintsErr = validateRobotHints(args.robot_hints);
+      if (hintsErr) return err(hintsErr);
+      try {
+        const rb = await client.createRulebook(args.name, {
+          domain: args.domain,
+          slug: args.slug,
+          description: args.description,
+          robotHints: args.robot_hints,
+        }) as Record<string, unknown>;
+        const lines = [
+          "Rulebook created successfully.",
+          `  Rulebook ID: ${rb.rulebook_id ?? "unknown"}`,
+        ];
+        if (rb.slug) lines.push(`  Slug: ${rb.slug}`);
+        lines.push(`  Status: ${rb.status ?? "draft"}`);
+        if (args.robot_hints) {
+          lines.push(`  Robot hints: ${Object.keys(args.robot_hints).length} beat(s) set`);
+        }
+        lines.push(
+          "",
+          "Created empty (no rulesets, no field vocabulary, no tests). Populate with aethis_create_ruleset for each " +
+          "section, then set the field vocabulary and composition logic before publishing.",
+        );
+        return ok(lines.join("\n"));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_update_rulebook(args: {
+      rulebook_id: string;
+      name?: string;
+      description?: string;
+      slug?: string;
+      robot_hints?: Record<string, string>;
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.rulebook_id, "rulebook_id");
+      if (idErr) return err(idErr);
+      const hintsErr = validateRobotHints(args.robot_hints);
+      if (hintsErr) return err(hintsErr);
+      if (
+        args.name === undefined &&
+        args.description === undefined &&
+        args.slug === undefined &&
+        args.robot_hints === undefined
+      ) {
+        return err("Error: provide at least one of name, description, slug, or robot_hints to update.");
+      }
+      try {
+        const rb = await client.updateRulebook(args.rulebook_id, {
+          name: args.name,
+          description: args.description,
+          slug: args.slug,
+          robotHints: args.robot_hints,
+        });
+        const lines = [`Rulebook ${args.rulebook_id} updated.`];
+        if (args.robot_hints) {
+          lines.push(`  Robot hints: ${Object.keys(args.robot_hints).length} beat(s) set`);
+        }
+        lines.push("", fmt(rb));
+        return ok(lines.join("\n"));
       } catch (e) { return apiError(e); }
     },
 
@@ -1094,6 +1226,21 @@ const llmKeyFields = {
     ),
 };
 
+// Reusable zod field for Rulebook.robot_hints (aethis-core#220) — a
+// beat-name -> natural-language-guidance map for the conversational agent.
+// Shared between aethis_create_rulebook and aethis_update_rulebook so the
+// beat list stays in one place.
+const robotHintsField = z
+  .record(z.string(), z.string())
+  .optional()
+  .describe(
+    "Assistant guidance for the conversational agent, keyed by conversational beat. Natural language only — " +
+      "no rule syntax, no field keys. Active beats: general_context, preamble, session_start, postamble, " +
+      "session_end, stuck. Reserved (accepted, not yet acted on): persona, conversational_style, " +
+      "section_transition. An unknown beat key is rejected. Omit for no hints (create), or to leave existing " +
+      "hints unchanged (update).",
+  );
+
 export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   server.tool(
     "aethis_schema",
@@ -1111,6 +1258,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       field_values: z.record(z.string(), z.unknown()).describe("Input field values (see aethis_schema for required fields)"),
       include_trace: z.boolean().optional().describe("Include the full evaluation trace showing how each rule was evaluated"),
       include_explanation: z.boolean().optional().describe("Include human-readable rule explanations with source citations"),
+      include_graph_overlay: z.boolean().optional().describe("Stamp this decision's per-criterion outcome (satisfied/not_satisfied/pending) onto the ruleset-map graph and return it as graph_overlay — the same {nodes, edges, sections, stats} shape as aethis_graph, letting a caller render a 'you are here' map for these specific inputs. Off by default; the response is byte-identical to a call without the flag."),
     },
     (args) => handlers.aethis_decide(args),
   );
@@ -1123,6 +1271,16 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       field_values: z.record(z.string(), z.unknown()).describe("Answers collected so far (empty dict for first question)"),
     },
     (args) => handlers.aethis_next_question(args),
+  );
+
+  server.tool(
+    "aethis_graph",
+    "Get the ruleset-map graph for a single published ruleset (ruleset_id) or a composed rulebook (rulebook_id) — provide exactly one. Returns {ruleset_id|rulebook_id, slug, name, graph: {nodes, edges, sections, stats}, mermaid}: each node's display.sentence / display.routes / display.expr shows how that branch composes, and mermaid is a ready-to-render diagram string. Use this to visualise or explain a ruleset's/rulebook's structure before or instead of aethis_explain. Ruleset graphs may be public (no auth for public showcase rulesets); rulebook graphs always require an API key.",
+    {
+      ruleset_id: z.string().optional().describe("The ID or slug of a single published ruleset. Mutually exclusive with rulebook_id."),
+      rulebook_id: z.string().optional().describe("The slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`) of a composed rulebook. Mutually exclusive with ruleset_id. Requires an API key — anonymous callers get HTTP 401."),
+    },
+    (args) => handlers.aethis_graph(args),
   );
 
   server.tool(
@@ -1178,6 +1336,32 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Get the composition + aggregated input fields for a rulebook. Returns the outcome_logic Expr AST (how the bridged rulesets compose, e.g. `A AND (B OR C)`), the list of bridged rulesets (ruleset_name, ruleset_id, slug, status), and the union of all required input fields. Use this BEFORE aethis_decide on a rulebook_id to know what field_values to supply, or to inspect how a rulebook is wired. Pass a rulebook slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`).",
     { rulebook_id: z.string().describe("The slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`) of the rulebook") },
     (args) => handlers.aethis_rulebook_schema(args),
+  );
+
+  server.tool(
+    "aethis_create_rulebook",
+    "Create a new Rulebook — the composed-whole execution unit that bridges multiple rulesets (the parts) via outcome_logic. Created empty: no rulesets, no field vocabulary, no tests, status='draft'. Populate afterwards with aethis_create_ruleset for each section, then wire up the field vocabulary and composition logic before publishing. Requires an API key.",
+    {
+      name: z.string().describe("Human-readable name for the rulebook (e.g. 'UK FSM')"),
+      domain: z.string().optional().describe("Domain hint, lower-snake (e.g. 'uk_fsm')"),
+      slug: z.string().optional().describe("Stable human-readable alias (e.g. 'aethis/uk-fsm'). Globally unique when set; recommended for any rulebook referenced from outside this session."),
+      description: z.string().optional().describe("Optional description"),
+      robot_hints: robotHintsField,
+    },
+    (args) => handlers.aethis_create_rulebook(args),
+  );
+
+  server.tool(
+    "aethis_update_rulebook",
+    "Update a Rulebook's name, description, slug, or robot_hints (assistant guidance for the conversational agent). Provide at least one field to change; omitted fields are left as-is. Requires an API key.",
+    {
+      rulebook_id: z.string().describe("The slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`) of the rulebook to update"),
+      name: z.string().optional().describe("New human-readable name"),
+      description: z.string().optional().describe("New description"),
+      slug: z.string().optional().describe("New stable alias"),
+      robot_hints: robotHintsField,
+    },
+    (args) => handlers.aethis_update_rulebook(args),
   );
 
   server.tool(
@@ -1590,6 +1774,8 @@ async function main(): Promise<void> {
         "**Discover (public catalogue)**: aethis_discover_rulesets — no auth required; cross-tenant showcase rulesets",
         "**Discover (your tenant)**: aethis_list_projects → aethis_list_rulesets — requires AETHIS_API_KEY",
         "**Discover rulebooks (composed wholes)**: aethis_list_rulebooks → aethis_rulebook_schema(rulebook_id) — answers 'what rulebooks exist?' and 'how do this rulebook's rulesets compose?'; requires AETHIS_API_KEY",
+        "**Create/update a rulebook**: aethis_create_rulebook (empty draft) → aethis_update_rulebook (name/description/slug/robot_hints) — robot_hints is beat-keyed natural-language guidance for the conversational agent; requires AETHIS_API_KEY",
+        "**Visualise structure**: aethis_graph(ruleset_id or rulebook_id) — the ruleset-map graph plus a ready-to-render mermaid diagram; pass include_graph_overlay: true to aethis_decide to stamp a specific decision's per-criterion status onto that same map",
         "",
         "## Key Principles",
         "- Tests come FIRST — define expected outcomes before generating rules",
