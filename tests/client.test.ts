@@ -469,6 +469,140 @@ describe("AethisClient API methods", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Graph API (aethis-core#211/#216) — ruleset-map graph
+// ---------------------------------------------------------------------------
+
+describe("AethisClient graph API", () => {
+  let client: AethisClient;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue(
+      jsonResponse({ ruleset_id: "b_123", slug: "aethis/demo", name: "Demo", graph: { nodes: [] }, mermaid: "graph TD" }),
+    );
+    client = new AethisClient("ak_test", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
+  });
+
+  it("getRulesetGraph() gets /api/v1/public/rulesets/:id/graph and returns the graph+mermaid shape", async () => {
+    const result = (await client.getRulesetGraph("b_123")) as Record<string, unknown>;
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulesets/b_123/graph");
+    expect(init.method).toBe("GET");
+    expect(result.mermaid).toBe("graph TD");
+    expect(Array.isArray((result.graph as { nodes: unknown[] }).nodes)).toBe(true);
+  });
+
+  it("getRulebookGraph() preserves slug forward-slashes (namespace/name route)", async () => {
+    await client.getRulebookGraph("aethis/uk-fsm");
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/aethis/uk-fsm/graph");
+  });
+
+  it("getRulebookGraph() encodes opaque rulebook_ids", async () => {
+    await client.getRulebookGraph("rb_kzZ_td0tbKW_OLRB");
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/rb_kzZ_td0tbKW_OLRB/graph");
+  });
+
+  it("getRulebookGraph() rejects an invalid rulebook reference", async () => {
+    await expect(client.getRulebookGraph("..admin")).rejects.toThrow(/Invalid rulebook reference/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// decide() / decideRulebook() include_graph_overlay (aethis-core#212)
+// ---------------------------------------------------------------------------
+
+describe("AethisClient decide() include_graph_overlay", () => {
+  let client: AethisClient;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue(jsonResponse({ decision: "undetermined" }));
+    client = new AethisClient("ak_test", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
+  });
+
+  it("decide() sends include_graph_overlay when true", async () => {
+    await client.decide("b_123", { age: 30 }, { includeGraphOverlay: true });
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(JSON.parse(init.body).include_graph_overlay).toBe(true);
+  });
+
+  it("decide() omits include_graph_overlay when not set", async () => {
+    await client.decide("b_123", { age: 30 });
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(JSON.parse(init.body).include_graph_overlay).toBeUndefined();
+  });
+
+  it("decideRulebook() sends include_graph_overlay when true", async () => {
+    await client.decideRulebook("aethis/uk-fsm", { age: 30 }, { includeGraphOverlay: true });
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(JSON.parse(init.body).include_graph_overlay).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rulebook authoring: createRulebook() / updateRulebook() (robot_hints —
+// aethis-core#220)
+// ---------------------------------------------------------------------------
+
+describe("AethisClient rulebook authoring", () => {
+  let client: AethisClient;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue(jsonResponse({ rulebook_id: "rb_new", status: "draft" }));
+    client = new AethisClient("ak_test", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
+  });
+
+  it("createRulebook() posts name + domain + robot_hints to /api/v1/public/rulebooks/", async () => {
+    await client.createRulebook("UK FSM", {
+      domain: "uk_fsm",
+      slug: "aethis/uk-fsm",
+      description: "desc",
+      robotHints: { preamble: "Greet the applicant." },
+    });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body);
+    expect(body).toEqual({
+      name: "UK FSM",
+      domain: "uk_fsm",
+      slug: "aethis/uk-fsm",
+      description: "desc",
+      robot_hints: { preamble: "Greet the applicant." },
+    });
+  });
+
+  it("createRulebook() defaults domain to empty string and omits unset optional fields", async () => {
+    await client.createRulebook("Minimal");
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ name: "Minimal", domain: "" });
+  });
+
+  it("updateRulebook() PATCHes the slug-form route with only the provided fields", async () => {
+    await client.updateRulebook("aethis/uk-fsm", { robotHints: { stuck: "Ask one focused follow-up." } });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/aethis/uk-fsm");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ robot_hints: { stuck: "Ask one focused follow-up." } });
+  });
+
+  it("updateRulebook() PATCHes the opaque-id route", async () => {
+    await client.updateRulebook("rb_kzZ_td0tbKW_OLRB", { name: "New name" });
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/rulebooks/rb_kzZ_td0tbKW_OLRB");
+  });
+
+  it("updateRulebook() rejects an invalid rulebook reference", async () => {
+    await expect(client.updateRulebook("..admin", { name: "x" })).rejects.toThrow(/Invalid rulebook reference/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // generateAndTest compound operation
 // ---------------------------------------------------------------------------
 

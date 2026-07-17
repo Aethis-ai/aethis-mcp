@@ -1,7 +1,7 @@
 /**
  * Tool-schema drift suite.
  *
- * Guards that the 27 MCP `server.tool()` input schemas never silently drift
+ * Guards that the 30 MCP `server.tool()` input schemas never silently drift
  * from the deployed engine. The oracle is the live staging OpenAPI document —
  * nothing here vendors a copy of engine truth. The only hand-maintained
  * artefact is `tool-endpoint-map.ts`, which carries the tool -> operation
@@ -73,8 +73,8 @@ function classifiedFields(entry: ToolMapEntry): Set<string> {
 }
 
 describe("drift: structural map integrity (offline)", () => {
-  it("registers exactly 27 tools", () => {
-    expect(Object.keys(REGISTERED).length).toBe(27);
+  it("registers exactly 30 tools", () => {
+    expect(Object.keys(REGISTERED).length).toBe(30);
   });
 
   it("every registered tool has a map entry, and every map entry is a real tool", () => {

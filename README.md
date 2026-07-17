@@ -80,16 +80,21 @@ Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark
 
 ## Tools
 
-25 tools across five groups.
+30 tools across six groups.
 
 | Group | Access | Tools |
 |-------|--------|-------|
-| **Decision** | public | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure` |
+| **Decision** | public | `aethis_decide`, `aethis_schema`, `aethis_next_question`, `aethis_explain`, `aethis_explain_failure`, `aethis_graph` |
 | **Discovery — public catalogue** | public | `aethis_discover_rulesets` |
 | **Discovery — your tenant** | private beta | `aethis_list_projects`, `aethis_list_rulesets`, `aethis_list_rulebooks`, `aethis_rulebook_schema` |
+| **Authoring — rulebooks** | private beta | `aethis_create_rulebook`, `aethis_update_rulebook` |
 | **Authoring — sections & fields** | private beta | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` |
 | **Authoring — generation** | private beta | `aethis_create_ruleset`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` |
 | **Management** | private beta | `aethis_archive_project`, `aethis_archive_ruleset` |
+
+`aethis_graph` is public for a public showcase ruleset (`ruleset_id`) and tenant-scoped for a rulebook (`rulebook_id`) — it returns the ruleset-map graph (`{nodes, edges, sections, stats}`, each node's `display.sentence`/`display.routes`/`display.expr`) plus a ready-to-render `mermaid` diagram string. Pass `include_graph_overlay: true` to `aethis_decide` to get that same graph back with a specific decision's per-criterion status (`satisfied`/`not_satisfied`/`pending`) stamped onto it (`graph_overlay` in the response) — a "you are here" map for those inputs.
+
+`aethis_create_rulebook` / `aethis_update_rulebook` manage a Rulebook's identity (name/domain/slug/description) and `robot_hints` — beat-keyed natural-language guidance for the conversational agent. Active beats: `general_context`, `preamble`, `session_start`, `postamble`, `session_end`, `stuck`. Reserved (accepted, not yet acted on): `persona`, `conversational_style`, `section_transition`. Composition (bridging rulesets via `outcome_logic`) is a separate, larger surface not covered by these two tools yet.
 
 ### Workflows
 
@@ -102,7 +107,7 @@ aethis_decide(ruleset_id, fields)  → eligible / not_eligible / undetermined
 
 Pass `include_trace: true` for the per-criterion evaluation trail. Pass `include_explanation: true` for human-readable rule descriptions.
 
-`aethis_decide` accepts either `ruleset_id` (single ruleset, may be public) or `rulebook_id` (composed multi-ruleset rulebook) — the two are mutually exclusive. Rulebook decide always requires an API key (`AETHIS_API_KEY`); anonymous callers get HTTP 401.
+`aethis_decide` accepts either `ruleset_id` (single ruleset, may be public) or `rulebook_id` (composed multi-ruleset rulebook) — the two are mutually exclusive. Rulebook decide always requires an API key (`AETHIS_API_KEY`); anonymous callers get HTTP 401. `aethis_graph` follows the same `ruleset_id`/`rulebook_id` split for the underlying map.
 
 **Conversational eligibility (next-question routing):**
 
@@ -299,6 +304,7 @@ aethis_explain_failure({
 ### Helpers
 
 - `days_between(date_a, date_b)` → `Int`
+- `years_between(date_a, date_b)` → `Int` — completed whole years between the two dates (leap-correct). Use this for age from a date-of-birth field; never derive age as `days_between(...) / 365`.
 - `min(a, b, ...)`, `max(a, b, ...)` → `Int`
 - Constant arithmetic folded at authoring time (`5 * 365` → `1825`)
 

@@ -4,7 +4,7 @@ Agent notes for `aethis-mcp`. Human-facing docs in [README.md](README.md) and [d
 
 ## What this is
 
-Node.js MCP server that exposes 27 tools for the Aethis platform so coding agents (Claude Code, Claude Desktop, Cursor, Windsurf) can call `aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_discover_rulesets`, `aethis_list_rulebooks`, `aethis_generate_and_test`, `aethis_publish`, etc. directly from a conversation. Published to npm as `aethis-mcp`.
+Node.js MCP server that exposes 30 tools for the Aethis platform so coding agents (Claude Code, Claude Desktop, Cursor, Windsurf) can call `aethis_decide`, `aethis_schema`, `aethis_explain`, `aethis_discover_rulesets`, `aethis_list_rulebooks`, `aethis_generate_and_test`, `aethis_publish`, etc. directly from a conversation. Published to npm as `aethis-mcp`.
 
 Decision tools and `aethis_discover_rulesets` (the public-catalogue browser) work with no API key. Tenant-scoped tools (`aethis_list_projects`, `aethis_list_rulesets`, all authoring) require `AETHIS_API_KEY` in the MCP client config.
 
@@ -50,11 +50,11 @@ The server-side HTTP targets are always on aethis-core; this package is a client
 Three tiers:
 
 - **Mocked unit suites** (`tests/{index,client,credentials,server}.test.ts`) — mock the HTTP client and assert the produced request shape and the LLM-facing output. These are the fast PR gate; keep them mocked.
-- **Drift suite** (`tests/drift.test.ts`) — runs in the PR gate (`npm test`) and nightly. Compares each of the 27 tools' zod input schemas against the **deployed staging OpenAPI document** (the oracle — no vendored schema copy). The one hand-maintained artefact is [`tests/tool-endpoint-map.ts`](tests/tool-endpoint-map.ts): the tool → engine-operation correspondence plus field renames (e.g. `force → force_unsafe`). **When you add, remove, or rename a tool or one of its input fields, update that map in the same change** — an unmapped tool or unclassified field fails the suite by design. PR runs tolerate a genuinely unreachable staging (loud warning); nightly (`DRIFT_NETWORK_REQUIRED=1`) fails red. Run locally: `npm run test:drift`.
+- **Drift suite** (`tests/drift.test.ts`) — runs in the PR gate (`npm test`) and nightly. Compares each of the 30 tools' zod input schemas against the **deployed staging OpenAPI document** (the oracle — no vendored schema copy). The one hand-maintained artefact is [`tests/tool-endpoint-map.ts`](tests/tool-endpoint-map.ts): the tool → engine-operation correspondence plus field renames (e.g. `force → force_unsafe`). **When you add, remove, or rename a tool or one of its input fields, update that map in the same change** — an unmapped tool or unclassified field fails the suite by design. PR runs tolerate a genuinely unreachable staging (loud warning); nightly (`DRIFT_NETWORK_REQUIRED=1`) fails red. Run locally: `npm run test:drift`.
 - **Staging integration lane** (`tests/integration/`, nightly `staging-integration.yml`) — runs the **built** server as a subprocess with a freshly minted staging key and drives it over the real MCP protocol (`tools/list`, read-only core loop, `aethis_decide`, invalid-key negative path). Excluded from the default `npm test`; run with `npm run test:integration` and `CLERK_SECRET_KEY_DEV_TOOLS` + `CLERK_E2E_DX_USER_ID` set (mint path is Clerk dev-tools JWT → self-serve key on `staging.api.aethis.ai`, revoked in teardown). Staging only, never prod.
 
 ## See also
 
 - Public MCP docs: [docs.aethis.ai/mcp-server](https://docs.aethis.ai/mcp-server/overview)
-- Tools reference (all 27): [docs.aethis.ai/mcp-server/tools](https://docs.aethis.ai/mcp-server/tools)
+- Tools reference (all 30): [docs.aethis.ai/mcp-server/tools](https://docs.aethis.ai/mcp-server/tools)
 - Workspace operational index: [../docs/OPERATIONAL_INDEX.md](../docs/OPERATIONAL_INDEX.md)
