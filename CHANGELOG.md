@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.13.0 (2026-07-19)
+
+Adds the Authoring Coach surface to MCP (aethis-mcp#57, workspace epic #514) —
+skill-building feedback for rule authors, advisory only, never a gate.
+
+**Engine gate:** the `POST /api/v1/public/projects/{id}/review` endpoint and the
+ambient `review_hint` fields are produced by aethis-core (epic phases P1/P4).
+This release must not be published to npm until that endpoint is live on
+`api.aethis.ai`; a released client calling a not-yet-deployed route would 404.
+
+- **`aethis_review_project` (new tool).** Reviews an authoring project against
+  the deterministic authoring-coach rubric and renders the report: a score,
+  per-check evidence across grounding / process / lifecycle, strengths, and the
+  single highest-leverage next skill. Advisory only — it never blocks
+  publishing. The deterministic layer needs no LLM key; `coach=true` (with an
+  Anthropic key, via the usual `anthropic_key_env` / `anthropic_key_keychain` /
+  `anthropic_key` forms) adds an opt-in LLM-synthesised coaching narrative on
+  top. All server free-text (evidence / strengths / next-skill message /
+  coaching) is fenced with `fenceUntrusted` before it reaches the model.
+- **Ambient `review_hint` render.** `aethis_generate_and_test`, `aethis_refine`,
+  and `aethis_publish` now render a one-line coach hint when the server includes
+  one on the response. The hint is computed entirely server-side (aethis-core
+  P4); the client only renders it (fenced), never computes it.
+- **`X-Aethis-Client: mcp/<version>` on every request.** The client now sends a
+  per-surface identifier header so the engine can attribute telemetry (e.g.
+  `review_hint`-shown counts) to MCP vs CLI vs SDK.
+- **31 tools, up from 30.** `tests/tool-endpoint-map.ts` and the drift suite are
+  updated in the same change. Note: the drift suite's live-alignment checks stay
+  red against staging until the `/review` endpoint deploys there (expected epic
+  ordering); the offline structural checks pass.
+- **Tests.** New mocked unit coverage in `tests/client.test.ts` (reviewProject
+  request shape, the client-id header) and `tests/server.test.ts`
+  (`aethis_review_project` render + fencing, coach key resolution, ambient hint
+  render on generate/publish).
+
 ## 0.12.0 (2026-07-17)
 
 Propagates the aethis-core 0.37–0.40 authoring batch to the MCP surface

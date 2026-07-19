@@ -2,6 +2,16 @@
  * Async HTTP client for the Aethis developer API.
  */
 
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { version: CLIENT_VERSION } = require("../package.json") as { version: string };
+
+// Sent on every request so the engine can attribute per-surface telemetry
+// (which client drove a call — CLI vs MCP vs SDK). See the Authoring Coach
+// epic (aethis-workspace#514): `review_hint` shown counts are keyed by client.
+const CLIENT_ID = `mcp/${CLIENT_VERSION}`;
+
 export class AethisAPIError extends Error {
   constructor(
     public readonly statusCode: number,
@@ -111,6 +121,7 @@ export class AethisClient {
         const init: RequestInit = {
           method,
           headers: {
+            "X-Aethis-Client": CLIENT_ID,
             ...(this.apiKey ? { "X-API-Key": this.apiKey } : {}),
             ...(llmKey ? { "X-Anthropic-Key": llmKey } : {}),
             ...(body !== undefined && !(body instanceof FormData)
@@ -517,6 +528,24 @@ export class AethisClient {
     if (name !== undefined) body.name = name;
     const hasBody = Object.keys(body).length > 0;
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/publish`, hasBody ? body : undefined);
+  }
+
+  /**
+   * Review a project against the authoring-coach rubric (advisory only).
+   *
+   * The deterministic rubric layer always runs and needs no LLM key. When
+   * `coach` is true and an Anthropic key is supplied, the server additionally
+   * synthesises a coaching narrative from the computed checks; the key rides
+   * the `X-Anthropic-Key` header exactly like `generate` and is never stored.
+   * Mirrors `generateAndTest()`'s per-request-key shape.
+   */
+  async reviewProject(projectId: string, coach: boolean = false, llmKey?: string): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/v1/public/projects/${encodeURIComponent(projectId)}/review`,
+      { coach },
+      llmKey,
+    );
   }
 
   // -- Compound operations --

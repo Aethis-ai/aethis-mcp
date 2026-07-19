@@ -86,6 +86,22 @@ describe("AethisClient requests", () => {
     expect(init.headers["X-API-Key"]).toBe("ak_test");
   });
 
+  it("sends X-Aethis-Client: mcp/<version> on every request", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ result: true }));
+    await client.listProjects();
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["X-Aethis-Client"]).toMatch(/^mcp\/\d+\.\d+\.\d+/);
+  });
+
+  it("sends X-Aethis-Client even for anonymous (no API key) calls", async () => {
+    const noKeyClient = new AethisClient("", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ outcome: "eligible" }));
+    await noKeyClient.decide("b_123", {});
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["X-Aethis-Client"]).toMatch(/^mcp\//);
+    expect(init.headers["X-API-Key"]).toBeUndefined();
+  });
+
   it("omits X-API-Key header when key is empty", async () => {
     const noKeyClient = new AethisClient("", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
     fetchSpy.mockResolvedValueOnce(jsonResponse({ rulesets: [] }));
@@ -599,6 +615,44 @@ describe("AethisClient rulebook authoring", () => {
   it("updateRulebook() rejects an invalid rulebook reference", async () => {
     await expect(client.updateRulebook("..admin", { name: "x" })).rejects.toThrow(/Invalid rulebook reference/);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reviewProject (Authoring Coach — ws#514)
+// ---------------------------------------------------------------------------
+
+describe("AethisClient reviewProject", () => {
+  let client: AethisClient;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    client = new AethisClient("ak_test", "https://api.aethis.ai", { fetchFn: fetchSpy, retryDelayMs: 0 });
+  });
+
+  it("POSTs to the project review endpoint with coach in the body", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ project_id: "p_1", rubric_version: "1.0.0", score: 60 }));
+    await client.reviewProject("p_1");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/review");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ coach: false });
+  });
+
+  it("sends the Anthropic key header only when coach=true and a key is passed", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ project_id: "p_1", rubric_version: "1.0.0", score: 90, coaching: "Well grounded." }));
+    await client.reviewProject("p_1", true, "sk-ant-secret");
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ coach: true });
+    expect(init.headers["X-Anthropic-Key"]).toBe("sk-ant-secret");
+  });
+
+  it("omits the Anthropic header when no key is supplied", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ project_id: "p_1", rubric_version: "1.0.0", score: 60 }));
+    await client.reviewProject("p_1", false);
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["X-Anthropic-Key"]).toBeUndefined();
   });
 });
 
