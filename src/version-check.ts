@@ -101,12 +101,19 @@ export async function checkForUpdate(
  * — it must never delay `server.connect()` / MCP readiness.
  */
 export function runStartupUpdateCheck(currentVersion: string): void {
-  void checkForUpdate(currentVersion).then((nudge) => {
-    if (!nudge) return;
-    try {
-      process.stderr.write(nudge + "\n");
-    } catch {
-      // Nothing more to do if stderr itself is unwritable.
-    }
-  });
+  void checkForUpdate(currentVersion)
+    .then((nudge) => {
+      if (!nudge) return;
+      try {
+        process.stderr.write(nudge + "\n");
+      } catch {
+        // Nothing more to do if stderr itself is unwritable.
+      }
+    })
+    .catch(() => {
+      // Belt-and-braces: checkForUpdate is already fully fail-silent, so
+      // there's no reachable rejection today — this guards against a
+      // future refactor accidentally introducing one and taking down the
+      // host with an unhandled rejection.
+    });
 }
