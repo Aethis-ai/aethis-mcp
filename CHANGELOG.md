@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **CI: cut a GitHub Release on publish.** `publish.yml` now creates a GitHub
+  Release for each published tag, using that version's CHANGELOG section as the
+  notes body (idempotent create-or-skip). Introduces the Releases channel on
+  this repo — the subscribe-able "watch → releases" channel for the unified
+  developer changelog (workspace epic #526, aethis-mcp#59). CI-only; no runtime
+  or package change, so no version bump.
+
 ## 0.13.0 (2026-07-19)
 
 Adds the Authoring Coach surface to MCP (aethis-mcp#57, workspace epic #514) —
