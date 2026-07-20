@@ -9,7 +9,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write  # cut a GitHub Release on publish
       id-token: write  # npm Trusted Publishing (OIDC)
 
     steps:
@@ -60,6 +60,37 @@ jobs:
             sleep 10
           done
           exit 1
+
+      # Cut a GitHub Release for the just-published tag, using the matching
+      # CHANGELOG section as the notes body. Introduces the Releases channel on
+      # this repo (workspace epic #526 P5, aethis-mcp#59). Idempotent: a re-run
+      # or dispatch against an already-released tag skips instead of failing.
+      - name: Cut GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping."
+            exit 0
+          fi
+          NOTES_FILE="$(mktemp)"
+          # Extract the "## <version> ..." block from CHANGELOG.md, up to the
+          # next "## " heading. $2 is an exact string compare on the version.
+          awk -v ver="$VERSION" '
+            /^## / {
+              if (found) exit
+              if ($2 == ver) { found=1; next }
+            }
+            found { print }
+          ' CHANGELOG.md > "$NOTES_FILE"
+          if [[ ! -s "$NOTES_FILE" ]]; then
+            echo "No CHANGELOG section found for $VERSION"
+            exit 1
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file "$NOTES_FILE"
 
       - name: Trigger workspace release sync
         env:
