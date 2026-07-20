@@ -17,11 +17,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      # npm Trusted Publishing requires npm CLI >= 11.5.1.
-      # Node 20 ships npm 10.x by default, so install latest explicitly.
+      # npm Trusted Publishing requires npm CLI >= 11.5.1. npm@latest (12.x) now
+      # requires Node >= 22, so setup-node must pin 22+ before installing it.
       - run: npm install -g npm@latest
 
       - run: npm ci
