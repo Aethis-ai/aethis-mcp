@@ -43,6 +43,53 @@ interface TestRunResult {
   failed?: number;
   errors?: number;
   results?: TestCaseResult[];
+  // Ambient authoring-coach hint (Authoring Coach epic, aethis-workspace#514).
+  // Produced server-side (aethis-core P4) from the deterministic rubric's top
+  // author-actionable warning; MCP only renders it, never computes it.
+  review_hint?: ReviewHint | null;
+}
+
+// -- Authoring Coach (`aethis_review_project`) response shapes --
+// Mirror aethis-core `aethis_core/public/review/models.py`. Every free-text
+// field (evidence / why / message / coaching / strengths) is server-produced
+// and MUST be fenced before it reaches the model (fenceUntrusted).
+
+interface CheckResult {
+  id: string;
+  group?: string;
+  audience?: string;
+  actionable_via?: string;
+  status: "pass" | "warn" | "fail" | "na" | "info";
+  evidence?: string;
+  weight?: number;
+  scored?: boolean;
+  why?: string;
+  docs_url?: string;
+}
+
+interface NextSkill {
+  check_id?: string;
+  message?: string;
+  actionable_via?: string;
+  docs_url?: string;
+}
+
+interface ReviewHint {
+  check_id?: string;
+  message?: string;
+  actionable_via?: string;
+  docs_url?: string;
+}
+
+interface ReviewReport {
+  project_id?: string;
+  rubric_version?: string;
+  score?: number | null;
+  checks?: CheckResult[];
+  strengths?: string[];
+  next_skill?: NextSkill | null;
+  coaching?: string | null;
+  data_completeness?: "ok" | "thin";
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +251,12 @@ export function formatTestResults(
   }
 
   lines.push(`\nRuleset: ${rulesetId}`);
+
+  // Ambient authoring-coach hint (server-produced; rendered only). Appears on
+  // the test-run response that this format call summarises.
+  const hint = formatReviewHint(current.review_hint);
+  if (hint) lines.push("", hint);
+
   return lines.join("\n");
 }
 
@@ -261,6 +314,89 @@ export function formatExplainFailure(result: Record<string, unknown>): string {
   }
 
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Authoring-coach rendering (Authoring Coach epic, aethis-workspace#514)
+//
+// The ambient `review_hint` rides generate/test/publish responses; the full
+// `ReviewReport` is returned by aethis_review_project. Both are produced
+// server-side — the client only renders. `message` / `evidence` / `why` /
+// `coaching` / `strengths` are free text and are fenced.
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the ambient `review_hint` as a short fenced block, or null when there
+ * is no hint (clean or thin project). Appended to generate/test/publish output.
+ */
+export function formatReviewHint(hint: ReviewHint | null | undefined): string | null {
+  if (!hint || !hint.message) return null;
+  const lines = [`Coach hint: ${fenceUntrusted("review_hint", hint.message)}`];
+  const meta: string[] = [];
+  if (hint.actionable_via) meta.push(hint.actionable_via);
+  if (hint.check_id) meta.push(`check ${hint.check_id}`);
+  if (meta.length) lines.push(`  (${meta.join(" · ")})`);
+  if (hint.docs_url) lines.push(`  docs: ${hint.docs_url}`);
+  return lines.join("\n");
+}
+
+/**
+ * Render a full ReviewReport for the aethis_review_project tool: score,
+ * failing/warning checks with their evidence, strengths, the single
+ * highest-leverage next skill, and (when coach=true) the LLM narrative.
+ */
+export function formatReviewReport(report: ReviewReport): string {
+  const lines: string[] = [UNTRUSTED_PREFACE, ""];
+  const score = report.score;
+  lines.push(
+    `=== Authoring review${score != null ? `: ${score}/100` : ""} · rubric ${report.rubric_version ?? "unknown"} ===`,
+  );
+  if (report.data_completeness === "thin") {
+    lines.push("(thin: not enough in the project to score fully yet — add sources/tests for a fuller review)");
+  }
+  lines.push("");
+
+  const checks = report.checks ?? [];
+  const emit = (label: string, status: CheckResult["status"]) => {
+    const rows = checks.filter((c) => c.status === status);
+    if (!rows.length) return;
+    lines.push(`${label}:`);
+    for (const c of rows) {
+      const w = c.scored && c.weight != null ? ` (weight ${c.weight})` : "";
+      const grp = c.group ? ` [${c.group}]` : "";
+      lines.push(`  ${c.id}${grp}${w}`);
+      if (c.evidence) lines.push(`    ${fenceUntrusted("evidence", c.evidence)}`);
+    }
+    lines.push("");
+  };
+  emit("FAILING", "fail");
+  emit("WARNINGS", "warn");
+
+  if (report.strengths?.length) {
+    lines.push("STRENGTHS:");
+    for (const s of report.strengths) lines.push(`  + ${fenceUntrusted("strength", s)}`);
+    lines.push("");
+  }
+
+  const passCount = checks.filter((c) => c.status === "pass").length;
+  if (passCount) lines.push(`${passCount} check(s) passing.`, "");
+
+  if (report.next_skill?.message) {
+    const ns = report.next_skill;
+    lines.push("NEXT SKILL (highest-leverage improvement):");
+    lines.push(`  ${fenceUntrusted("next_skill", ns.message)}`);
+    if (ns.actionable_via) lines.push(`  → ${ns.actionable_via}`);
+    if (ns.docs_url) lines.push(`  docs: ${ns.docs_url}`);
+    lines.push("");
+  }
+
+  if (report.coaching) {
+    lines.push("COACHING:");
+    lines.push(fenceUntrusted("coaching", report.coaching));
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,7 +1317,28 @@ export function createToolHandlers(client: AethisClient) {
         if (deprecated.length) {
           lines.push(`  Deprecated: ${deprecated.join(", ")}`);
         }
+
+        // Ambient authoring-coach hint on the publish response (server-produced).
+        const hint = formatReviewHint((pubResult as { review_hint?: ReviewHint | null }).review_hint);
+        if (hint) lines.push("", hint);
+
         return ok(lines.join("\n"));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_review_project(args: { project_id: string; coach?: boolean } & LlmKeyArgs): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        // Deterministic rubric needs no key; the LLM coaching narrative does.
+        // Resolve (and send) a key only when coach is requested — matching the
+        // server contract that synthesis runs only with coach=true AND a key.
+        const coach = args.coach === true;
+        const llmKey = coach ? await resolveLlmKey(args) : undefined;
+        const report = await client.reviewProject(args.project_id, coach, llmKey) as ReviewReport;
+        return ok(formatReviewReport(report));
       } catch (e) { return apiError(e); }
     },
   };
@@ -1600,6 +1757,24 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       name: z.string().optional().describe("Override the human-readable section name for this ruleset. When omitted, the ruleset keeps the name set at generation time (a titlecase of section_id, e.g. 'english_language' → 'English Language'). Section names are surfaced in rulebook responses so end users can see which sections compose a rulebook."),
     },
     (args) => handlers.aethis_publish(args),
+  );
+
+  server.tool(
+    "aethis_review_project",
+    "Review an authoring project against the deterministic authoring-coach rubric and get skill-building feedback. Returns a score, per-check evidence across grounding / process / lifecycle, strengths, and the single highest-leverage next improvement. Advisory only — it never blocks publishing. The deterministic report needs no LLM key; set coach=true (with an Anthropic key) to add an LLM-synthesised coaching narrative on top of the computed checks.",
+    {
+      project_id: z.string().describe("The project ID to review"),
+      coach: z
+        .boolean()
+        .optional()
+        .describe(
+          "Add an opt-in LLM-synthesised coaching narrative on top of the deterministic rubric. " +
+            "Requires an Anthropic key (anthropic_key_env / anthropic_key_keychain / anthropic_key). " +
+            "Off by default — the deterministic report needs no key.",
+        ),
+      ...llmKeyFields,
+    },
+    (args) => handlers.aethis_review_project(args),
   );
 }
 
