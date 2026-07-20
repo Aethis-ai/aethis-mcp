@@ -12,6 +12,7 @@ import { z } from "zod";
 import { AethisClient, AethisAPIError } from "./client.js";
 import { resolveApiKey, resolveLlmKey } from "./credentials.js";
 import type { LlmKeyArgs } from "./credentials.js";
+import { runStartupUpdateCheck } from "./version-check.js";
 
 const require = createRequire(import.meta.url);
 const { version: PKG_VERSION } = require("../package.json") as { version: string };
@@ -1923,6 +1924,10 @@ function registerPrompts(server: McpServer): void {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  // Fire-and-forget: never awaited, so a slow/failed npm registry lookup
+  // can never delay server readiness. See src/version-check.ts.
+  runStartupUpdateCheck(PKG_VERSION);
+
   const baseUrl = process.env.AETHIS_BASE_URL ?? "https://api.aethis.ai";
 
   // Try to resolve a key, but don't fail — decision tools work without auth
