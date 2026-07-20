@@ -2,12 +2,24 @@
 
 ## Unreleased
 
+## 0.14.0 (2026-07-20)
+
+- **Startup update-check nudge.** On startup, the server checks the npm
+  registry's `latest` version for `aethis-mcp` and, if a newer release
+  exists, writes a one-line notice to its stderr log (visible in your MCP
+  host's server logs) pointing at the
+  [Releases page](https://github.com/Aethis-ai/aethis-mcp/releases) for
+  what's new (workspace epic #537, aethis-mcp#61). Non-blocking — the check
+  runs in the background and never delays server startup — and fail-silent
+  on any network error or timeout. Opt out with
+  `AETHIS_DISABLE_UPDATE_CHECK=1` (mirrors the same variable in aethis-cli);
+  also skipped automatically when `CI` is set.
 - **CI: cut a GitHub Release on publish.** `publish.yml` now creates a GitHub
   Release for each published tag, using that version's CHANGELOG section as the
   notes body (idempotent create-or-skip). Introduces the Releases channel on
   this repo — the subscribe-able "watch → releases" channel for the unified
   developer changelog (workspace epic #526, aethis-mcp#59). CI-only; no runtime
-  or package change, so no version bump.
+  or package change on its own.
 
 ## 0.13.0 (2026-07-19)
 
