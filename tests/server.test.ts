@@ -95,10 +95,10 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 32 tool handlers", () => {
+  it("returns all 33 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(32);
+    expect(names).toHaveLength(33);
     // Decision
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
