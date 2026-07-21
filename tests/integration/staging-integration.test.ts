@@ -92,11 +92,11 @@ describe("staging integration lane", () => {
     }
   }, 60_000);
 
-  it("lists exactly 30 tools over the MCP protocol", async () => {
+  it("lists exactly 32 tools over the MCP protocol", async () => {
     const { client, close } = await connectServer(minted!.fullKey);
     try {
       const { tools } = await client.listTools();
-      expect(tools.length).toBe(30);
+      expect(tools.length).toBe(32);
       const names = new Set(tools.map((t) => t.name));
       expect(names.has("aethis_decide")).toBe(true);
       expect(names.has("aethis_discover_rulesets")).toBe(true);
@@ -265,7 +265,7 @@ describe("staging integration lane", () => {
 
       // The server is still alive and serves the next request.
       const { tools } = await client.listTools();
-      expect(tools.length).toBe(30);
+      expect(tools.length).toBe(32);
     } finally {
       await close();
     }
