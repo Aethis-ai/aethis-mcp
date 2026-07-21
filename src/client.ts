@@ -313,6 +313,11 @@ export class AethisClient {
     return this.request("GET", "/api/v1/public/rulebooks/");
   }
 
+  /** Per-operation-class rate-limit budget for the calling key (epic #552). */
+  async usage(): Promise<unknown> {
+    return this.request("GET", "/api/v1/public/usage");
+  }
+
   async getRulebookSchema(rulebookId: string): Promise<unknown> {
     // Two valid input shapes — anything else is rejected before it
     // touches the URL, so a slug-shaped string can never smuggle

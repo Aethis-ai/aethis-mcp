@@ -656,6 +656,15 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_usage(_args: Record<string, never>): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      try {
+        const result = await client.usage();
+        return ok(fmt(result));
+      } catch (e) { return apiError(e); }
+    },
+
     async aethis_rulebook_schema(args: { rulebook_id: string }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -1487,6 +1496,12 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_list_rulebooks",
     "List rulebooks (composed wholes that bridge multiple rulesets) in the current tenant. Returns rulebook_id, slug (e.g. `aethis/uk-fsm`), name, domain, status (draft/active/archived), version, outcome_logic (the composition Expr AST), ruleset_refs, and timestamps. Use this when the user asks 'what rulebooks exist?' or to disambiguate whether several `<ns>/<x>/*` rulesets are bridged into one parent rulebook. Tenant-scoped — requires an API key. Pass a returned rulebook_id or slug to aethis_decide (rulebook_id arg) or aethis_rulebook_schema.",
     () => handlers.aethis_list_rulebooks({}),
+  );
+
+  server.tool(
+    "aethis_usage",
+    "Show the caller's rate-limit budget per operation class over the rolling 24h window: for each of decide / generate / author / read / keys / admin, the used count, limit, remaining, and reset time. `generate` (LLM rule generation) is the scarce class; browsing and status polling (`read`) are effectively unlimited-but-metered. Check this before a large authoring run — and report remaining `generate` budget to the user — so a 429 is never the first signal. Tenant-scoped — requires an API key.",
+    () => handlers.aethis_usage({}),
   );
 
   server.tool(

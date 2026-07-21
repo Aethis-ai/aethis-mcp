@@ -165,6 +165,10 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
     endpoints: [{ method: "GET", path: `${PUB}/rulebooks/` }],
   },
 
+  aethis_usage: {
+    endpoints: [{ method: "GET", path: `${PUB}/usage` }],
+  },
+
   aethis_rulebook_schema: {
     endpoints: [
       { method: "GET", path: `${PUB}/rulebooks/{rulebook_id}/schema`, pathParams: { rulebook_id: "rulebook_id" } },

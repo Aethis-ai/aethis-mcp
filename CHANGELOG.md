@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.15.0 (2026-07-21)
+
+- **feat: `aethis_usage` tool.** Reports the caller's rate-limit budget per
+  operation class (decide / generate / author / read / keys / admin) over the
+  rolling 24h window — used, limit, remaining, reset — from
+  `GET /api/v1/public/usage`, so an agent authoring inside Claude Code / Cursor /
+  Windsurf can see and report the developer's remaining `generate` budget before a
+  429. New `AethisClient.usage()`; tenant-scoped (requires an API key).
+  (epic aethis-workspace#552)
+- Requires aethis-core with the `/api/v1/public/usage` endpoint live (epic #552
+  P2). The public npm release of this version is held until that endpoint is live
+  on `api.aethis.ai`.
+
 ## 0.14.0 (2026-07-20)
 
 - **Startup update-check nudge.** On startup, the server checks the npm
