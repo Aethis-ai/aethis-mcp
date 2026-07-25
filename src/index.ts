@@ -114,11 +114,18 @@ function validateId(value: string, label: string): string | null {
   return null;
 }
 
+// The error path is a shared untrusted channel too (aethis-mcp#45): an API
+// error `detail` comes straight from the upstream JSON body, so a hostile or
+// compromised upstream could smuggle instructions (or a fence breakout) into the
+// model via an error message. Fence + preface + defang it exactly like any other
+// server-supplied free text. `statusCode` is a number and stays bare. Defined
+// with `function` (hoisted); UNTRUSTED_PREFACE/fenceUntrusted are resolved at
+// call time, after module init.
 function apiError(e: unknown): ToolResult {
   if (e instanceof AethisAPIError) {
-    return err(`Error: ${e.detail} (HTTP ${e.statusCode})`);
+    return err(`${UNTRUSTED_PREFACE}\n\nError (HTTP ${e.statusCode}): ${fenceUntrusted("api_error", e.detail)}`);
   }
-  return err(`Error: ${(e as Error).message}`);
+  return err(`${UNTRUSTED_PREFACE}\n\nError: ${fenceUntrusted("error", (e as Error).message)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -909,6 +916,10 @@ export function createToolHandlers(client: AethisClient) {
           `Result: ${allMatch ? "PASS — all expected sections found" : "FAIL — mismatches found"}`,
           `Matched: ${matchCount}/${total}`,
           "",
+          // `extra` = sections the engine discovered (server-derived); fence it
+          // (aethis-mcp#45). `missing` is the caller's own expected list, bare.
+          UNTRUSTED_PREFACE,
+          "",
         ];
 
         if (missing.length) {
@@ -919,7 +930,7 @@ export function createToolHandlers(client: AethisClient) {
 
         if (extra.length) {
           lines.push(`Extra discovered sections not in spec (${extra.length}):`);
-          for (const e of extra) lines.push(`  - ${e}`);
+          for (const e of extra) lines.push(`  - ${fenceUntrusted("discovered_section", e)}`);
           lines.push("");
         }
 
@@ -975,7 +986,7 @@ export function createToolHandlers(client: AethisClient) {
         ];
 
         for (const s of sections) {
-          lines.push(`${s.name} — ${fenceUntrusted("section_title", s.title)}`);
+          lines.push(`${fenceUntrusted("section_name", s.name)} — ${fenceUntrusted("section_title", s.title)}`);
           lines.push(`  Description: ${fenceUntrusted("section_description", s.description)}`);
           const kw = (s.keywords as string[] | undefined)?.join(", ");
           if (kw) lines.push(`  Keywords: ${fenceUntrusted("section_keywords", kw)}`);
@@ -1029,7 +1040,7 @@ export function createToolHandlers(client: AethisClient) {
         ];
 
         for (const s of sections) {
-          lines.push(`${s.name} — ${fenceUntrusted("section_title", s.title)}`);
+          lines.push(`${fenceUntrusted("section_name", s.name)} — ${fenceUntrusted("section_title", s.title)}`);
           lines.push(`  Description: ${fenceUntrusted("section_description", s.description)}`);
           lines.push("");
         }
@@ -1184,6 +1195,11 @@ export function createToolHandlers(client: AethisClient) {
           `Result: ${allMatch ? "PASS — all expected fields match" : "FAIL — mismatches found"}`,
           `Matched: ${matchCount}/${total}`,
           "",
+          // Discovered field keys / enum values below are server-derived; fence
+          // them (aethis-mcp#45). Field-key mismatch sides are the caller's own
+          // spec keys (identifier-shaped) and stay bare.
+          UNTRUSTED_PREFACE,
+          "",
         ];
 
         if (missing.length) {
@@ -1205,14 +1221,14 @@ export function createToolHandlers(client: AethisClient) {
           for (const mm of enumMm) {
             const exp = (mm.expected_values as string[]).join(", ");
             const act = (mm.actual_values as string[]).join(", ");
-            lines.push(`  - ${mm.key}: expected [${exp}], got [${act}]`);
+            lines.push(`  - ${mm.key}: expected [${fenceUntrusted("expected_values", exp)}], got [${fenceUntrusted("actual_values", act)}]`);
           }
           lines.push("");
         }
 
         if (extra.length) {
           lines.push(`Extra discovered fields not in spec (${extra.length}) — informational:`);
-          for (const e of extra) lines.push(`  - ${e}`);
+          for (const e of extra) lines.push(`  - ${fenceUntrusted("discovered_field", e)}`);
           lines.push("");
         }
 

@@ -31,7 +31,7 @@ import {
   TOOL_CAPABILITIES,
   type ToolHandlers,
 } from "../src/index.js";
-import type { AethisClient } from "../src/client.js";
+import { AethisAPIError, type AethisClient } from "../src/client.js";
 
 // A free-text taint sentinel that also attempts to break out of the fence.
 const CORE = "ZZ_UNTRUSTED_INJECT_ZZ";
@@ -113,10 +113,25 @@ function taintedClient(overrides: Record<string, unknown> = {}): AethisClient {
     addGuidance: vi.fn().mockResolvedValue({}),
     addDomainGuidance: vi.fn().mockResolvedValue({ message: FT, hint_id: "h1" }),
     listDomainGuidance: vi.fn().mockResolvedValue([{ guidance_text: FT, source: FT, hint_id: "h1" }]),
-    validateSections: vi.fn().mockResolvedValue({ all_match: true, match_count: 1, total: 1, missing: [], extra: [] }),
+    // Non-empty mismatch arrays so the mismatch branches are actually exercised
+    // (an empty array would make coverage of those branches vacuous). `extra`
+    // is server-discovered → carries the sentinel and must be fenced; `missing`
+    // is the caller's own spec → identifier, no sentinel.
+    validateSections: vi.fn().mockResolvedValue({ all_match: false, match_count: 0, total: 2, missing: ["expected_section"], extra: [FT] }),
     discoverSections: vi.fn().mockResolvedValue({ sections: [{ name: "sec_a", title: FT, description: FT, keywords: [FT], priority: 1, reasoning: FT }], confidence: 0.9, analysis_notes: FT }),
     discoverFields: vi.fn().mockResolvedValue({ fields: [{ key: "k", field_type: "Bool", description: FT, enum_values: null }], completeness_score: 0.8, iteration: 1, recommendation: "stop", missing_pathways: [FT], critical_gaps: [FT], validation_result: null }),
-    validateFields: vi.fn().mockResolvedValue({ all_match: true, match_count: 1, total_expected: 1, missing: [], extra: [], type_mismatches: [], enum_mismatches: [] }),
+    // Non-empty so every mismatch branch is exercised. `extra` (discovered
+    // fields) and enum `actual_values` are server-derived → carry the sentinel
+    // and must be fenced; `missing` / type-mismatch keys are caller/identifier.
+    validateFields: vi.fn().mockResolvedValue({
+      all_match: false,
+      match_count: 0,
+      total_expected: 2,
+      missing: ["applicant.expected_key"],
+      extra: [FT],
+      type_mismatches: [{ key: "applicant.age", expected_sort: "Int", actual_sort: "String" }],
+      enum_mismatches: [{ key: "applicant.status", expected_values: ["a", "b"], actual_values: [FT] }],
+    }),
     setFieldSpec: vi.fn().mockResolvedValue({}),
     generateAndTest: vi.fn().mockResolvedValue(testRun),
     runTests: vi.fn().mockResolvedValue(testRun),
@@ -200,6 +215,35 @@ describe("untrusted-content serializer coverage (aethis-mcp#45)", () => {
         closes,
         `tool ${tool} has ${closes} bare </api_response> for ${opens} openers — payload broke out`,
       ).toBeLessThanOrEqual(opens);
+    });
+  }
+
+  // The error path is a shared untrusted channel: every handler ends in
+  // `catch (e) { return apiError(e); }`, and an API error `detail` is upstream
+  // free text. Drive EVERY tool with a client whose calls reject with a
+  // sentinel-bearing AethisAPIError (with a breakout attempt) and assert the
+  // shared apiError helper fences it — so no tool leaks a hostile error message.
+  for (const [tool, run] of Object.entries(CASES)) {
+    it(`${tool}: a hostile API error detail is fenced (catch path)`, async () => {
+      const rejecting = taintedClient(
+        Object.fromEntries(
+          [
+            "getSchema", "decide", "decideRulebook", "explain", "explainFailure", "getSource",
+            "getRulesetGraph", "getRulebookGraph", "listProjects", "listRulesets", "discoverRulesets",
+            "listRulebooks", "usage", "getRulebookSchema", "createRulebook", "updateRulebook",
+            "archiveProject", "archiveRuleset", "createProject", "uploadSourceText", "addTests",
+            "listGuidance", "addGuidance", "addDomainGuidance", "listDomainGuidance",
+            "validateSections", "discoverSections", "discoverFields", "validateFields", "setFieldSpec",
+            "generateAndTest", "runTests", "publish", "reviewProject",
+          ].map((m) => [m, vi.fn().mockRejectedValue(new AethisAPIError(500, FT))]),
+        ),
+      );
+      const out = textOf(await run(createToolHandlers(rejecting)));
+      const bare = stripFences(out);
+      expect(bare.includes(CORE), `tool ${tool} leaked a hostile error detail OUTSIDE a fence:\n${bare}`).toBe(false);
+      const opens = count(out, /<api_response\b/g);
+      const closes = count(out, /<\/api_response>/g);
+      expect(closes, `tool ${tool} error path broke out of the fence`).toBeLessThanOrEqual(opens);
     });
   }
 

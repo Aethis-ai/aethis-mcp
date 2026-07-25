@@ -32,6 +32,7 @@ import {
 import type { AethisClient } from "../src/client.js";
 
 const SRC = readFileSync(fileURLToPath(new URL("../src/index.ts", import.meta.url)), "utf8");
+const CLIENT_SRC = readFileSync(fileURLToPath(new URL("../src/client.ts", import.meta.url)), "utf8");
 
 /** Handlers deliberately not exposed as MCP tools (callable, but unregistered). */
 const UNREGISTERED = new Set(["aethis_source"]);
@@ -49,6 +50,31 @@ function handlersCallingRequireAuth(): Set<string> {
     if (body.includes("requireAuth(")) out.add(starts[i].name);
   }
   return out;
+}
+
+/** Slice each handler's source body: name -> body text. */
+function handlerBodies(): Map<string, string> {
+  const out = new Map<string, string>();
+  const re = /async (aethis_[a-z_]+)\s*\(/g;
+  const starts: Array<{ name: string; index: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(SRC)) !== null) starts.push({ name: m[1], index: m.index });
+  for (let i = 0; i < starts.length; i++) {
+    out.set(starts[i].name, SRC.slice(starts[i].index, starts[i + 1]?.index ?? SRC.length));
+  }
+  return out;
+}
+
+/**
+ * The client's state-changing methods, derived from the client module itself
+ * (async methods whose name starts with a mutation verb) so the list cannot
+ * drift from the code. `setApiKey` is sync auth-plumbing, not a data mutation,
+ * and is not captured.
+ */
+function clientMutationMethods(): string[] {
+  const names = [...CLIENT_SRC.matchAll(/\basync\s+([a-zA-Z_]+)\s*\(/g)].map((mm) => mm[1]);
+  const MUT = /^(create|update|delete|remove|archive|publish|add|set|upload|generate)/;
+  return [...new Set(names)].filter((n) => MUT.test(n));
 }
 
 /** Capture name -> annotations for every registered tool. */
@@ -144,5 +170,36 @@ describe("annotation parity: registered tools carry derived annotations", () => 
       expect(ann.destructiveHint, `${name} destructiveHint`).toBe(cap.mutating ? cap.destructive === true : false);
       expect(ann.openWorldHint, `${name} openWorldHint`).toBe(true);
     }
+  });
+});
+
+describe("mutation parity: mutating flag vs actual client calls", () => {
+  // Cross-checks the hand-declared `mutating` flag against handler behaviour, so
+  // a future tool mislabelled `mutating:false` that actually writes is caught
+  // rather than passing every annotation test. The mutation-method list is
+  // derived from the client module itself (can't drift from the code).
+  const BODIES = handlerBodies();
+  const MUTATION_METHODS = clientMutationMethods();
+
+  it("derives a non-empty client mutation-method set", () => {
+    expect(MUTATION_METHODS.length).toBeGreaterThan(0);
+    // sanity: known writers are present
+    for (const m of ["publish", "createProject", "archiveRuleset", "generateAndTest"]) {
+      expect(MUTATION_METHODS, `expected ${m} in derived mutation set`).toContain(m);
+    }
+  });
+
+  it("no mutating:false handler calls a client mutation method", () => {
+    const problems: string[] = [];
+    for (const [name, cap] of Object.entries(TOOL_CAPABILITIES)) {
+      if (cap.mutating) continue;
+      const body = BODIES.get(name) ?? "";
+      for (const method of MUTATION_METHODS) {
+        if (new RegExp(`\\.${method}\\s*\\(`).test(body)) {
+          problems.push(`${name} is mutating:false but calls client.${method}()`);
+        }
+      }
+    }
+    expect(problems, problems.join("\n")).toEqual([]);
   });
 });

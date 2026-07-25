@@ -101,9 +101,9 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 2. Publish to npm — PROTECTED environment (named reviewer), OIDC Trusted
-  #    Publishing, no static token. Verifies the exact digest + tag==commit
-  #    before publishing. P10 (workspace) gates outputs.tarball_sha256 upstream
-  #    of the human approval on this environment.
+  #    Publishing, no static token. Verifies the exact digest + that the tag is a
+  #    commit already on protected main before publishing. P10 (workspace) gates
+  #    outputs.tarball_sha256 upstream of the human approval on this environment.
   # ---------------------------------------------------------------------------
   publish-npm:
     needs: build-artefact
@@ -114,7 +114,10 @@ jobs:
       contents: read
       id-token: write   # npm Trusted Publishing (OIDC). NO NODE_AUTH_TOKEN.
     steps:
+      # fetch-depth: 0 so the tag-on-main ancestry check below has main's history.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: '22'
@@ -141,14 +144,21 @@ jobs:
           fi
           echo "verified $TARBALL sha256=$ACTUAL"
 
-      - name: Verify the tag commit equals the built commit
+      - name: Verify the tag points at a commit already on protected main
         run: |
           set -euo pipefail
-          TAG_COMMIT="$(git rev-list -n1 "${GITHUB_REF_NAME}")"
-          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
-            echo "::error::tag commit $TAG_COMMIT != build commit $GITHUB_SHA"
+          # On a tag-push event GITHUB_SHA is the tag's commit, so "tag == commit"
+          # is near-tautological. The load-bearing check is that the tagged commit
+          # is an ANCESTOR OF main — i.e. release only ever ships reviewed code
+          # that reached the protected branch, never a tag cut off a side branch.
+          # (Branch protection is unavailable on this private repo; this + the
+          # protected-environment reviewer are the layered gate.)
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag commit $GITHUB_SHA is not an ancestor of origin/main — refusing to publish a tag not on protected main"
             exit 1
           fi
+          echo "tag commit $GITHUB_SHA is on origin/main"
 
       # No --provenance: sigstore attestations require a public source repo.
       # Enable once the repo is public AND trusted publishing is configured.
