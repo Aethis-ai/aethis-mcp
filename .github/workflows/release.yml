@@ -1,0 +1,343 @@
+####################################################################################
+# Protected release pipeline (aethis-mcp#66).
+#
+# Replaces the former single-job publish.yml with a gated, evidence-producing
+# pipeline: an UNPRIVILEGED build stage produces one immutable artefact, then npm
+# and the official MCP Registry are published through SEPARATE protected
+# environments (named human reviewer), workflow/ref-bound OIDC, no static token.
+# Post-publish and fresh-install verification cannot report success if discovery
+# fails.
+#
+# Triggers: a version tag push (owner-controlled) or a manual dispatch. It NEVER
+# runs on a branch push/merge, so a merge can never publish. All third-party
+# actions are pinned by commit SHA.
+#
+# OWNER SETUP REQUIRED before this can publish (see docs/RELEASE.md):
+#   1. Create two protected GitHub Environments with a REQUIRED REVIEWER:
+#        - npm-publish
+#        - registry-publish
+#      (An unconfigured environment auto-creates WITHOUT protection — the reviewer
+#      rule is the gate and MUST be added.)
+#   2. Configure npm Trusted Publishing for `aethis-mcp` pointing at this
+#      workflow (repo Aethis-ai/aethis-mcp, workflow release.yml) — no npm token
+#      is stored anywhere.
+#   3. Ensure the GitHub org/user namespace `io.github.aethis-ai` is claimed in
+#      the MCP Registry (GitHub OIDC auth covers this repo's namespace).
+####################################################################################
+
+name: Release (protected)
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this manual release run (recorded in the run)"
+        required: false
+
+# Least privilege by default; each job re-declares exactly what it needs.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Unprivileged build — no publish credentials. Produces the ONE immutable
+  #    artefact (tarball + sha256 + SBOM + candidate manifest) that every later
+  #    stage, and the workspace P10 gate, pins.
+  # ---------------------------------------------------------------------------
+  build-artefact:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      tarball: ${{ steps.build.outputs.tarball }}
+      tarball_sha256: ${{ steps.build.outputs.tarball_sha256 }}
+      npm_integrity: ${{ steps.build.outputs.npm_integrity }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+      - name: Verify tag matches package version (tag runs only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$PACKAGE_VERSION" != "$VERSION" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME != package.json version $PACKAGE_VERSION"
+            exit 1
+          fi
+
+      - name: Verify generated artefacts are in sync (server.json + inventory)
+        run: |
+          set -euo pipefail
+          npm run check:server-json
+          npm run check:inventory
+
+      - name: Build immutable release candidate (no credentials)
+        id: build
+        run: npm run build:artefact
+
+      - name: Upload release candidate (tarball + SBOM + candidate manifest)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: release-candidate
+          path: release-artefacts/
+          retention-days: 30
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 2. Publish to npm — PROTECTED environment (named reviewer), OIDC Trusted
+  #    Publishing, no static token. Verifies the exact digest + that the tag is a
+  #    commit already on protected main before publishing. P10 (workspace) gates
+  #    outputs.tarball_sha256 upstream of the human approval on this environment.
+  # ---------------------------------------------------------------------------
+  publish-npm:
+    needs: build-artefact
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write   # npm Trusted Publishing (OIDC). NO NODE_AUTH_TOKEN.
+    steps:
+      # fetch-depth: 0 so the tag-on-main ancestry check below has main's history.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      # Trusted Publishing requires npm >= 11.5.1.
+      - run: npm install -g npm@latest
+
+      - name: Download the exact release candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-candidate
+          path: release-artefacts
+
+      - name: Verify the candidate digest is the one we built
+        run: |
+          set -euo pipefail
+          cd release-artefacts
+          EXPECTED="${{ needs.build-artefact.outputs.tarball_sha256 }}"
+          TARBALL="${{ needs.build-artefact.outputs.tarball }}"
+          ACTUAL="$(sha256sum "$TARBALL" | cut -d' ' -f1)"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::tarball digest mismatch: $ACTUAL != $EXPECTED (artefact tampered between build and publish)"
+            exit 1
+          fi
+          echo "verified $TARBALL sha256=$ACTUAL"
+
+      - name: Verify the tag points at a commit already on protected main
+        run: |
+          set -euo pipefail
+          # On a tag-push event GITHUB_SHA is the tag's commit, so "tag == commit"
+          # is near-tautological. The load-bearing check is that the tagged commit
+          # is an ANCESTOR OF main — i.e. release only ever ships reviewed code
+          # that reached the protected branch, never a tag cut off a side branch.
+          # (Branch protection is unavailable on this private repo; this + the
+          # protected-environment reviewer are the layered gate.)
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag commit $GITHUB_SHA is not an ancestor of origin/main — refusing to publish a tag not on protected main"
+            exit 1
+          fi
+          echo "tag commit $GITHUB_SHA is on origin/main"
+
+      # No --provenance: sigstore attestations require a public source repo.
+      # Enable once the repo is public AND trusted publishing is configured.
+      - name: Publish the exact tarball to npm (Trusted Publishing via OIDC)
+        run: npm publish "release-artefacts/${{ needs.build-artefact.outputs.tarball }}" --access public
+
+  # ---------------------------------------------------------------------------
+  # 3. Publish to the official MCP Registry — SEPARATE protected environment,
+  #    GitHub OIDC (namespace io.github.aethis-ai), no static token. server.json
+  #    is the record; its version must equal the just-published npm version.
+  # ---------------------------------------------------------------------------
+  publish-registry:
+    needs: [build-artefact, publish-npm]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: registry-publish
+    permissions:
+      contents: read
+      id-token: write   # GitHub OIDC for mcp-publisher. NO static registry token.
+    env:
+      MCP_PUBLISHER_VERSION: "1.8.0"
+      MCP_PUBLISHER_SHA256: "1370446bbe74d562608e8005a6ccce02d146a661fbd78674e11cc70b9618d6cf"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Verify server.json version == package.json version
+        run: npm run check:server-json
+
+      - name: Install pinned mcp-publisher (verified by sha256)
+        run: |
+          set -euo pipefail
+          URL="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          curl -fsSL --max-time 120 "$URL" -o mcp-publisher.tgz
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tgz" | sha256sum -c -
+          tar xzf mcp-publisher.tgz mcp-publisher
+          chmod +x mcp-publisher
+
+      - name: Publish server.json to the official MCP Registry (GitHub OIDC)
+        run: |
+          set -euo pipefail
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+
+  # ---------------------------------------------------------------------------
+  # 4. Post-publish verification — a release CANNOT report success unless BOTH
+  #    npm and the official Registry show the exact name + version.
+  # ---------------------------------------------------------------------------
+  verify-publication:
+    needs: [build-artefact, publish-npm, publish-registry]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: npm shows the exact version + integrity
+        run: |
+          set -euo pipefail
+          V="${{ needs.build-artefact.outputs.version }}"
+          PUB=""
+          for attempt in $(seq 1 12); do
+            PUB="$(npm view "aethis-mcp@$V" version 2>/dev/null || true)"
+            [[ "$PUB" == "$V" ]] && break
+            echo "npm not yet showing $V (attempt $attempt/12)"; sleep 10
+          done
+          if [[ "$PUB" != "$V" ]]; then
+            echo "::error::npm never reported aethis-mcp@$V — release NOT verified"
+            exit 1
+          fi
+          INTEGRITY="$(npm view "aethis-mcp@$V" dist.integrity)"
+          echo "npm has aethis-mcp@$V (integrity=$INTEGRITY)"
+
+      - name: Official MCP Registry lists the exact name + version
+        run: |
+          set -euo pipefail
+          NAME="io.github.aethis-ai/aethis-mcp"
+          V="${{ needs.build-artefact.outputs.version }}"
+          FOUND=""
+          for attempt in $(seq 1 12); do
+            RESP="$(curl -fsS --max-time 20 "https://registry.modelcontextprotocol.io/v0/servers?search=aethis" || true)"
+            FOUND="$(printf '%s' "$RESP" | node -e '
+              let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+                try {
+                  const j=JSON.parse(s);
+                  const hit=(j.servers||[]).find(x=>x.name===process.argv[1] && x.version===process.argv[2]);
+                  process.stdout.write(hit ? "yes" : "");
+                } catch { process.stdout.write(""); }
+              });
+            ' "$NAME" "$V")"
+            [[ "$FOUND" == "yes" ]] && break
+            echo "registry not yet showing $NAME@$V (attempt $attempt/12)"; sleep 10
+          done
+          if [[ "$FOUND" != "yes" ]]; then
+            echo "::error::official MCP Registry never listed $NAME@$V — DISCOVERY FAILED, release NOT verified"
+            exit 1
+          fi
+          echo "official MCP Registry lists $NAME@$V"
+
+  # ---------------------------------------------------------------------------
+  # 5. Fresh-install verification — install the exact published version into a
+  #    clean temp environment, enumerate its tools over MCP, and compare against
+  #    the generated tool-inventory.json.
+  # ---------------------------------------------------------------------------
+  verify-fresh-install:
+    needs: [build-artefact, verify-publication]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '22'
+      # The MCP SDK used by the verifier comes from THIS repo.
+      - run: npm ci
+
+      - name: Fresh install by exact version into a clean env, enumerate tools
+        run: |
+          set -euo pipefail
+          V="${{ needs.build-artefact.outputs.version }}"
+          TMP="$(mktemp -d)"
+          export HOME="$TMP/home" XDG_CONFIG_HOME="$TMP/config" XDG_CACHE_HOME="$TMP/cache" npm_config_cache="$TMP/npmcache"
+          mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$npm_config_cache"
+          ( cd "$TMP" && npm init -y >/dev/null && npm install --no-audit --no-fund "aethis-mcp@$V" )
+          ENTRY="$TMP/node_modules/aethis-mcp/dist/index.js"
+          test -f "$ENTRY" || { echo "::error::installed entry not found at $ENTRY"; exit 1; }
+          node scripts/verify-fresh-install.mjs "$ENTRY"
+
+  # ---------------------------------------------------------------------------
+  # 6. GitHub Release + workspace sync — only after everything above is verified.
+  # ---------------------------------------------------------------------------
+  finalize:
+    needs: [build-artefact, verify-fresh-install]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # cut the GitHub Release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - name: Cut GitHub Release from the CHANGELOG section
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping."
+            exit 0
+          fi
+          NOTES_FILE="$(mktemp)"
+          awk -v ver="$VERSION" '
+            /^## / { if (found) exit; if ($2 == ver) { found=1; next } }
+            found { print }
+          ' CHANGELOG.md > "$NOTES_FILE"
+          if [[ ! -s "$NOTES_FILE" ]]; then
+            echo "::error::no CHANGELOG section for $VERSION"; exit 1
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file "$NOTES_FILE"
+
+      - name: Trigger workspace release sync
+        env:
+          WORKSPACE_SYNC_TOKEN: ${{ secrets.WORKSPACE_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${WORKSPACE_SYNC_TOKEN:-}" ]]; then
+            echo "WORKSPACE_SYNC_TOKEN not configured; skipping workspace dispatch."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $WORKSPACE_SYNC_TOKEN" \
+            https://api.github.com/repos/Aethis-ai/aethis-workspace/dispatches \
+            -d "{\"event_type\":\"release-package-published\",\"client_payload\":{\"package\":\"aethis-mcp\",\"version\":\"${GITHUB_REF_NAME#v}\",\"tag\":\"$GITHUB_REF_NAME\"}}"

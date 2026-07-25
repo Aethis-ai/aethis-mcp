@@ -1,6 +1,6 @@
 {
   "name": "aethis-mcp",
-  "version": "0.15.1",
+  "version": "0.16.0",
   "description": "MCP server for the Aethis developer API \u2014 eligibility checks via Claude, Cursor, Windsurf",
   "mcpName": "io.github.aethis-ai/aethis-mcp",
   "type": "module",
@@ -19,6 +19,11 @@
     "test:watch": "vitest",
     "test:drift": "vitest run tests/drift.test.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "sync:server-json": "node scripts/sync-server-json.mjs --write",
+    "check:server-json": "node scripts/sync-server-json.mjs --check",
+    "gen:inventory": "node scripts/gen-tool-inventory.mjs",
+    "check:inventory": "node scripts/gen-tool-inventory.mjs --check",
+    "build:artefact": "node scripts/build-release-artefact.mjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

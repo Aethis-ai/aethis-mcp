@@ -41,11 +41,31 @@ const NETWORK_REQUIRED = process.env.DRIFT_NETWORK_REQUIRED === "1";
 function captureRegisteredTools(): Record<string, Record<string, ReturnType<typeof introspectShape>[string]>> {
   const handlers = createToolHandlers({} as unknown as AethisClient);
   const shapes: Record<string, ZodShape> = {};
+  // A ZodRawShape has at least one value that is a zod type; a ToolAnnotations
+  // object has only primitive values. Mirrors the SDK's own detection so we can
+  // pick the input schema out of the (schema?, annotations?, cb) tail — some
+  // tools register as (name, desc, schema, annotations, cb) and no-param tools
+  // as (name, desc, annotations, cb).
+  const isRawShape = (arg: unknown): boolean =>
+    !!arg &&
+    typeof arg === "object" &&
+    Object.values(arg as Record<string, unknown>).some(
+      (v) => !!v && typeof v === "object" && ("_def" in (v as object) || typeof (v as { parse?: unknown }).parse === "function"),
+    );
   const fakeServer = {
-    tool: (name: string, _description: string, third: unknown, _fourth?: unknown) => {
-      // server.tool(name, description, schemaShape, handler) — 4 args; or
-      // server.tool(name, description, handler) — 3 args, no input schema.
-      shapes[name] = typeof third === "function" ? {} : (third as ZodShape);
+    tool: (name: string, _description: string, ...rest: unknown[]) => {
+      // The input schema is the first object arg that is a zod raw shape;
+      // annotations (all-primitive values) and the callback are skipped. A tool
+      // with no input schema leaves the shape empty.
+      let shape: ZodShape = {};
+      for (const arg of rest) {
+        if (typeof arg === "function") continue;
+        if (isRawShape(arg)) {
+          shape = arg as ZodShape;
+          break;
+        }
+      }
+      shapes[name] = shape;
     },
     prompt: () => {},
   } as unknown as Parameters<typeof registerTools>[0];
