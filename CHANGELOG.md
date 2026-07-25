@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.15.1 (2026-07-25)
+
+- **docs: align Simpson paper citations with v3.13** (issue #53). The
+  construction-insurance demo now cites the current paper version (v3.13,
+  2026) instead of v3.11; removes any presentation of the withdrawn
+  GPT-5.4 low-reasoning-effort 7/11 figure as a live result (the v3.8
+  withdrawal note remains as historical context); and removes
+  configuration-level API detail (parameter names) from the benchmark
+  methodology text. All real benchmark numbers are unchanged.
 
 ## 0.15.0 (2026-07-21)
 
