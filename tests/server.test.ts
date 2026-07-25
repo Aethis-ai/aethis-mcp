@@ -90,6 +90,22 @@ function text(result: { content: Array<{ type: string; text?: string }> }): stri
   return result.content[0]?.text ?? "";
 }
 
+/**
+ * JSON-passthrough tools now wrap their whole result in a single
+ * <api_response label="json"> fence with the untrusted preface (aethis-mcp#45).
+ * Extract the fenced JSON payload for assertions; falls back to the raw text
+ * for tools that don't use the whole-blob fence.
+ */
+function unfence(s: string): string {
+  const m = s.match(/<api_response label="json">\n([\s\S]*?)\n<\/api_response>/);
+  return m ? m[1] : s;
+}
+
+/** Parse the JSON payload of a (fenced) passthrough tool result. */
+function parseData(result: { content: Array<{ type: string; text?: string }> }): unknown {
+  return JSON.parse(unfence(text(result)));
+}
+
 // ---------------------------------------------------------------------------
 // Tool registration
 // ---------------------------------------------------------------------------
@@ -152,7 +168,7 @@ describe("aethis_schema", () => {
     });
     const h = createToolHandlers(client);
     const result = await h.aethis_schema({ ruleset_id: "b_123" });
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data.ruleset_id).toBe("b_123");
     expect(data.fields).toHaveLength(1);
   });
@@ -182,7 +198,7 @@ describe("aethis_decide", () => {
     });
     const h = createToolHandlers(client);
     const result = await h.aethis_decide({ ruleset_id: "b_123", field_values: { age: 30 } });
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data.outcome).toBe("eligible");
   });
 
@@ -224,7 +240,7 @@ describe("aethis_decide", () => {
       includeExplanation: undefined,
       includeGraphOverlay: true,
     });
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data.graph_overlay).toBeDefined();
   });
 
@@ -246,7 +262,7 @@ describe("aethis_decide", () => {
       includeExplanation: undefined,
     });
     expect(decideFn).not.toHaveBeenCalled();
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data.rulebook_id).toBe("rb_kzZ_td0tbKW_OLRB");
   });
 
@@ -389,7 +405,7 @@ describe("aethis_explain", () => {
     });
     const h = createToolHandlers(client);
     const result = await h.aethis_explain({ ruleset_id: "b_123" });
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data.rules).toHaveLength(1);
   });
 });
@@ -405,7 +421,7 @@ describe("aethis_list_projects", () => {
     });
     const h = createToolHandlers(client);
     const result = await h.aethis_list_projects({});
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data).toHaveLength(1);
     expect(data[0].project_id).toBe("p_1");
   });
@@ -420,7 +436,7 @@ describe("aethis_list_rulesets", () => {
     });
     const h = createToolHandlers(client);
     const result = await h.aethis_list_rulesets({ project_id: "p_1" });
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data).toHaveLength(1);
     expect(data[0].ruleset_id).toBe("b_1");
     // aethis-core v0.18.0 added `name` (human-readable section title) — must
@@ -451,7 +467,7 @@ describe("aethis_discover_rulesets", () => {
     });
     const h = createToolHandlers(client);
     const result = await h.aethis_discover_rulesets({});
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data).toHaveLength(1);
     expect(data[0].slug).toBe("uk-naturalisation");
     // aethis-core v0.18.0 added `name` to the public catalogue response.
@@ -506,7 +522,7 @@ describe("aethis_list_rulebooks", () => {
     const client = mockClient({ listRulebooks });
     const h = createToolHandlers(client);
     const result = await h.aethis_list_rulebooks({});
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data).toHaveLength(1);
     expect(data[0].slug).toBe("aethis/uk-fsm");
     // outcome_logic and ruleset_refs are the discriminators that answer
@@ -555,7 +571,7 @@ describe("aethis_rulebook_schema", () => {
     const client = mockClient({ getRulebookSchema });
     const h = createToolHandlers(client);
     const result = await h.aethis_rulebook_schema({ rulebook_id: "aethis/uk-fsm" });
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data.rulebook_id).toBe("rb_kzZ_td0tbKW_OLRB");
     expect(data.rulesets).toHaveLength(3);
     expect(data.outcome_logic.operator).toBe("and");
@@ -599,7 +615,7 @@ describe("aethis_graph", () => {
     const client = mockClient({ getRulesetGraph });
     const h = createToolHandlers(client);
     const result = await h.aethis_graph({ ruleset_id: "b_123" });
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data.mermaid).toContain("graph TD");
     expect(data.graph.nodes).toHaveLength(1);
     expect(getRulesetGraph).toHaveBeenCalledWith("b_123");
@@ -616,7 +632,7 @@ describe("aethis_graph", () => {
     const client = mockClient({ getRulebookGraph, hasApiKey: true });
     const h = createToolHandlers(client);
     const result = await h.aethis_graph({ rulebook_id: "aethis/uk-fsm" });
-    const data = JSON.parse(text(result));
+    const data = parseData(result);
     expect(data.rulebook_id).toBe("rb_test");
     expect(getRulebookGraph).toHaveBeenCalledWith("aethis/uk-fsm");
   });

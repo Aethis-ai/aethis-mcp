@@ -43,6 +43,15 @@ function textOf(result: ToolResult): string {
     .join("\n");
 }
 
+/**
+ * JSON-passthrough tools wrap their result in one <api_response label="json">
+ * fence with the untrusted preface (aethis-mcp#45). Extract the JSON payload.
+ */
+function unfenceJson(s: string): string {
+  const m = s.match(/<api_response label="json">\n([\s\S]*?)\n<\/api_response>/);
+  return m ? m[1] : s;
+}
+
 async function connectServer(apiKey: string): Promise<{ client: Client; close: () => Promise<void> }> {
   // Explicit minimal env — do NOT spread process.env, which would leak the
   // Clerk mint secret (and everything else) into the server subprocess. Pass
@@ -168,7 +177,7 @@ describe("staging integration lane", () => {
         arguments: { ruleset_id: slug, field_values: {}, include_graph_overlay: true },
       })) as ToolResult;
       expect(decide.isError ?? false).toBe(false);
-      const data = JSON.parse(textOf(decide));
+      const data = JSON.parse(unfenceJson(textOf(decide)));
       // Additive response field (aethis-core#212) — present (though its
       // content may be null/empty depending on the ruleset) whenever the
       // flag round-trips through the MCP tool to the engine.
@@ -186,7 +195,7 @@ describe("staging integration lane", () => {
         arguments: { ruleset_id: slug },
       })) as ToolResult;
       expect(graph.isError ?? false).toBe(false);
-      const data = JSON.parse(textOf(graph));
+      const data = JSON.parse(unfenceJson(textOf(graph)));
       expect(data.ruleset_id).toBeTruthy();
       expect(Array.isArray(data.graph?.nodes)).toBe(true);
       expect(typeof data.mermaid).toBe("string");

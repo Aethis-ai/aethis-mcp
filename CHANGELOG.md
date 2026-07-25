@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.16.0 (2026-07-25)
+
+- **security: every tool's server-supplied free text is fenced as untrusted
+  data.** JSON-passthrough tools (list/discover/schema/graph/rulebook and
+  friends) now wrap their whole response in a single `<api_response>` fence with
+  the untrusted preface, so a server- or tenant-authored free-text field (name,
+  description, domain, message, …) can no longer smuggle instructions to the
+  model via the JSON blob. Prose tools keep their per-field fences. A new
+  deterministic serializer-coverage test drives every tool with taint sentinels
+  and fails if any free-text leaf is ever emitted outside a fence. Closes the
+  untrusted-JSON-passthrough gap (aethis-mcp#45).
+- **security: capability annotations + containment.** Every tool now carries MCP
+  annotations (`readOnlyHint` / `destructiveHint` / `openWorldHint`) derived from
+  a single capability registry, so a host renders correct read/destructive hints
+  and can gate approval on the mutating tools. A test enforces that no
+  no-API-key (anonymous) tool has any mutation capability, and that the registry
+  matches which handlers actually require a key.
+- **release: `server.json` is derived from `package.json` and drift-guarded.**
+  `server.json` (the official MCP Registry record) now tracks the package version
+  source of truth; `npm run check:server-json` (run in the test suite/CI) fails
+  on drift. Corrected the stale `server.json` version (0.5.1 → current).
+- **release: generated tool inventory.** `tool-inventory.json` is a generated,
+  drift-guarded listing of the tool surface, used to verify a fresh install and
+  as the source of truth for the published tools reference.
+- **release: gated, evidence-producing publish pipeline.** An unprivileged build
+  stage produces one immutable tarball with a sha256 digest, a CycloneDX SBOM and
+  a candidate manifest; npm and the official MCP Registry are then published via
+  separate protected environments (named reviewer), workflow-bound OIDC and no
+  stored token. Post-publish verification and a clean-environment fresh install
+  must both confirm the exact name/version before a release reports success. See
+  [docs/RELEASE.md](docs/RELEASE.md).
+
 ## 0.15.1 (2026-07-25)
 
 - **docs: align Simpson paper citations with v3.13** (issue #53). The

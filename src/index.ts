@@ -174,6 +174,23 @@ export function fenceUntrusted(label: string, value: unknown): string {
   return `<api_response label="${label}">\n${escaped}\n</api_response>`;
 }
 
+// Whole-response fence for JSON-passthrough tools (aethis-mcp#45). Serializing
+// an API result to JSON is itself a form of interpolation: every server- or
+// tenant-controlled free-text leaf (name, description, domain, error_message,
+// message, …) reaches the model verbatim inside the blob. Wrapping the entire
+// serialized result in one <api_response> fence with the preface keeps the JSON
+// structure intact while marking every leaf as untrusted data in a single,
+// deterministically-testable step. Identifier-shaped leaves are over-fenced,
+// which is safe. Handlers that render prose (lines.push) fence each free-text
+// leaf individually instead; this is for the raw `ok(fmt(result))` path.
+export function fenceData(value: unknown): string {
+  return `${UNTRUSTED_PREFACE}\n\n${fenceUntrusted("json", fmt(value))}`;
+}
+
+function okData(value: unknown): ToolResult {
+  return ok(fenceData(value));
+}
+
 // ---------------------------------------------------------------------------
 // Format test results with diff tracking
 // ---------------------------------------------------------------------------
@@ -441,7 +458,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.getSchema(args.ruleset_id);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -477,7 +494,7 @@ export function createToolHandlers(client: AethisClient) {
               includeExplanation: args.include_explanation,
               includeGraphOverlay: args.include_graph_overlay,
             });
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -501,7 +518,7 @@ export function createToolHandlers(client: AethisClient) {
         const result = hasRulebook
           ? await client.getRulebookGraph(args.rulebook_id!)
           : await client.getRulesetGraph(args.ruleset_id!);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -564,7 +581,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.explain(args.ruleset_id);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -594,7 +611,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.getSource(args.ruleset_id);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -605,7 +622,7 @@ export function createToolHandlers(client: AethisClient) {
       if (authErr) return authErr;
       try {
         const result = await client.listProjects();
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -616,7 +633,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.listRulesets(args.project_id);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -627,7 +644,7 @@ export function createToolHandlers(client: AethisClient) {
       const offset = args.offset ?? 0;
       try {
         const result = await client.discoverRulesets(limit, offset);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -652,7 +669,7 @@ export function createToolHandlers(client: AethisClient) {
       if (authErr) return authErr;
       try {
         const result = await client.listRulebooks();
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -661,7 +678,7 @@ export function createToolHandlers(client: AethisClient) {
       if (authErr) return authErr;
       try {
         const result = await client.usage();
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -672,7 +689,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.getRulebookSchema(args.rulebook_id);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -746,7 +763,8 @@ export function createToolHandlers(client: AethisClient) {
         if (args.robot_hints) {
           lines.push(`  Robot hints: ${Object.keys(args.robot_hints).length} beat(s) set`);
         }
-        lines.push("", fmt(rb));
+        // rb carries free-text (name, description) — fence the JSON echo.
+        lines.push("", fenceData(rb));
         return ok(lines.join("\n"));
       } catch (e) { return apiError(e); }
     },
@@ -760,7 +778,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.archiveProject(args.project_id);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -771,7 +789,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.archiveRuleset(args.ruleset_id);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -863,7 +881,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.addDomainGuidance(args.domain, args.guidance_text, args.process_type, args.notes, args.adherence);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -925,7 +943,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       try {
         const result = await client.listDomainGuidance(args.domain);
-        return ok(fmt(result));
+        return okData(result);
       } catch (e) { return apiError(e); }
     },
 
@@ -1132,8 +1150,10 @@ export function createToolHandlers(client: AethisClient) {
 
         const missing = (result.missing_pathways ?? []) as string[];
         if (missing.length) {
+          // missing_pathways is server free-text (matches aethis_discover_fields,
+          // which fences the same field) — fence each, aethis-mcp#45.
           lines.push("", "Still missing:");
-          for (const m of missing) lines.push(`  - ${m}`);
+          for (const m of missing) lines.push(`  - ${fenceUntrusted("missing_pathway", m)}`);
         }
 
         return ok(lines.join("\n"));
@@ -1408,11 +1428,124 @@ const robotHintsField = z
       "hints unchanged (update).",
   );
 
+// ---------------------------------------------------------------------------
+// Tool capability registry (aethis-mcp#45 containment + MCP annotations)
+//
+// The single source of truth for each tool's capability profile:
+//   - `auth`      — "anonymous" (no API key) vs "api_key" (tenant-scoped).
+//   - `mutating`  — does the tool change server-side state?
+//   - `destructive` — a mutation that removes/retires existing content.
+//
+// Two invariants are asserted deterministically in tests/tool-capabilities.test.ts:
+//   1. Containment: no `auth: "anonymous"` tool is `mutating` — anonymous
+//      (no-key) callers have read-only capability only.
+//   2. Parity: the `auth` classification here matches which handlers actually
+//      call `requireAuth` in this file (found by static scan), so the registry
+//      cannot silently drift from the code.
+//
+// MCP tool annotations (readOnlyHint / destructiveHint / openWorldHint) are
+// derived from this registry so a host can render correct destructive/read
+// hints and gate host/user approval on the mutating tools.
+// ---------------------------------------------------------------------------
+
+export interface ToolCapability {
+  /**
+   * "anonymous" = the tool has a capability path reachable with no API key;
+   * "api_key" = every path is tenant-scoped and requires a key.
+   */
+  auth: "anonymous" | "api_key";
+  /**
+   * True for an anonymous tool that also has a conditional key-guarded path
+   * (e.g. aethis_graph: the public ruleset map is anonymous, but a rulebook map
+   * calls requireAuth). Such a tool legitimately contains a *conditional*
+   * requireAuth; a purely-anonymous tool must not.
+   */
+  hybrid?: boolean;
+  /** Does the tool change server-side state? */
+  mutating: boolean;
+  /** A mutation that removes or retires existing content. */
+  destructive?: boolean;
+  /** Repeating the call with the same args has no additional effect. */
+  idempotent?: boolean;
+  /** Human-readable title surfaced to MCP hosts. */
+  title: string;
+}
+
+// Every handler in createToolHandlers appears here. `aethis_source` is a handler
+// but is deliberately NOT registered as an MCP tool; it is listed so the
+// requireAuth parity scan is total.
+export const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
+  // -- Anonymous, read-only (no requireAuth): the public decision surface --
+  aethis_schema: { auth: "anonymous", mutating: false, title: "Get ruleset input schema" },
+  aethis_decide: { auth: "anonymous", mutating: false, title: "Evaluate eligibility" },
+  aethis_next_question: { auth: "anonymous", mutating: false, title: "Next optimal question" },
+  aethis_explain: { auth: "anonymous", mutating: false, title: "Explain ruleset rules" },
+  aethis_explain_failure: { auth: "anonymous", mutating: false, title: "Diagnose unexpected outcome" },
+  aethis_graph: { auth: "anonymous", hybrid: true, mutating: false, title: "Get ruleset/rulebook map" },
+  aethis_discover_rulesets: { auth: "anonymous", mutating: false, title: "Browse public rulesets" },
+
+  // -- API key, read-only --
+  aethis_list_projects: { auth: "api_key", mutating: false, title: "List projects" },
+  aethis_list_rulesets: { auth: "api_key", mutating: false, title: "List rulesets" },
+  aethis_list_rulebooks: { auth: "api_key", mutating: false, title: "List rulebooks" },
+  aethis_usage: { auth: "api_key", mutating: false, title: "Show rate-limit usage" },
+  aethis_rulebook_schema: { auth: "api_key", mutating: false, title: "Get rulebook composition" },
+  aethis_list_guidance: { auth: "api_key", mutating: false, title: "List project guidance" },
+  aethis_list_domain_guidance: { auth: "api_key", mutating: false, title: "List domain guidance" },
+  aethis_validate_sections: { auth: "api_key", mutating: false, title: "Validate discovered sections" },
+  aethis_validate_fields: { auth: "api_key", mutating: false, title: "Validate discovered fields" },
+  aethis_discover_sections: { auth: "api_key", mutating: false, title: "Discover source sections" },
+  aethis_discover_fields: { auth: "api_key", mutating: false, title: "Discover input fields" },
+  aethis_review_project: { auth: "api_key", mutating: false, title: "Review authoring project" },
+  aethis_source: { auth: "api_key", mutating: false, title: "Get compiled ruleset source" },
+
+  // -- API key, mutating --
+  aethis_create_rulebook: { auth: "api_key", mutating: true, title: "Create rulebook" },
+  aethis_update_rulebook: { auth: "api_key", mutating: true, idempotent: true, title: "Update rulebook" },
+  aethis_create_ruleset: { auth: "api_key", mutating: true, title: "Create ruleset (TDD)" },
+  aethis_add_guidance: { auth: "api_key", mutating: true, title: "Add project guidance" },
+  aethis_add_domain_guidance: { auth: "api_key", mutating: true, title: "Add domain guidance" },
+  aethis_set_field_spec: { auth: "api_key", mutating: true, idempotent: true, title: "Set field spec" },
+  aethis_refine_sections: { auth: "api_key", mutating: true, title: "Refine sections" },
+  aethis_refine_fields: { auth: "api_key", mutating: true, title: "Refine fields" },
+  aethis_generate_and_test: { auth: "api_key", mutating: true, title: "Generate and test rules" },
+  aethis_refine: { auth: "api_key", mutating: true, title: "Refine ruleset" },
+  aethis_publish: { auth: "api_key", mutating: true, title: "Publish ruleset" },
+
+  // -- API key, mutating + destructive --
+  aethis_archive_project: { auth: "api_key", mutating: true, destructive: true, idempotent: true, title: "Archive project" },
+  aethis_archive_ruleset: { auth: "api_key", mutating: true, destructive: true, idempotent: true, title: "Archive ruleset" },
+};
+
+/**
+ * Derive the MCP tool annotations for a tool from its capability profile.
+ * `openWorldHint` is always true: every tool calls the remote Aethis API.
+ */
+export function toolAnnotations(name: string): {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+} {
+  const cap = TOOL_CAPABILITIES[name];
+  if (!cap) throw new Error(`No capability profile registered for tool '${name}'`);
+  return {
+    title: cap.title,
+    readOnlyHint: !cap.mutating,
+    // destructive/idempotent hints are only meaningful for non-read-only tools.
+    destructiveHint: cap.mutating ? cap.destructive === true : false,
+    idempotentHint: cap.mutating ? cap.idempotent === true : false,
+    openWorldHint: true,
+  };
+}
+
 export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   server.tool(
     "aethis_schema",
     "Get the input fields required for an eligibility check. Returns field names, types, descriptions, and allowed values. Use this before calling aethis_decide.",
     { ruleset_id: z.string().describe("The ID of the published rule ruleset") },
+    toolAnnotations("aethis_schema"),
     (args) => handlers.aethis_schema(args),
   );
 
@@ -1427,6 +1560,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       include_explanation: z.boolean().optional().describe("Include human-readable rule explanations with source citations"),
       include_graph_overlay: z.boolean().optional().describe("Stamp this decision's per-criterion outcome (satisfied/not_satisfied/pending) onto the ruleset-map graph and return it as graph_overlay — the same {nodes, edges, sections, stats} shape as aethis_graph, letting a caller render a 'you are here' map for these specific inputs. Off by default; the response is byte-identical to a call without the flag."),
     },
+    toolAnnotations("aethis_decide"),
     (args) => handlers.aethis_decide(args),
   );
 
@@ -1437,6 +1571,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       ruleset_id: z.string().describe("The ID of the published rule ruleset"),
       field_values: z.record(z.string(), z.unknown()).describe("Answers collected so far (empty dict for first question)"),
     },
+    toolAnnotations("aethis_next_question"),
     (args) => handlers.aethis_next_question(args),
   );
 
@@ -1447,6 +1582,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       ruleset_id: z.string().optional().describe("The ID or slug of a single published ruleset. Mutually exclusive with rulebook_id."),
       rulebook_id: z.string().optional().describe("The slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`) of a composed rulebook. Mutually exclusive with ruleset_id. Requires an API key — anonymous callers get HTTP 401."),
     },
+    toolAnnotations("aethis_graph"),
     (args) => handlers.aethis_graph(args),
   );
 
@@ -1454,6 +1590,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_explain",
     "Get human-readable descriptions of the rules in a ruleset, including criteria groups, requirements, and exception paths.",
     { ruleset_id: z.string().describe("The ID of the published rule ruleset") },
+    toolAnnotations("aethis_explain"),
     (args) => handlers.aethis_explain(args),
   );
 
@@ -1466,12 +1603,14 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("The outcome you expected from this input"),
       test_name: z.string().optional().describe("Name of the failing test case (included in the diagnosis for context)"),
     },
+    toolAnnotations("aethis_explain_failure"),
     (args) => handlers.aethis_explain_failure(args),
   );
 
   server.tool(
     "aethis_list_projects",
     "List all projects in the current tenant. Returns project IDs, names, domains, and latest ruleset information.",
+    toolAnnotations("aethis_list_projects"),
     () => handlers.aethis_list_projects({}),
   );
 
@@ -1479,6 +1618,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_list_rulesets",
     "List all rule rulesets for a project, including version history. Shows ruleset ID, human-readable name (the section title the ruleset covers, e.g. 'Knowledge of language and life in the UK'), status (active/archived), version, field count, and rule count.",
     { project_id: z.string().describe("The project ID") },
+    toolAnnotations("aethis_list_rulesets"),
     (args) => handlers.aethis_list_rulesets(args),
   );
 
@@ -1489,18 +1629,21 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       limit: z.number().int().min(1).max(50).optional().describe("Maximum rulesets to return (default 20, max 50)."),
       offset: z.number().int().min(0).optional().describe("Pagination offset (default 0)."),
     },
+    toolAnnotations("aethis_discover_rulesets"),
     (args) => handlers.aethis_discover_rulesets(args),
   );
 
   server.tool(
     "aethis_list_rulebooks",
     "List rulebooks (composed wholes that bridge multiple rulesets) in the current tenant. Returns rulebook_id, slug (e.g. `aethis/uk-fsm`), name, domain, status (draft/active/archived), version, outcome_logic (the composition Expr AST), ruleset_refs, and timestamps. Use this when the user asks 'what rulebooks exist?' or to disambiguate whether several `<ns>/<x>/*` rulesets are bridged into one parent rulebook. Tenant-scoped — requires an API key. Pass a returned rulebook_id or slug to aethis_decide (rulebook_id arg) or aethis_rulebook_schema.",
+    toolAnnotations("aethis_list_rulebooks"),
     () => handlers.aethis_list_rulebooks({}),
   );
 
   server.tool(
     "aethis_usage",
     "Show the caller's rate-limit budget per operation class over the rolling 24h window: for each of decide / generate / author / read / keys / admin, the used count, limit, remaining, and reset time. `generate` (LLM rule generation) is the scarce class; browsing and status polling (`read`) are effectively unlimited-but-metered. Check this before a large authoring run — and report remaining `generate` budget to the user — so a 429 is never the first signal. Tenant-scoped — requires an API key.",
+    toolAnnotations("aethis_usage"),
     () => handlers.aethis_usage({}),
   );
 
@@ -1508,6 +1651,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_rulebook_schema",
     "Get the composition + aggregated input fields for a rulebook. Returns the outcome_logic Expr AST (how the bridged rulesets compose, e.g. `A AND (B OR C)`), the list of bridged rulesets (ruleset_name, ruleset_id, slug, status), and the union of all required input fields. Use this BEFORE aethis_decide on a rulebook_id to know what field_values to supply, or to inspect how a rulebook is wired. Pass a rulebook slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`).",
     { rulebook_id: z.string().describe("The slug (e.g. `aethis/uk-fsm`) or opaque id (`rb_*`) of the rulebook") },
+    toolAnnotations("aethis_rulebook_schema"),
     (args) => handlers.aethis_rulebook_schema(args),
   );
 
@@ -1521,6 +1665,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       description: z.string().optional().describe("Optional description"),
       robot_hints: robotHintsField,
     },
+    toolAnnotations("aethis_create_rulebook"),
     (args) => handlers.aethis_create_rulebook(args),
   );
 
@@ -1534,6 +1679,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       slug: z.string().optional().describe("New stable alias"),
       robot_hints: robotHintsField,
     },
+    toolAnnotations("aethis_update_rulebook"),
     (args) => handlers.aethis_update_rulebook(args),
   );
 
@@ -1541,6 +1687,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_archive_project",
     "Archive a project. Archived projects are preserved but excluded from listing. This is permanent.",
     { project_id: z.string().describe("The project ID to archive") },
+    toolAnnotations("aethis_archive_project"),
     (args) => handlers.aethis_archive_project(args),
   );
 
@@ -1548,6 +1695,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_archive_ruleset",
     "Archive a rule ruleset. Archived rulesets are preserved but excluded from /decide resolution. This is permanent.",
     { ruleset_id: z.string().describe("The ruleset ID to archive") },
+    toolAnnotations("aethis_archive_ruleset"),
     (args) => handlers.aethis_archive_ruleset(args),
   );
 
@@ -1561,6 +1709,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       test_cases: z.array(z.record(z.string(), z.unknown())).describe("Test cases: [{name, field_values, expected_outcome}]. At least 1 required."),
       domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
     },
+    toolAnnotations("aethis_create_ruleset"),
     (args) => handlers.aethis_create_ruleset(args),
   );
 
@@ -1568,6 +1717,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "aethis_list_guidance",
     "List all guidance hints accumulated for a project. Shows the text, source, and active status of each hint. Use before adding new guidance to avoid duplicates.",
     { project_id: z.string().describe("The project ID") },
+    toolAnnotations("aethis_list_guidance"),
     (args) => handlers.aethis_list_guidance(args),
   );
 
@@ -1595,6 +1745,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
           "'loose' = soft suggestion."
         ),
     },
+    toolAnnotations("aethis_add_guidance"),
     (args) => handlers.aethis_add_guidance(args),
   );
 
@@ -1622,6 +1773,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         ),
       notes: z.string().optional().describe("SME commentary or legislation provenance. Never sent to LLM."),
     },
+    toolAnnotations("aethis_add_domain_guidance"),
     (args) => handlers.aethis_add_domain_guidance(args),
   );
 
@@ -1631,6 +1783,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       domain: z.string().describe("Domain identifier (e.g. 'uk_citizenship')"),
     },
+    toolAnnotations("aethis_list_domain_guidance"),
     (args) => handlers.aethis_list_domain_guidance(args),
   );
 
@@ -1649,6 +1802,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       })).min(1).max(10).describe("Source documents to analyse. Provide the actual text content."),
       ...llmKeyFields,
     },
+    toolAnnotations("aethis_discover_sections"),
     (args) => handlers.aethis_discover_sections(args),
   );
 
@@ -1667,6 +1821,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       })).min(1).max(10).describe("The same source documents used in the initial aethis_discover_sections call"),
       ...llmKeyFields,
     },
+    toolAnnotations("aethis_refine_sections"),
     (args) => handlers.aethis_refine_sections(args),
   );
 
@@ -1681,6 +1836,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       expected_sections: z.array(z.string()).min(1).describe("Section names/IDs the SME expects (snake_case, e.g. ['english_language', 'residence', 'good_character'])"),
       discovered_sections: z.array(z.string()).min(1).describe("Section names/IDs returned by aethis_discover_sections"),
     },
+    toolAnnotations("aethis_validate_sections"),
     (args) => handlers.aethis_validate_sections(args),
   );
 
@@ -1691,6 +1847,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       project_id: z.string().describe("The project ID"),
       ...llmKeyFields,
     },
+    toolAnnotations("aethis_discover_fields"),
     (args) => handlers.aethis_discover_fields(args),
   );
 
@@ -1702,6 +1859,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       feedback: z.string().describe("Guidance about missing or incorrect fields (e.g., 'Section 7 implies a criminal record check')"),
       ...llmKeyFields,
     },
+    toolAnnotations("aethis_refine_fields"),
     (args) => handlers.aethis_refine_fields(args),
   );
 
@@ -1721,6 +1879,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         enum_values: z.array(z.string()).optional().describe("For Enum fields: the expected allowed values. Omit to skip enum value check."),
       })).min(1).describe("The fields you expect to find in the discovered field set"),
     },
+    toolAnnotations("aethis_validate_fields"),
     (args) => handlers.aethis_validate_fields(args),
   );
 
@@ -1739,6 +1898,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         enum_values: z.array(z.string()).optional().describe("For Enum fields: the expected allowed values. Omit to skip enum value check."),
       })).min(1).describe("The fields the SME expects to be discovered for this project"),
     },
+    toolAnnotations("aethis_set_field_spec"),
     (args) => handlers.aethis_set_field_spec(args),
   );
 
@@ -1749,6 +1909,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       project_id: z.string().describe("The project ID"),
       ...llmKeyFields,
     },
+    toolAnnotations("aethis_generate_and_test"),
     (args) => handlers.aethis_generate_and_test(args),
   );
 
@@ -1760,6 +1921,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       feedback: z.string().optional().describe("Optional correction or domain knowledge to add before regenerating"),
       ...llmKeyFields,
     },
+    toolAnnotations("aethis_refine"),
     (args) => handlers.aethis_refine(args),
   );
 
@@ -1772,6 +1934,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       label: z.string().optional().describe("Human-readable label for this ruleset version, e.g. 'v5 — raw facts, date arithmetic'. Stored on the ruleset and shown in aethis_list_rulesets."),
       name: z.string().optional().describe("Override the human-readable section name for this ruleset. When omitted, the ruleset keeps the name set at generation time (a titlecase of section_id, e.g. 'english_language' → 'English Language'). Section names are surfaced in rulebook responses so end users can see which sections compose a rulebook."),
     },
+    toolAnnotations("aethis_publish"),
     (args) => handlers.aethis_publish(args),
   );
 
@@ -1790,6 +1953,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         ),
       ...llmKeyFields,
     },
+    toolAnnotations("aethis_review_project"),
     (args) => handlers.aethis_review_project(args),
   );
 }
@@ -1932,6 +2096,79 @@ function registerPrompts(server: McpServer): void {
       }],
     }),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Tool inventory (aethis-mcp#66 step 7 + docs P5)
+//
+// The canonical, generated list of the MCP tool surface: every registered tool
+// with its title, description, input-field names and capability annotations.
+// scripts/gen-tool-inventory.mjs writes it to tool-inventory.json (drift-guarded
+// by tests/tool-inventory.test.ts); the release fresh-install job enumerates the
+// installed server's tools and compares against it; docs P5 consumes it as the
+// source of truth for the published tools reference. Version is deliberately
+// excluded — the inventory is the *surface*, which changes only when tools do.
+// ---------------------------------------------------------------------------
+
+export interface ToolInventoryEntry {
+  name: string;
+  title: string;
+  description: string;
+  input_fields: string[];
+  annotations: ReturnType<typeof toolAnnotations>;
+}
+
+export interface ToolInventory {
+  $comment: string;
+  server_name: string;
+  tool_count: number;
+  tools: ToolInventoryEntry[];
+}
+
+const { mcpName: MCP_NAME } = require("../package.json") as { mcpName: string };
+
+/**
+ * Capture the registered MCP tool surface into a deterministic, serialisable
+ * inventory. Uses a fake server to record each `server.tool()` registration.
+ */
+export function buildToolInventory(): ToolInventory {
+  const handlers = createToolHandlers({} as unknown as AethisClient);
+  const rows: Array<{ name: string; description: string; fields: string[] }> = [];
+
+  const isRawShape = (arg: unknown): boolean =>
+    !!arg &&
+    typeof arg === "object" &&
+    Object.values(arg as Record<string, unknown>).some(
+      (v) => !!v && typeof v === "object" && ("_def" in (v as object) || typeof (v as { parse?: unknown }).parse === "function"),
+    );
+
+  const fakeServer = {
+    tool: (name: string, description: string, ...rest: unknown[]) => {
+      const schema = rest.find(isRawShape) as Record<string, unknown> | undefined;
+      rows.push({ name, description, fields: schema ? Object.keys(schema).sort() : [] });
+    },
+    prompt: () => {},
+  } as unknown as McpServer;
+  registerTools(fakeServer, handlers);
+
+  const tools = rows
+    .map((r) => ({
+      name: r.name,
+      title: toolAnnotations(r.name).title,
+      description: r.description,
+      input_fields: r.fields,
+      annotations: toolAnnotations(r.name),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    $comment:
+      "GENERATED by scripts/gen-tool-inventory.mjs — do not edit by hand. " +
+      "Drift-guarded by tests/tool-inventory.test.ts. Regenerate after any tool change.",
+    server_name: MCP_NAME,
+    tool_count: tools.length,
+    tools,
+  };
 }
 
 // ---------------------------------------------------------------------------

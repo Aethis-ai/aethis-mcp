@@ -26,3 +26,6 @@ __pycache__/
 
 # Coverage
 coverage/
+
+# Release candidate artefacts (aethis-mcp#66) — generated, never committed
+release-artefacts/
