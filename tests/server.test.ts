@@ -32,6 +32,8 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     explain: vi.fn().mockResolvedValue({ rules: [] }),
     listProjects: vi.fn().mockResolvedValue([]),
     listRulesets: vi.fn().mockResolvedValue([]),
+    getStatus: vi.fn().mockResolvedValue({ project_status: "ready", job: null }),
+    cancelGeneration: vi.fn().mockResolvedValue({ project_status: "ready", job: null }),
     discoverRulesets: vi.fn().mockResolvedValue([]),
     listRulebooks: vi.fn().mockResolvedValue([]),
     getRulebookSchema: vi.fn().mockResolvedValue({ rulebook_id: "rb_test", outcome_logic: null, rulesets: [], fields: [] }),
@@ -111,10 +113,10 @@ function parseData(result: { content: Array<{ type: string; text?: string }> }):
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 33 tool handlers", () => {
+  it("returns all 35 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(33);
+    expect(names).toHaveLength(35);
     // Decision
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
@@ -125,6 +127,8 @@ describe("createToolHandlers", () => {
     // Ruleset / project listing
     expect(names).toContain("aethis_list_projects");
     expect(names).toContain("aethis_list_rulesets");
+    expect(names).toContain("aethis_generation_status");
+    expect(names).toContain("aethis_cancel_generation");
     expect(names).toContain("aethis_discover_rulesets");
     expect(names).toContain("aethis_list_rulebooks");
     expect(names).toContain("aethis_rulebook_schema");
@@ -154,6 +158,35 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_validate_sections");
     // Internal (handler exists; not registered as an MCP tool — see A3 test below)
     expect(names).toContain("aethis_source");
+  });
+});
+
+describe("generation job controls", () => {
+  it("returns fenced generation status data", async () => {
+    const getStatus = vi.fn().mockResolvedValue({
+      project_status: "generating",
+      job: { job_id: "j_1", status: "running", progress_detail: "Compiling source" },
+    });
+    const result = await createToolHandlers(mockClient({ getStatus })).aethis_generation_status({ project_id: "p_1" });
+    expect(getStatus).toHaveBeenCalledWith("p_1");
+    expect(parseData(result)).toEqual({
+      project_status: "generating",
+      job: { job_id: "j_1", status: "running", progress_detail: "Compiling source" },
+    });
+  });
+
+  it("cancels a generation after auth and input validation", async () => {
+    const cancelGeneration = vi.fn().mockResolvedValue({ job_id: "j_1", status: "cancelled" });
+    const result = await createToolHandlers(mockClient({ cancelGeneration })).aethis_cancel_generation({ project_id: "p_1" });
+    expect(cancelGeneration).toHaveBeenCalledWith("p_1");
+    expect(parseData(result)).toEqual({ job_id: "j_1", status: "cancelled" });
+  });
+
+  it("does not attempt cancellation without an API key", async () => {
+    const cancelGeneration = vi.fn();
+    const result = await createToolHandlers(mockClient({ hasApiKey: false, cancelGeneration })).aethis_cancel_generation({ project_id: "p_1" });
+    expect(text(result)).toMatch(/AETHIS_API_KEY/i);
+    expect(cancelGeneration).not.toHaveBeenCalled();
   });
 });
 

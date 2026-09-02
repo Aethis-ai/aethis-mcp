@@ -155,6 +155,18 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
     ],
   },
 
+  aethis_generation_status: {
+    endpoints: [
+      { method: "GET", path: `${PUB}/projects/{project_id}/status`, pathParams: { project_id: "project_id" } },
+    ],
+  },
+
+  aethis_cancel_generation: {
+    endpoints: [
+      { method: "POST", path: `${PUB}/projects/{project_id}/generate/cancel`, pathParams: { project_id: "project_id" } },
+    ],
+  },
+
   aethis_discover_rulesets: {
     endpoints: [
       { method: "GET", path: `${PUB}/rulesets`, query: { limit: "limit", offset: "offset" } },

@@ -73,7 +73,7 @@ function handlerBodies(): Map<string, string> {
  */
 function clientMutationMethods(): string[] {
   const names = [...CLIENT_SRC.matchAll(/\basync\s+([a-zA-Z_]+)\s*\(/g)].map((mm) => mm[1]);
-  const MUT = /^(create|update|delete|remove|archive|publish|add|set|upload|generate)/;
+  const MUT = /^(create|update|delete|remove|archive|publish|add|set|upload|generate|cancel)/;
   return [...new Set(names)].filter((n) => MUT.test(n));
 }
 

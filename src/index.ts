@@ -644,6 +644,32 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_generation_status(args: { project_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        // The status envelope contains project and job diagnostics, including
+        // server-provided progress and failure detail. Keep the entire payload
+        // inside the shared JSON fence rather than interpolating any leaf.
+        return okData(await client.getStatus(args.project_id));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_cancel_generation(args: { project_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        // This requests cancellation and releases job ownership. Preserve the
+        // server response as fenced data because it carries the engine's
+        // precise worker-stop semantics and may contain free-text detail.
+        return okData(await client.cancelGeneration(args.project_id));
+      } catch (e) { return apiError(e); }
+    },
+
     async aethis_discover_rulesets(args: { limit?: number; offset?: number }): Promise<ToolResult> {
       // No auth guard — this is the cross-tenant public catalogue. Same
       // anonymous policy as aethis_decide / aethis_schema / aethis_explain.
@@ -1503,6 +1529,7 @@ export const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
   // -- API key, read-only --
   aethis_list_projects: { auth: "api_key", mutating: false, title: "List projects" },
   aethis_list_rulesets: { auth: "api_key", mutating: false, title: "List rulesets" },
+  aethis_generation_status: { auth: "api_key", mutating: false, title: "Get generation status" },
   aethis_list_rulebooks: { auth: "api_key", mutating: false, title: "List rulebooks" },
   aethis_usage: { auth: "api_key", mutating: false, title: "Show rate-limit usage" },
   aethis_rulebook_schema: { auth: "api_key", mutating: false, title: "Get rulebook composition" },
@@ -1527,6 +1554,7 @@ export const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
   aethis_generate_and_test: { auth: "api_key", mutating: true, title: "Generate and test rules" },
   aethis_refine: { auth: "api_key", mutating: true, title: "Refine ruleset" },
   aethis_publish: { auth: "api_key", mutating: true, title: "Publish ruleset" },
+  aethis_cancel_generation: { auth: "api_key", mutating: true, destructive: true, title: "Cancel generation" },
 
   // -- API key, mutating + destructive --
   aethis_archive_project: { auth: "api_key", mutating: true, destructive: true, idempotent: true, title: "Archive project" },
@@ -1636,6 +1664,22 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     { project_id: z.string().describe("The project ID") },
     toolAnnotations("aethis_list_rulesets"),
     (args) => handlers.aethis_list_rulesets(args),
+  );
+
+  server.tool(
+    "aethis_generation_status",
+    "Check the current generation job for a project without changing it. Returns the project lifecycle state plus the active or most recent job's status, progress, timestamps, and safe failure diagnostics. Use this after a generation timeout or before retrying, so a still-running job is never duplicated. Tenant-scoped — requires an API key.",
+    { project_id: z.string().describe("The project ID whose generation status to inspect") },
+    toolAnnotations("aethis_generation_status"),
+    (args) => handlers.aethis_generation_status(args),
+  );
+
+  server.tool(
+    "aethis_cancel_generation",
+    "Request cancellation of the active generation job and release its project ownership. Cancellation may be cooperative rather than immediate, so inspect the returned worker-stop detail; check status first with aethis_generation_status. It is a destructive mutation and requires an API key.",
+    { project_id: z.string().describe("The project ID whose active generation job should be cancelled") },
+    toolAnnotations("aethis_cancel_generation"),
+    (args) => handlers.aethis_cancel_generation(args),
   );
 
   server.tool(
@@ -1920,7 +1964,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_generate_and_test",
-    "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Takes 60-120 seconds.",
+    "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Usually takes 60-120 seconds; if polling times out, use aethis_generation_status before retrying, and aethis_cancel_generation only when the caller wants to stop the run.",
     {
       project_id: z.string().describe("The project ID"),
       ...llmKeyFields,

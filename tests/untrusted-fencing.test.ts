@@ -98,6 +98,8 @@ function taintedClient(overrides: Record<string, unknown> = {}): AethisClient {
     getRulebookGraph: vi.fn().mockResolvedValue({ rulebook_id: "rb_1", slug: "aethis/x", name: FT, graph: { nodes: [{ label: FT }] }, mermaid: FT }),
     listProjects: vi.fn().mockResolvedValue([{ project_id: "p1", name: FT, domain: FT }]),
     listRulesets: vi.fn().mockResolvedValue([{ ruleset_id: "b1", name: FT, description: FT }]),
+    getStatus: vi.fn().mockResolvedValue({ project_status: "generating", job: { job_id: "j1", status: "running", progress_detail: FT } }),
+    cancelGeneration: vi.fn().mockResolvedValue({ project_id: "p1", job: { job_id: "j1", status: "cancelled", error_message: FT } }),
     discoverRulesets: vi.fn().mockResolvedValue([{ slug: "s", ruleset_id: "b1", name: FT, description: FT }]),
     listRulebooks: vi.fn().mockResolvedValue([{ rulebook_id: "rb1", name: FT, description: FT, domain: FT }]),
     usage: vi.fn().mockResolvedValue({ classes: { decide: { used: 1, limit: 100, remaining: 99 } }, note: FT }),
@@ -156,6 +158,8 @@ const CASES: Record<string, (h: ToolHandlers) => Promise<unknown>> = {
   aethis_source: (h) => h.aethis_source({ ruleset_id: "b_1" }),
   aethis_list_projects: (h) => h.aethis_list_projects({}),
   aethis_list_rulesets: (h) => h.aethis_list_rulesets({ project_id: "p_1" }),
+  aethis_generation_status: (h) => h.aethis_generation_status({ project_id: "p_1" }),
+  aethis_cancel_generation: (h) => h.aethis_cancel_generation({ project_id: "p_1" }),
   aethis_list_rulebooks: (h) => h.aethis_list_rulebooks({}),
   aethis_usage: (h) => h.aethis_usage({}),
   aethis_rulebook_schema: (h) => h.aethis_rulebook_schema({ rulebook_id: "rb_1" }),
@@ -229,7 +233,7 @@ describe("untrusted-content serializer coverage (aethis-mcp#45)", () => {
         Object.fromEntries(
           [
             "getSchema", "decide", "decideRulebook", "explain", "explainFailure", "getSource",
-            "getRulesetGraph", "getRulebookGraph", "listProjects", "listRulesets", "discoverRulesets",
+            "getRulesetGraph", "getRulebookGraph", "listProjects", "listRulesets", "getStatus", "cancelGeneration", "discoverRulesets",
             "listRulebooks", "usage", "getRulebookSchema", "createRulebook", "updateRulebook",
             "archiveProject", "archiveRuleset", "createProject", "uploadSourceText", "addTests",
             "listGuidance", "addGuidance", "addDomainGuidance", "listDomainGuidance",

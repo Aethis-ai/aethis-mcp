@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.17.0 (2026-09-02)
+
+- **feat: generation status and cancellation.** Adds
+  `aethis_generation_status` to inspect a project's current or most recent
+  authoring job, and `aethis_cancel_generation` to abandon an active job and
+  release project ownership. Worker shutdown may be cooperative rather than
+  immediate. Status is read-only; cancellation is explicitly annotated as a
+  destructive API-key mutation, so MCP hosts can gate it for approval. Both
+  responses and diagnostics remain fenced as untrusted API data.
+- **safer authoring timeout guidance.** A timed-out
+  `aethis_generate_and_test` now tells agents to inspect status before retrying
+  and to cancel only when the caller asks to stop the run. This release requires
+  aethis-core's project status and generation-cancel endpoints to be live.
+
 ## 0.16.0 (2026-07-25)
 
 - **security: every tool's server-supplied free text is fenced as untrusted
