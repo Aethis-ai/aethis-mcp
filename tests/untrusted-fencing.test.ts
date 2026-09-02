@@ -98,7 +98,7 @@ function taintedClient(overrides: Record<string, unknown> = {}): AethisClient {
     getRulebookGraph: vi.fn().mockResolvedValue({ rulebook_id: "rb_1", slug: "aethis/x", name: FT, graph: { nodes: [{ label: FT }] }, mermaid: FT }),
     listProjects: vi.fn().mockResolvedValue([{ project_id: "p1", name: FT, domain: FT }]),
     listRulesets: vi.fn().mockResolvedValue([{ ruleset_id: "b1", name: FT, description: FT }]),
-    getStatus: vi.fn().mockResolvedValue({ project_status: "generating", job: { job_id: "j1", status: "running", progress_detail: FT } }),
+    getStatus: vi.fn().mockResolvedValue({ generation_contract_version: 1, project_status: "generating", job: { job_id: "j_1", status: "running", progress_detail: FT } }),
     cancelGeneration: vi.fn().mockResolvedValue({ project_id: "p1", job: { job_id: "j1", status: "cancelled", error_message: FT } }),
     discoverRulesets: vi.fn().mockResolvedValue([{ slug: "s", ruleset_id: "b1", name: FT, description: FT }]),
     listRulebooks: vi.fn().mockResolvedValue([{ rulebook_id: "rb1", name: FT, description: FT, domain: FT }]),

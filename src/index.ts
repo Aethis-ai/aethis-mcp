@@ -672,6 +672,19 @@ export function createToolHandlers(client: AethisClient) {
         return err("Cancellation refused: confirm_job_id must exactly match job_id after the operator confirms that target.");
       }
       try {
+        const status = await client.getStatus(args.project_id) as {
+          generation_contract_version?: unknown;
+          job?: { job_id?: unknown; status?: unknown } | null;
+        };
+        if (status.generation_contract_version !== 1) {
+          return err("Cancellation unavailable: the engine did not advertise generation_contract_version=1.");
+        }
+        if (
+          status.job?.job_id !== args.job_id
+          || (status.job.status !== "queued" && status.job.status !== "running")
+        ) {
+          return err("Cancellation refused: the observed job is no longer the project's active generation.");
+        }
         // This requests cancellation and releases job ownership. Preserve the
         // server response as fenced data because it carries the engine's
         // precise worker-stop semantics and may contain free-text detail.

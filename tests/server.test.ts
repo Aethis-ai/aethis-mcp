@@ -177,7 +177,11 @@ describe("generation job controls", () => {
 
   it("cancels a generation after auth and input validation", async () => {
     const cancelGeneration = vi.fn().mockResolvedValue({ job_id: "j_1", status: "cancelled" });
-    const result = await createToolHandlers(mockClient({ cancelGeneration })).aethis_cancel_generation({
+    const getStatus = vi.fn().mockResolvedValue({
+      generation_contract_version: 1,
+      job: { job_id: "j_1", status: "running" },
+    });
+    const result = await createToolHandlers(mockClient({ getStatus, cancelGeneration })).aethis_cancel_generation({
       project_id: "p_1",
       job_id: "j_1",
       confirm_job_id: "j_1",
@@ -194,6 +198,17 @@ describe("generation job controls", () => {
       confirm_job_id: "j_1",
     });
     expect(text(result)).toMatch(/AETHIS_API_KEY/i);
+    expect(cancelGeneration).not.toHaveBeenCalled();
+  });
+
+  it("refuses cancellation when the engine lacks the recovery contract", async () => {
+    const cancelGeneration = vi.fn();
+    const result = await createToolHandlers(mockClient({ cancelGeneration })).aethis_cancel_generation({
+      project_id: "p_1",
+      job_id: "j_1",
+      confirm_job_id: "j_1",
+    });
+    expect(text(result)).toMatch(/generation_contract_version=1/);
     expect(cancelGeneration).not.toHaveBeenCalled();
   });
 
