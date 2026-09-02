@@ -406,8 +406,12 @@ export class AethisClient {
    * The request never carries an LLM key, so a caller's provider credential is
    * not persisted or replayed.
    */
-  async cancelGeneration(projectId: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate/cancel`);
+  async cancelGeneration(projectId: string, jobId: string): Promise<unknown> {
+    const query = new URLSearchParams({ job_id: jobId });
+    return this.request(
+      "POST",
+      `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate/cancel?${query.toString()}`,
+    );
   }
 
   async generate(projectId: string, llmKey?: string, mode?: "fresh" | "refine"): Promise<unknown> {

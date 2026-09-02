@@ -4,7 +4,8 @@
 
 - **feat: generation status and cancellation.** Adds
   `aethis_generation_status` to inspect a project's current or most recent
-  authoring job, and `aethis_cancel_generation` to abandon an active job and
+  authoring job, and `aethis_cancel_generation` to abandon an explicitly
+  confirmed observed job (project id plus matching job/confirmation ids) and
   release project ownership. Worker shutdown may be cooperative rather than
   immediate. Status is read-only; cancellation is explicitly annotated as a
   destructive API-key mutation, so MCP hosts can gate it for approval. Both

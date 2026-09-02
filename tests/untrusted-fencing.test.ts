@@ -159,7 +159,11 @@ const CASES: Record<string, (h: ToolHandlers) => Promise<unknown>> = {
   aethis_list_projects: (h) => h.aethis_list_projects({}),
   aethis_list_rulesets: (h) => h.aethis_list_rulesets({ project_id: "p_1" }),
   aethis_generation_status: (h) => h.aethis_generation_status({ project_id: "p_1" }),
-  aethis_cancel_generation: (h) => h.aethis_cancel_generation({ project_id: "p_1" }),
+  aethis_cancel_generation: (h) => h.aethis_cancel_generation({
+    project_id: "p_1",
+    job_id: "j_1",
+    confirm_job_id: "j_1",
+  }),
   aethis_list_rulebooks: (h) => h.aethis_list_rulebooks({}),
   aethis_usage: (h) => h.aethis_usage({}),
   aethis_rulebook_schema: (h) => h.aethis_rulebook_schema({ rulebook_id: "rb_1" }),

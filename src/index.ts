@@ -657,16 +657,25 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_cancel_generation(args: { project_id: string }): Promise<ToolResult> {
+    async aethis_cancel_generation(args: {
+      project_id: string;
+      job_id: string;
+      confirm_job_id: string;
+    }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
+      const jobIdErr = validateId(args.job_id, "job_id");
+      if (jobIdErr) return err(jobIdErr);
+      if (args.confirm_job_id !== args.job_id) {
+        return err("Cancellation refused: confirm_job_id must exactly match job_id after the operator confirms that target.");
+      }
       try {
         // This requests cancellation and releases job ownership. Preserve the
         // server response as fenced data because it carries the engine's
         // precise worker-stop semantics and may contain free-text detail.
-        return okData(await client.cancelGeneration(args.project_id));
+        return okData(await client.cancelGeneration(args.project_id, args.job_id));
       } catch (e) { return apiError(e); }
     },
 
@@ -1676,8 +1685,12 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_cancel_generation",
-    "Request cancellation of the active generation job and release its project ownership. Cancellation may be cooperative rather than immediate, so inspect the returned worker-stop detail; check status first with aethis_generation_status. It is a destructive mutation and requires an API key.",
-    { project_id: z.string().describe("The project ID whose active generation job should be cancelled") },
+    "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status, show the exact job_id to the operator, and obtain fresh confirmation; then repeat that id in confirm_job_id. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
+    {
+      project_id: z.string().describe("The project ID containing the observed generation job"),
+      job_id: z.string().describe("The exact job ID returned by aethis_generation_status"),
+      confirm_job_id: z.string().describe("Repeat job_id only after the operator explicitly confirms cancelling that exact job"),
+    },
     toolAnnotations("aethis_cancel_generation"),
     (args) => handlers.aethis_cancel_generation(args),
   );

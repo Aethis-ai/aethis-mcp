@@ -177,15 +177,34 @@ describe("generation job controls", () => {
 
   it("cancels a generation after auth and input validation", async () => {
     const cancelGeneration = vi.fn().mockResolvedValue({ job_id: "j_1", status: "cancelled" });
-    const result = await createToolHandlers(mockClient({ cancelGeneration })).aethis_cancel_generation({ project_id: "p_1" });
-    expect(cancelGeneration).toHaveBeenCalledWith("p_1");
+    const result = await createToolHandlers(mockClient({ cancelGeneration })).aethis_cancel_generation({
+      project_id: "p_1",
+      job_id: "j_1",
+      confirm_job_id: "j_1",
+    });
+    expect(cancelGeneration).toHaveBeenCalledWith("p_1", "j_1");
     expect(parseData(result)).toEqual({ job_id: "j_1", status: "cancelled" });
   });
 
   it("does not attempt cancellation without an API key", async () => {
     const cancelGeneration = vi.fn();
-    const result = await createToolHandlers(mockClient({ hasApiKey: false, cancelGeneration })).aethis_cancel_generation({ project_id: "p_1" });
+    const result = await createToolHandlers(mockClient({ hasApiKey: false, cancelGeneration })).aethis_cancel_generation({
+      project_id: "p_1",
+      job_id: "j_1",
+      confirm_job_id: "j_1",
+    });
     expect(text(result)).toMatch(/AETHIS_API_KEY/i);
+    expect(cancelGeneration).not.toHaveBeenCalled();
+  });
+
+  it("refuses cancellation when the confirmed job does not match", async () => {
+    const cancelGeneration = vi.fn();
+    const result = await createToolHandlers(mockClient({ cancelGeneration })).aethis_cancel_generation({
+      project_id: "p_1",
+      job_id: "j_1",
+      confirm_job_id: "j_old",
+    });
+    expect(text(result)).toMatch(/confirm_job_id must exactly match job_id/);
     expect(cancelGeneration).not.toHaveBeenCalled();
   });
 });

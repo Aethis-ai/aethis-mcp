@@ -162,8 +162,14 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
   },
 
   aethis_cancel_generation: {
+    mcpOnly: ["confirm_job_id"],
     endpoints: [
-      { method: "POST", path: `${PUB}/projects/{project_id}/generate/cancel`, pathParams: { project_id: "project_id" } },
+      {
+        method: "POST",
+        path: `${PUB}/projects/{project_id}/generate/cancel`,
+        pathParams: { project_id: "project_id" },
+        query: { job_id: "job_id" },
+      },
     ],
   },
 
