@@ -4,11 +4,13 @@
 
 - **feat: generation status and cancellation.** Adds
   `aethis_generation_status` to inspect a project's current or most recent
-  authoring job, and `aethis_cancel_generation` to abandon an explicitly
-  confirmed observed job (project id plus matching job/confirmation ids) and
+  authoring job, and `aethis_cancel_generation` to abandon a target-bound
+  observed job (project id plus matching job/confirmation ids) and
   release project ownership. Worker shutdown may be cooperative rather than
   immediate. Status is read-only; cancellation is explicitly annotated as a
-  destructive API-key mutation, so MCP hosts can gate it for approval. Both
+  destructive API-key mutation, so MCP hosts can gate it for approval. Matching
+  ids prevent retargeting but do not prove human consent; agents must obtain a
+  fresh explicit reply before calling. Both
   responses and diagnostics remain fenced as untrusted API data. Status carries
   telemetry availability, server-authoritative worker lifecycle, and retry
   readiness; cancellation preserves the idempotent `cancelled` /

@@ -73,7 +73,7 @@
     {
       "name": "aethis_cancel_generation",
       "title": "Cancel generation",
-      "description": "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status, show the exact job_id to the operator, and obtain fresh confirmation; then repeat that id in confirm_job_id. The response outcome is cancelled or idempotent already_cancelled. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
+      "description": "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status and bind the exact job_id; confirm_job_id protects against accidental target mismatch but does not itself prove human approval. MCP hosts should require destructive-action approval, and agents must obtain a fresh explicit user reply before calling. The response outcome is cancelled or idempotent already_cancelled. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
       "input_fields": [
         "confirm_job_id",
         "job_id",

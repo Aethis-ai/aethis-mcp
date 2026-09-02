@@ -674,16 +674,25 @@ export function createToolHandlers(client: AethisClient) {
       try {
         const status = await client.getStatus(args.project_id) as {
           generation_contract_version?: unknown;
-          job?: { job_id?: unknown; status?: unknown } | null;
+          job?: { job_id?: unknown; status?: unknown; error_detail?: unknown } | null;
         };
         if (status.generation_contract_version !== 1) {
           return err("Cancellation unavailable: the engine did not advertise generation_contract_version=1.");
         }
-        if (
-          status.job?.job_id !== args.job_id
-          || (status.job.status !== "queued" && status.job.status !== "running")
-        ) {
-          return err("Cancellation refused: the observed job is no longer the project's active generation.");
+        const detail = status.job?.error_detail;
+        const alreadyCancelled = (
+          status.job?.status === "failed"
+          && typeof detail === "object"
+          && detail !== null
+          && "reason_code" in detail
+          && detail.reason_code === "generation_cancelled"
+        );
+        if (status.job?.job_id !== args.job_id || (
+          status.job.status !== "queued"
+          && status.job.status !== "running"
+          && !alreadyCancelled
+        )) {
+          return err("Cancellation refused: the exact job is neither active nor an already-cancelled replay target.");
         }
         // This requests cancellation and releases job ownership. Preserve the
         // server response as fenced data because it carries the engine's
@@ -1698,11 +1707,11 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_cancel_generation",
-    "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status, show the exact job_id to the operator, and obtain fresh confirmation; then repeat that id in confirm_job_id. The response outcome is cancelled or idempotent already_cancelled. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
+    "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status and bind the exact job_id; confirm_job_id protects against accidental target mismatch but does not itself prove human approval. MCP hosts should require destructive-action approval, and agents must obtain a fresh explicit user reply before calling. The response outcome is cancelled or idempotent already_cancelled. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
     {
       project_id: z.string().describe("The project ID containing the observed generation job"),
       job_id: z.string().describe("The exact job ID returned by aethis_generation_status"),
-      confirm_job_id: z.string().describe("Repeat job_id only after the operator explicitly confirms cancelling that exact job"),
+      confirm_job_id: z.string().describe("Repeat job_id to bind the cancellation target; host/user approval is a separate requirement"),
     },
     toolAnnotations("aethis_cancel_generation"),
     (args) => handlers.aethis_cancel_generation(args),

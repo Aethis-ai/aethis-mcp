@@ -210,6 +210,32 @@ describe("generation job controls", () => {
     });
   });
 
+  it("replays an exact already-cancelled job after an ambiguous response", async () => {
+    const cancelGeneration = vi.fn().mockResolvedValue({
+      job_id: "j_1",
+      status: "failed",
+      outcome: "already_cancelled",
+      project_released: true,
+      detail: "The exact job was already cancelled.",
+    });
+    const getStatus = vi.fn().mockResolvedValue({
+      generation_contract_version: 1,
+      job: {
+        job_id: "j_1",
+        status: "failed",
+        error_detail: { reason_code: "generation_cancelled" },
+      },
+    });
+    const result = await createToolHandlers(mockClient({ getStatus, cancelGeneration })).aethis_cancel_generation({
+      project_id: "p_1",
+      job_id: "j_1",
+      confirm_job_id: "j_1",
+    });
+
+    expect(cancelGeneration).toHaveBeenCalledWith("p_1", "j_1");
+    expect(parseData(result)).toMatchObject({ outcome: "already_cancelled" });
+  });
+
   it("does not attempt cancellation without an API key", async () => {
     const cancelGeneration = vi.fn();
     const result = await createToolHandlers(mockClient({ hasApiKey: false, cancelGeneration })).aethis_cancel_generation({
