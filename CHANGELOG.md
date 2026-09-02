@@ -9,7 +9,10 @@
   release project ownership. Worker shutdown may be cooperative rather than
   immediate. Status is read-only; cancellation is explicitly annotated as a
   destructive API-key mutation, so MCP hosts can gate it for approval. Both
-  responses and diagnostics remain fenced as untrusted API data.
+  responses and diagnostics remain fenced as untrusted API data. Status carries
+  telemetry availability, server-authoritative worker lifecycle, and retry
+  readiness; cancellation preserves the idempotent `cancelled` /
+  `already_cancelled` outcome.
 - **safer authoring timeout guidance.** A timed-out
   `aethis_generate_and_test` now tells agents to inspect status before retrying
   and to cancel only when the caller asks to stop the run. This release requires

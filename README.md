@@ -244,12 +244,15 @@ aethis_publish({ project_id })                   // refuses if tests fail; retur
 ```
 
 If generation polling times out, call `aethis_generation_status({ project_id })`
-before retrying: the existing job may still be running. Call
+before retrying: use its `telemetry_availability`, server-authoritative
+`worker_lifecycle`, and `retry_readiness`, and retry only when readiness is
+`ready`. An old heartbeat alone is not proof that the worker died. Call
 `aethis_cancel_generation({ project_id, job_id, confirm_job_id })` only after
 showing the observed `job_id` and receiving explicit confirmation to abandon
 that active run. It releases the project's job ownership, but worker shutdown
 may be cooperative rather than immediate; inspect the returned detail. It is a
-destructive, API-key-protected mutation.
+destructive, API-key-protected mutation. The response distinguishes a new
+`cancelled` transition from the idempotent `already_cancelled` result.
 
 ### Guidance
 

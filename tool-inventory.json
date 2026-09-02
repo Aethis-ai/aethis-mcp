@@ -73,7 +73,7 @@
     {
       "name": "aethis_cancel_generation",
       "title": "Cancel generation",
-      "description": "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status, show the exact job_id to the operator, and obtain fresh confirmation; then repeat that id in confirm_job_id. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
+      "description": "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status, show the exact job_id to the operator, and obtain fresh confirmation; then repeat that id in confirm_job_id. The response outcome is cancelled or idempotent already_cancelled. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
       "input_fields": [
         "confirm_job_id",
         "job_id",
@@ -83,7 +83,7 @@
         "title": "Cancel generation",
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": false,
+        "idempotentHint": true,
         "openWorldHint": true
       }
     },
@@ -255,7 +255,7 @@
     {
       "name": "aethis_generation_status",
       "title": "Get generation status",
-      "description": "Check the current generation job for a project without changing it. Returns the project lifecycle state plus the active or most recent job's status, progress, timestamps, and safe failure diagnostics. Use this after a generation timeout or before retrying, so a still-running job is never duplicated. Tenant-scoped — requires an API key.",
+      "description": "Check the current generation job for a project without changing it. Returns generation_contract_version, telemetry_availability, server-authoritative worker_lifecycle, retry_readiness, and the active or most recent job's progress and safe failure diagnostics. Retry only when retry_readiness is ready; an old heartbeat alone does not prove worker death. Tenant-scoped — requires an API key.",
       "input_fields": [
         "project_id"
       ],

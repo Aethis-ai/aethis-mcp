@@ -164,19 +164,33 @@ describe("createToolHandlers", () => {
 describe("generation job controls", () => {
   it("returns fenced generation status data", async () => {
     const getStatus = vi.fn().mockResolvedValue({
+      generation_contract_version: 1,
+      telemetry_availability: "current",
+      retry_readiness: "blocked",
+      worker_lifecycle: "active",
       project_status: "generating",
       job: { job_id: "j_1", status: "running", progress_detail: "Compiling source" },
     });
     const result = await createToolHandlers(mockClient({ getStatus })).aethis_generation_status({ project_id: "p_1" });
     expect(getStatus).toHaveBeenCalledWith("p_1");
     expect(parseData(result)).toEqual({
+      generation_contract_version: 1,
+      telemetry_availability: "current",
+      retry_readiness: "blocked",
+      worker_lifecycle: "active",
       project_status: "generating",
       job: { job_id: "j_1", status: "running", progress_detail: "Compiling source" },
     });
   });
 
   it("cancels a generation after auth and input validation", async () => {
-    const cancelGeneration = vi.fn().mockResolvedValue({ job_id: "j_1", status: "cancelled" });
+    const cancelGeneration = vi.fn().mockResolvedValue({
+      job_id: "j_1",
+      status: "failed",
+      outcome: "already_cancelled",
+      project_released: true,
+      detail: "The exact job was already cancelled.",
+    });
     const getStatus = vi.fn().mockResolvedValue({
       generation_contract_version: 1,
       job: { job_id: "j_1", status: "running" },
@@ -187,7 +201,13 @@ describe("generation job controls", () => {
       confirm_job_id: "j_1",
     });
     expect(cancelGeneration).toHaveBeenCalledWith("p_1", "j_1");
-    expect(parseData(result)).toEqual({ job_id: "j_1", status: "cancelled" });
+    expect(parseData(result)).toEqual({
+      job_id: "j_1",
+      status: "failed",
+      outcome: "already_cancelled",
+      project_released: true,
+      detail: "The exact job was already cancelled.",
+    });
   });
 
   it("does not attempt cancellation without an API key", async () => {

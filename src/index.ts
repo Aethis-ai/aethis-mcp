@@ -1576,7 +1576,7 @@ export const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
   aethis_generate_and_test: { auth: "api_key", mutating: true, title: "Generate and test rules" },
   aethis_refine: { auth: "api_key", mutating: true, title: "Refine ruleset" },
   aethis_publish: { auth: "api_key", mutating: true, title: "Publish ruleset" },
-  aethis_cancel_generation: { auth: "api_key", mutating: true, destructive: true, title: "Cancel generation" },
+  aethis_cancel_generation: { auth: "api_key", mutating: true, destructive: true, idempotent: true, title: "Cancel generation" },
 
   // -- API key, mutating + destructive --
   aethis_archive_project: { auth: "api_key", mutating: true, destructive: true, idempotent: true, title: "Archive project" },
@@ -1690,7 +1690,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_generation_status",
-    "Check the current generation job for a project without changing it. Returns the project lifecycle state plus the active or most recent job's status, progress, timestamps, and safe failure diagnostics. Use this after a generation timeout or before retrying, so a still-running job is never duplicated. Tenant-scoped — requires an API key.",
+    "Check the current generation job for a project without changing it. Returns generation_contract_version, telemetry_availability, server-authoritative worker_lifecycle, retry_readiness, and the active or most recent job's progress and safe failure diagnostics. Retry only when retry_readiness is ready; an old heartbeat alone does not prove worker death. Tenant-scoped — requires an API key.",
     { project_id: z.string().describe("The project ID whose generation status to inspect") },
     toolAnnotations("aethis_generation_status"),
     (args) => handlers.aethis_generation_status(args),
@@ -1698,7 +1698,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_cancel_generation",
-    "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status, show the exact job_id to the operator, and obtain fresh confirmation; then repeat that id in confirm_job_id. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
+    "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status, show the exact job_id to the operator, and obtain fresh confirmation; then repeat that id in confirm_job_id. The response outcome is cancelled or idempotent already_cancelled. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
     {
       project_id: z.string().describe("The project ID containing the observed generation job"),
       job_id: z.string().describe("The exact job ID returned by aethis_generation_status"),
