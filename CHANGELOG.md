@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.2 (2026-09-03)
+
+- **release: satisfy the official MCP Registry metadata contract.** Shortens
+  the Registry-facing server description to its 100-character limit and adds a
+  deterministic test for that constraint. `aethis-mcp@0.17.1` was published
+  successfully to npm, but the Registry rejected its overlong description
+  during metadata validation, so it was not a complete dual-registry release.
+
 ## 0.17.1 (2026-09-03)
 
 - **release: publish the immutable candidate as a local tarball.** The npm
