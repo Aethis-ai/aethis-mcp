@@ -34,4 +34,11 @@ describe("server.json / package.json parity", () => {
     expect(npmPkg?.identifier).toBe(pkg.name);
     expect(npmPkg?.version).toBe(pkg.version);
   });
+
+  it("keeps the public description within the MCP Registry limit", () => {
+    const server = readJson("server.json");
+    expect(typeof server.description).toBe("string");
+    expect((server.description as string).length).toBeGreaterThan(0);
+    expect((server.description as string).length).toBeLessThanOrEqual(100);
+  });
 });
