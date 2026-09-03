@@ -93,8 +93,8 @@ function classifiedFields(entry: ToolMapEntry): Set<string> {
 }
 
 describe("drift: structural map integrity (offline)", () => {
-  it("registers exactly 32 tools", () => {
-    expect(Object.keys(REGISTERED).length).toBe(32);
+  it("registers exactly 34 tools", () => {
+    expect(Object.keys(REGISTERED).length).toBe(34);
   });
 
   it("every registered tool has a map entry, and every map entry is a real tool", () => {

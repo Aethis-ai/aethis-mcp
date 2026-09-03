@@ -400,6 +400,20 @@ export class AethisClient {
     return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}/status`);
   }
 
+  /**
+   * Request cancellation of the active generation job for a project.
+   *
+   * The request never carries an LLM key, so a caller's provider credential is
+   * not persisted or replayed.
+   */
+  async cancelGeneration(projectId: string, jobId: string): Promise<unknown> {
+    const query = new URLSearchParams({ job_id: jobId });
+    return this.request(
+      "POST",
+      `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate/cancel?${query.toString()}`,
+    );
+  }
+
   async generate(projectId: string, llmKey?: string, mode?: "fresh" | "refine"): Promise<unknown> {
     // mode="refine" seeds generation from the section's active ruleset and asks
     // for the minimal edit to fix failing tests (finding-driven incremental
@@ -613,7 +627,11 @@ export class AethisClient {
     }
 
     if (!rulesetId) {
-      throw new AethisAPIError(504, `Generation timed out after ${this.pollTimeoutMs / 1000}s. The generation may still be running server-side. Retry after a delay.`);
+      throw new AethisAPIError(
+        504,
+        `Generation timed out after ${this.pollTimeoutMs / 1000}s. The job may still be running server-side. ` +
+          "Check aethis_generation_status before retrying; cancel it with aethis_cancel_generation only if the caller wants to stop it.",
+      );
     }
 
     // 3. Run tests

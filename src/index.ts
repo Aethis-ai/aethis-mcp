@@ -644,6 +644,63 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_generation_status(args: { project_id: string }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      try {
+        // The status envelope contains project and job diagnostics, including
+        // server-provided progress and failure detail. Keep the entire payload
+        // inside the shared JSON fence rather than interpolating any leaf.
+        return okData(await client.getStatus(args.project_id));
+      } catch (e) { return apiError(e); }
+    },
+
+    async aethis_cancel_generation(args: {
+      project_id: string;
+      job_id: string;
+      confirm_job_id: string;
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      const jobIdErr = validateId(args.job_id, "job_id");
+      if (jobIdErr) return err(jobIdErr);
+      if (args.confirm_job_id !== args.job_id) {
+        return err("Cancellation refused: confirm_job_id must exactly match job_id after the operator confirms that target.");
+      }
+      try {
+        const status = await client.getStatus(args.project_id) as {
+          generation_contract_version?: unknown;
+          job?: { job_id?: unknown; status?: unknown; error_detail?: unknown } | null;
+        };
+        if (status.generation_contract_version !== 1) {
+          return err("Cancellation unavailable: the engine did not advertise generation_contract_version=1.");
+        }
+        const detail = status.job?.error_detail;
+        const alreadyCancelled = (
+          status.job?.status === "failed"
+          && typeof detail === "object"
+          && detail !== null
+          && "reason_code" in detail
+          && detail.reason_code === "generation_cancelled"
+        );
+        if (status.job?.job_id !== args.job_id || (
+          status.job.status !== "queued"
+          && status.job.status !== "running"
+          && !alreadyCancelled
+        )) {
+          return err("Cancellation refused: the exact job is neither active nor an already-cancelled replay target.");
+        }
+        // This requests cancellation and releases job ownership. Preserve the
+        // server response as fenced data because it carries the engine's
+        // precise worker-stop semantics and may contain free-text detail.
+        return okData(await client.cancelGeneration(args.project_id, args.job_id));
+      } catch (e) { return apiError(e); }
+    },
+
     async aethis_discover_rulesets(args: { limit?: number; offset?: number }): Promise<ToolResult> {
       // No auth guard — this is the cross-tenant public catalogue. Same
       // anonymous policy as aethis_decide / aethis_schema / aethis_explain.
@@ -1503,6 +1560,7 @@ export const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
   // -- API key, read-only --
   aethis_list_projects: { auth: "api_key", mutating: false, title: "List projects" },
   aethis_list_rulesets: { auth: "api_key", mutating: false, title: "List rulesets" },
+  aethis_generation_status: { auth: "api_key", mutating: false, title: "Get generation status" },
   aethis_list_rulebooks: { auth: "api_key", mutating: false, title: "List rulebooks" },
   aethis_usage: { auth: "api_key", mutating: false, title: "Show rate-limit usage" },
   aethis_rulebook_schema: { auth: "api_key", mutating: false, title: "Get rulebook composition" },
@@ -1527,6 +1585,7 @@ export const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
   aethis_generate_and_test: { auth: "api_key", mutating: true, title: "Generate and test rules" },
   aethis_refine: { auth: "api_key", mutating: true, title: "Refine ruleset" },
   aethis_publish: { auth: "api_key", mutating: true, title: "Publish ruleset" },
+  aethis_cancel_generation: { auth: "api_key", mutating: true, destructive: true, idempotent: true, title: "Cancel generation" },
 
   // -- API key, mutating + destructive --
   aethis_archive_project: { auth: "api_key", mutating: true, destructive: true, idempotent: true, title: "Archive project" },
@@ -1636,6 +1695,26 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     { project_id: z.string().describe("The project ID") },
     toolAnnotations("aethis_list_rulesets"),
     (args) => handlers.aethis_list_rulesets(args),
+  );
+
+  server.tool(
+    "aethis_generation_status",
+    "Check the current generation job for a project without changing it. Returns generation_contract_version, telemetry_availability, server-authoritative worker_lifecycle, retry_readiness, and the active or most recent job's progress and safe failure diagnostics. Retry only when retry_readiness is ready; an old heartbeat alone does not prove worker death. Tenant-scoped — requires an API key.",
+    { project_id: z.string().describe("The project ID whose generation status to inspect") },
+    toolAnnotations("aethis_generation_status"),
+    (args) => handlers.aethis_generation_status(args),
+  );
+
+  server.tool(
+    "aethis_cancel_generation",
+    "Request cancellation of one observed generation job and release only its project ownership. First call aethis_generation_status and bind the exact job_id; confirm_job_id protects against accidental target mismatch but does not itself prove human approval. MCP hosts should require destructive-action approval, and agents must obtain a fresh explicit user reply before calling. The response outcome is cancelled or idempotent already_cancelled. Cancellation may be cooperative rather than immediate. It is a destructive mutation and requires an API key.",
+    {
+      project_id: z.string().describe("The project ID containing the observed generation job"),
+      job_id: z.string().describe("The exact job ID returned by aethis_generation_status"),
+      confirm_job_id: z.string().describe("Repeat job_id to bind the cancellation target; host/user approval is a separate requirement"),
+    },
+    toolAnnotations("aethis_cancel_generation"),
+    (args) => handlers.aethis_cancel_generation(args),
   );
 
   server.tool(
@@ -1920,7 +1999,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_generate_and_test",
-    "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Takes 60-120 seconds.",
+    "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Usually takes 60-120 seconds; if polling times out, use aethis_generation_status before retrying, and aethis_cancel_generation only when the caller wants to stop the run.",
     {
       project_id: z.string().describe("The project ID"),
       ...llmKeyFields,

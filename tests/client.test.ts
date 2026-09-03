@@ -321,6 +321,13 @@ describe("AethisClient API methods", () => {
     expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/status");
   });
 
+  it("cancelGeneration() posts to /api/v1/public/projects/:id/generate/cancel", async () => {
+    await client.cancelGeneration("p_1", "j_1");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/generate/cancel?job_id=j_1");
+    expect(init.method).toBe("POST");
+  });
+
   it("generate() posts to /api/v1/public/projects/:id/generate", async () => {
     await client.generate("p_1");
     const [url, init] = fetchSpy.mock.calls[0];

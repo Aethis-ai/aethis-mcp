@@ -22,7 +22,7 @@ describe("tool-inventory.json drift", () => {
   it("lists exactly the registered tools with annotations", () => {
     const inv = buildToolInventory();
     expect(inv.tool_count).toBe(inv.tools.length);
-    expect(inv.tool_count).toBe(32);
+    expect(inv.tool_count).toBe(34);
     for (const t of inv.tools) {
       expect(t.name).toMatch(/^aethis_/);
       expect(typeof t.title).toBe("string");
