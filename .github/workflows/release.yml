@@ -21,7 +21,7 @@
 #   2. Configure npm Trusted Publishing for `aethis-mcp` pointing at this
 #      workflow (repo Aethis-ai/aethis-mcp, workflow release.yml) — no npm token
 #      is stored anywhere.
-#   3. Ensure the GitHub org/user namespace `io.github.aethis-ai` is claimed in
+#   3. Ensure the GitHub org/user namespace `io.github.Aethis-ai` is claimed in
 #      the MCP Registry (GitHub OIDC auth covers this repo's namespace).
 ####################################################################################
 
@@ -167,7 +167,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 3. Publish to the official MCP Registry — SEPARATE protected environment,
-  #    GitHub OIDC (namespace io.github.aethis-ai), no static token. server.json
+  #    GitHub OIDC (namespace io.github.Aethis-ai), no static token. server.json
   #    is the record; its version must equal the just-published npm version.
   # ---------------------------------------------------------------------------
   publish-registry:
@@ -240,7 +240,7 @@ jobs:
       - name: Official MCP Registry lists the exact name + version
         run: |
           set -euo pipefail
-          NAME="io.github.aethis-ai/aethis-mcp"
+          NAME="io.github.Aethis-ai/aethis-mcp"
           V="${{ needs.build-artefact.outputs.version }}"
           FOUND=""
           for attempt in $(seq 1 12); do

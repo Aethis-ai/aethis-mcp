@@ -13,6 +13,7 @@ import { describe, it, expect } from "vitest";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const script = fileURLToPath(new URL("../scripts/sync-server-json.mjs", import.meta.url));
+const canonicalMcpName = "io.github.Aethis-ai/aethis-mcp";
 
 function readJson(rel: string): Record<string, unknown> {
   return JSON.parse(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"));
@@ -33,6 +34,19 @@ describe("server.json / package.json parity", () => {
     const npmPkg = (server.packages as Array<Record<string, unknown>>).find((p) => p.registryType === "npm");
     expect(npmPkg?.identifier).toBe(pkg.name);
     expect(npmPkg?.version).toBe(pkg.version);
+  });
+
+  it("all release surfaces use the case-sensitive GitHub OIDC namespace", () => {
+    const pkg = readJson("package.json");
+    const server = readJson("server.json");
+    const inventory = readJson("tool-inventory.json");
+    const workflow = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+
+    expect(pkg.mcpName).toBe(canonicalMcpName);
+    expect(server.name).toBe(canonicalMcpName);
+    expect(inventory.server_name).toBe(canonicalMcpName);
+    expect(workflow).toContain(`NAME="${canonicalMcpName}"`);
+    expect(workflow).not.toContain("io.github.aethis-ai/aethis-mcp");
   });
 
   it("keeps the public description within the MCP Registry limit", () => {

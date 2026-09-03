@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.aethis-ai/aethis-mcp",
+  "name": "io.github.Aethis-ai/aethis-mcp",
   "description": "Deterministic eligibility decisions and test-driven rule authoring via the Aethis developer API.",
   "repository": {
     "url": "https://github.com/Aethis-ai/aethis-mcp",
     "source": "github"
   },
   "websiteUrl": "https://docs.aethis.ai",
-  "version": "0.17.2",
+  "version": "0.17.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "aethis-mcp",
-      "version": "0.17.2",
+      "version": "0.17.3",
       "transport": {
         "type": "stdio"
       },

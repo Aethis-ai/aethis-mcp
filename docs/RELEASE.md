@@ -10,7 +10,7 @@ approved** — the pipeline builds and verifies; a human approves each publish.
 | Where | Field | Source of truth |
 |---|---|---|
 | `package.json` | `version` | **the** version source of truth |
-| `package.json` | `name` = `aethis-mcp`, `mcpName` = `io.github.aethis-ai/aethis-mcp` | identity |
+| `package.json` | `name` = `aethis-mcp`, `mcpName` = `io.github.Aethis-ai/aethis-mcp` | identity |
 | `server.json` | `version`, `packages[].version` | derived from `package.json` |
 | `server.json` | `name`, `packages[].identifier` | derived from `package.json` |
 | `tool-inventory.json` | tool surface | generated from the server |
@@ -41,7 +41,8 @@ npm run check:inventory      # CI: fail on drift
    npm Trusted Publishing (OIDC). No `NODE_AUTH_TOKEN`.
 3. **publish-registry** — separate protected environment `registry-publish`.
    Publishes `server.json` with `mcp-publisher` (pinned + sha256-verified) using
-   GitHub OIDC for the `io.github.aethis-ai` namespace. No static token.
+   GitHub OIDC for the case-sensitive `io.github.Aethis-ai` namespace. No static
+   token.
 4. **verify-publication** — queries npm and the official Registry for the exact
    name + version/integrity; a release **cannot** report success if either
    discovery fails.
@@ -61,8 +62,10 @@ can never publish.
    protection; the reviewer rule is the gate.)
 2. **npm Trusted Publishing** — configure `aethis-mcp` on npm to trust this
    repo's `release.yml` workflow. No npm token is stored anywhere.
-3. **MCP Registry namespace** — ensure `io.github.aethis-ai` is claimed for this
-   GitHub org/user (GitHub OIDC covers this repo's namespace).
+3. **MCP Registry namespace** — use the exact case-sensitive namespace
+   `io.github.Aethis-ai` for this GitHub org/user (GitHub OIDC covers this repo's
+   namespace). Do not lowercase the organization name: Registry authorization
+   compares this identity exactly.
 
 ## Cutting a release
 
@@ -110,5 +113,5 @@ curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=aethis"
 
 — returned **no Aethis result**. `verify-publication` exists precisely so
 "submitted" can never again stand in for "discoverable": a release is verified
-only when the Registry actually lists the exact `io.github.aethis-ai/aethis-mcp`
+only when the Registry actually lists the exact `io.github.Aethis-ai/aethis-mcp`
 version.

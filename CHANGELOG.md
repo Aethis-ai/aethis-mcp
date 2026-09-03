@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.17.3 (2026-09-03)
+
+- **release: bind the Registry identity to the case-sensitive GitHub OIDC
+  namespace.** Corrects every current MCP release surface from
+  `io.github.aethis-ai/aethis-mcp` to `io.github.Aethis-ai/aethis-mcp`, the
+  namespace the Registry grants to this repository. A deterministic test now
+  pins `package.json`, `server.json`, the generated tool inventory, and release
+  verification to that canonical identity. `aethis-mcp@0.17.2` reached npm but
+  the Registry rejected its lowercase namespace, so it was not a complete
+  dual-registry release.
+
 ## 0.17.2 (2026-09-03)
 
 - **release: satisfy the official MCP Registry metadata contract.** Shortens
