@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.1 (2026-09-03)
+
+- **release: publish the immutable candidate as a local tarball.** The npm
+  publish step now prefixes the downloaded `release-artefacts/...` tarball with
+  `./`, so npm resolves it as a filesystem package rather than a registry
+  package spec. The `v0.17.0` workflow failed before publication; no
+  `aethis-mcp@0.17.0` package was published.
+
 ## 0.17.0 (2026-09-02)
 
 - **feat: generation status and cancellation.** Adds

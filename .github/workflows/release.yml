@@ -163,7 +163,7 @@ jobs:
       # No --provenance: sigstore attestations require a public source repo.
       # Enable once the repo is public AND trusted publishing is configured.
       - name: Publish the exact tarball to npm (Trusted Publishing via OIDC)
-        run: npm publish "release-artefacts/${{ needs.build-artefact.outputs.tarball }}" --access public
+        run: npm publish "./release-artefacts/${{ needs.build-artefact.outputs.tarball }}" --access public
 
   # ---------------------------------------------------------------------------
   # 3. Publish to the official MCP Registry — SEPARATE protected environment,
