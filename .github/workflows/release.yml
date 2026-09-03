@@ -216,6 +216,7 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: '22'
@@ -245,15 +246,7 @@ jobs:
           FOUND=""
           for attempt in $(seq 1 12); do
             RESP="$(curl -fsS --max-time 20 "https://registry.modelcontextprotocol.io/v0/servers?search=aethis" || true)"
-            FOUND="$(printf '%s' "$RESP" | node -e '
-              let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
-                try {
-                  const j=JSON.parse(s);
-                  const hit=(j.servers||[]).find(x=>x.name===process.argv[1] && x.version===process.argv[2]);
-                  process.stdout.write(hit ? "yes" : "");
-                } catch { process.stdout.write(""); }
-              });
-            ' "$NAME" "$V")"
+            FOUND="$(printf '%s' "$RESP" | node scripts/find-registry-release.mjs "$NAME" "$V")"
             [[ "$FOUND" == "yes" ]] && break
             echo "registry not yet showing $NAME@$V (attempt $attempt/12)"; sleep 10
           done

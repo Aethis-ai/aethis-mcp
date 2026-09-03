@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.4 (2026-09-03)
+
+- **release: verify the Registry's real response envelope.** The official
+  Registry successfully published `aethis-mcp@0.17.3` as active/latest, but the
+  final workflow incorrectly read search results from `entry.name` and
+  `entry.version` instead of `entry.server.name` and `entry.server.version`, so
+  it reported a false-red after publication. Verification now uses a tested
+  parser with a fixture matching the live Registry response shape.
+
 ## 0.17.3 (2026-09-03)
 
 - **release: bind the Registry identity to the case-sensitive GitHub OIDC
