@@ -1301,7 +1301,16 @@ export function createToolHandlers(client: AethisClient) {
 
     async aethis_set_field_spec(args: {
       project_id: string;
-      expected_fields: Array<{ key: string; sort: string; enum_values?: string[] }>;
+      expected_fields: Array<{
+        key: string;
+        sort: string;
+        enum_values?: string[];
+        notes?: Array<{
+          note_text: string;
+          source?: string;
+          metadata?: Record<string, unknown>;
+        }>;
+      }>;
     }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -1984,13 +1993,19 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Once set, every aethis_discover_fields call automatically validates discovered fields against this spec. " +
     "Mismatches (missing fields, wrong types, wrong enum values) generate guidance hints automatically and appear in the validation_result block. " +
     "Call this BEFORE running aethis_discover_fields when the SME has already defined the field vocabulary. " +
-    "The spec is persisted on the project and survives across sessions.",
+    "The spec is persisted on the project and survives across sessions. " +
+    "Optionally provide ordered notes for a field. Omit notes to leave existing note guidance unchanged; pass an empty list to clear it.",
     {
       project_id: z.string().describe("The project ID"),
       expected_fields: z.array(z.object({
         key: z.string().describe("Expected field key, e.g. 'eng.selt_provider'"),
         sort: z.string().describe("Expected field type: Bool, Int, Enum, Date, Duration, String"),
         enum_values: z.array(z.string()).optional().describe("For Enum fields: the expected allowed values. Omit to skip enum value check."),
+        notes: z.array(z.object({
+          note_text: z.string().describe("Note text for this field"),
+          source: z.string().optional().describe("Optional source label for this note"),
+          metadata: z.record(z.unknown()).optional().describe("Optional JSON metadata for this note"),
+        }).strict()).optional().describe("Ordered field notes. Omit to leave existing notes unchanged; pass [] to clear them."),
       })).min(1).describe("The fields the SME expects to be discovered for this project"),
     },
     toolAnnotations("aethis_set_field_spec"),

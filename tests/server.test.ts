@@ -56,6 +56,7 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
       completeness_score: 0.75, missing_pathways: ["spouse pathway"], critical_gaps: [],
       recommendation: "continue", is_complete: false,
     }),
+    setFieldSpec: vi.fn().mockResolvedValue({}),
     generateAndTest: vi.fn().mockResolvedValue({
       ruleset_id: "b_1",
       total: 1, passed: 1, failed: 0, errors: 0,
@@ -1481,6 +1482,68 @@ describe("aethis_discover_fields", () => {
     const t = text(result);
     expect(t).toContain("test cases");
     expect(t).toContain("aethis_generate_and_test");
+  });
+});
+
+describe("aethis_set_field_spec", () => {
+  it("passes omitted notes through unchanged", async () => {
+    const setFieldSpec = vi.fn().mockResolvedValue({});
+    const h = createToolHandlers(mockClient({ setFieldSpec }));
+    await h.aethis_set_field_spec({
+      project_id: "p_1",
+      expected_fields: [{ key: "applicant.age", sort: "Int" }],
+    });
+    expect(setFieldSpec).toHaveBeenCalledWith("p_1", [{ key: "applicant.age", sort: "Int" }]);
+  });
+
+  it("passes an authoritative empty notes list through unchanged", async () => {
+    const setFieldSpec = vi.fn().mockResolvedValue({});
+    const h = createToolHandlers(mockClient({ setFieldSpec }));
+    await h.aethis_set_field_spec({
+      project_id: "p_1",
+      expected_fields: [{ key: "applicant.age", sort: "Int", notes: [] }],
+    });
+    expect(setFieldSpec).toHaveBeenCalledWith("p_1", [
+      { key: "applicant.age", sort: "Int", notes: [] },
+    ]);
+  });
+
+  it("preserves nested JSON metadata and note order", async () => {
+    const setFieldSpec = vi.fn().mockResolvedValue({});
+    const h = createToolHandlers(mockClient({ setFieldSpec }));
+    const notes = [
+      { note_text: "first", metadata: { items: [null, { nested: true }] } },
+      { note_text: "second", source: "editor", metadata: { null_value: null } },
+    ];
+    await h.aethis_set_field_spec({
+      project_id: "p_1",
+      expected_fields: [{ key: "applicant.age", sort: "Int", notes }],
+    });
+    expect(setFieldSpec).toHaveBeenCalledWith("p_1", [
+      { key: "applicant.age", sort: "Int", notes },
+    ]);
+  });
+
+  it("schema rejects null note entries and unknown note keys", () => {
+    let expectedFieldsSchema: { safeParse: (value: unknown) => { success: boolean } } | undefined;
+    const fakeServer = {
+      tool: (name: string, _description: string, ...rest: unknown[]) => {
+        if (name !== "aethis_set_field_spec") return;
+        const fieldSpecShape = rest.find((arg) =>
+          !!arg && typeof arg === "object" && "expected_fields" in (arg as object),
+        ) as { expected_fields?: typeof expectedFieldsSchema } | undefined;
+        expectedFieldsSchema = fieldSpecShape?.expected_fields;
+      },
+      prompt: () => {},
+    } as unknown as Parameters<typeof registerTools>[0];
+    registerTools(fakeServer, createToolHandlers(mockClient()));
+    expect(expectedFieldsSchema).toBeDefined();
+    expect(expectedFieldsSchema!.safeParse([
+      { key: "applicant.age", sort: "Int", notes: [null] },
+    ]).success).toBe(false);
+    expect(expectedFieldsSchema!.safeParse([
+      { key: "applicant.age", sort: "Int", notes: [{ note_text: "x", unexpected: true }] },
+    ]).success).toBe(false);
   });
 });
 

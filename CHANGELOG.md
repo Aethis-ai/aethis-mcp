@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.0 (2026-09-10)
+
+- **feat: transport authoritative field notes.** `aethis_set_field_spec` now
+  accepts ordered per-field notes with optional source labels and JSON metadata.
+  Omitting notes leaves existing note guidance unchanged; an empty list clears
+  it. The client preserves note order and metadata exactly.
+
 ## 0.17.4 (2026-09-03)
 
 - **release: verify the Registry's real response envelope.** The official

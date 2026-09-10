@@ -224,7 +224,7 @@ aethis_refine_sections({ domain, feedback, sources })
 ```
 aethis_set_field_spec({
   project_id,
-  expected_fields: [{ key, sort, enum_values? }, ...]
+  expected_fields: [{ key, sort, enum_values?, notes?: [{ note_text, source?, metadata? }] }, ...]
 })
 aethis_discover_fields({ project_id })           // auto-validates against the spec if set
 aethis_refine_fields({ project_id, feedback })
