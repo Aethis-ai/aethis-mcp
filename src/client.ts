@@ -490,7 +490,16 @@ export class AethisClient {
 
   async setFieldSpec(
     projectId: string,
-    expectedFields: Array<{ key: string; sort: string; enum_values?: string[] }>,
+    expectedFields: Array<{
+      key: string;
+      sort: string;
+      enum_values?: string[];
+      notes?: Array<{
+        note_text: string;
+        source?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+    }>,
   ): Promise<unknown> {
     return this.request(
       "POST",
