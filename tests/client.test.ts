@@ -133,6 +133,35 @@ describe("AethisClient requests", () => {
     expect(result).toEqual(data);
   });
 
+  it("sends field notes unchanged and does not add omitted note properties", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({}));
+    const notes = [
+      {
+        note_text: "Check the supporting record first.",
+        source: "reviewer",
+        metadata: {
+          rank: 2,
+          nested: { values: [null, { key: "value" }] },
+        },
+      },
+      { note_text: "Keep this instruction in order." },
+    ];
+
+    await client.setFieldSpec("p_1", [
+      { key: "applicant.status", sort: "Enum", enum_values: ["new"], notes },
+      { key: "applicant.age", sort: "Int" },
+    ]);
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/fields/spec");
+    expect(JSON.parse(init.body)).toEqual({
+      expected_fields: [
+        { key: "applicant.status", sort: "Enum", enum_values: ["new"], notes },
+        { key: "applicant.age", sort: "Int" },
+      ],
+    });
+  });
+
   it("returns empty object on 204 No Content", async () => {
     const resp = {
       ok: true,

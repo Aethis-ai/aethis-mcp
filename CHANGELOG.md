@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.21.0 (2026-09-29)
+
+- **feat: transport authoritative field notes.** `aethis_set_field_spec` now
+  accepts ordered per-field notes with optional source labels and JSON metadata.
+  Omitting notes leaves existing note guidance unchanged; an empty list clears
+  it. The client preserves note order and metadata exactly.
+
 ## 0.20.0 (2026-09-25)
 
 **Authoring safeguards are now visible in tool output.** Both are warn-only and never block a generation or a publish.
