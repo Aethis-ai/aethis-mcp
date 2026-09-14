@@ -3,6 +3,7 @@
 ## 0.17.5 (2026-09-14)
 
 - Resolve the selected CLI profile’s API key and endpoint together, honoring non-secret `AETHIS_PROFILE` and absolute `XDG_CONFIG_HOME` references. Profile credentials outrank stale legacy keychain entries; flat legacy files remain supported.
+- Preserve the default endpoint for standalone environment keys, including when the implicitly active CLI profile is anonymous. Explicit named-profile overrides retain the selected endpoint.
 - Refuse invalid selected profiles and unsafe files visibly without logging secrets. Preserve explicit environment overrides and unsigned anonymous setup.
 - Keep startup identity paired until restart; late login refuses an endpoint change before sending a request.
 

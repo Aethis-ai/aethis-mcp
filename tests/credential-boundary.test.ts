@@ -68,6 +68,46 @@ describe("selected credentials at the MCP handler HTTP boundary", () => {
     expectRequest("ak_override", "https://override.example");
   });
 
+  it.each(["selected", "anonymous"])("sends an explicit environment key to the default endpoint over implicit profile %s", async (active) => {
+    delete process.env.AETHIS_PROFILE;
+    await store("ak_selected", "https://selected.example", active);
+    process.env.AETHIS_API_KEY = "ak_override";
+    const client = await createConfiguredClient({ fetchFn });
+    const result = await createToolHandlers(client).aethis_list_projects({});
+    expect(result.isError).not.toBe(true);
+    expectRequest("ak_override", "https://api.aethis.ai");
+  });
+
+  it("uses the environment endpoint with an environment key and no explicit profile", async () => {
+    delete process.env.AETHIS_PROFILE;
+    await store("ak_selected", "https://selected.example", "anonymous");
+    process.env.AETHIS_API_KEY = "ak_override";
+    process.env.AETHIS_BASE_URL = "https://override.example";
+    const client = await createConfiguredClient({ fetchFn });
+    await createToolHandlers(client).aethis_list_projects({});
+    expectRequest("ak_override", "https://override.example");
+  });
+
+  it("retains the explicitly selected endpoint with a key-only environment override", async () => {
+    await store();
+    process.env.AETHIS_API_KEY = "ak_override";
+    const client = await createConfiguredClient({ fetchFn });
+    await createToolHandlers(client).aethis_list_projects({});
+    expectRequest("ak_override");
+  });
+
+  it("refuses a late environment key that would move to the default endpoint", async () => {
+    delete process.env.AETHIS_PROFILE;
+    await store("", "https://selected.example", "selected");
+    const client = await createConfiguredClient({ fetchFn });
+    process.env.AETHIS_API_KEY = "ak_override";
+    const result = await createToolHandlers(client).aethis_list_projects({});
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toMatch(/Restart your MCP host/);
+    expect(client.hasApiKey).toBe(false);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it("accepts late login when the selected endpoint remains unchanged", async () => {
     await store("");
     const client = await createConfiguredClient({ fetchFn });

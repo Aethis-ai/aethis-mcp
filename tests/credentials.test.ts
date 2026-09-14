@@ -65,7 +65,6 @@ describe("resolveApiKey (fallback chain)", () => {
 
   it("returns env var when AETHIS_API_KEY is set", async () => {
     process.env.AETHIS_API_KEY = "ak_from_env";
-    process.env.AETHIS_BASE_URL = "https://explicit.example";
     const key = await resolveApiKey();
     expect(key).toBe("ak_from_env");
     expect(mockExecFile).not.toHaveBeenCalled();
@@ -154,7 +153,15 @@ describe("resolveApiKey (fallback chain)", () => {
     expect(await resolveCredentials()).toEqual({ apiKey: "ak_override", baseUrl: "https://override.example", source: "environment" });
   });
 
-  it("preserves the stored URL when only the key is overridden", async () => {
+  it.each(["default", "anonymous"])("pairs an environment key with the default URL regardless of implicit profile %s", async (active) => {
+    process.env.AETHIS_API_KEY = "ak_override";
+    profileFile(`active_profile: ${active}\nprofiles: {default: {api_key: ak_stored, base_url: https://stored.example}}`);
+    expect(await resolveCredentials()).toEqual({ apiKey: "ak_override", baseUrl: "https://api.aethis.ai", source: "environment" });
+    expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicitly selected stored URL when only its key is overridden", async () => {
+    process.env.AETHIS_PROFILE = "default";
     process.env.AETHIS_API_KEY = "ak_override";
     profileFile("api_key: ak_stored\nbase_url: https://stored.example");
     expect(await resolveCredentials()).toMatchObject({ apiKey: "ak_override", baseUrl: "https://stored.example" });

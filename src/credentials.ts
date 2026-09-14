@@ -180,9 +180,10 @@ export async function resolveCredentials(): Promise<ResolvedCredentials> {
   const selectedName = explicitProfile?.trim();
   const envKey = fromEnvVar();
   const envBaseUrl = process.env.AETHIS_BASE_URL?.trim() || undefined;
-  // A complete explicit environment pair needs no unrelated credential store.
-  if (envKey && envBaseUrl && selectedName === undefined) {
-    return { apiKey: envKey, baseUrl: envBaseUrl, source: "environment" };
+  // A key supplied without a profile selector keeps the legacy environment
+  // endpoint contract. Never send it to an implicitly selected profile host.
+  if (envKey && selectedName === undefined) {
+    return { apiKey: envKey, baseUrl: envBaseUrl || DEFAULT_BASE_URL, source: "environment" };
   }
   const raw = await readCredentials();
   let profileName = selectedName || "default";
