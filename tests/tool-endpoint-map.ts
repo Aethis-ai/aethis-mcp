@@ -451,6 +451,18 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
     ],
   },
 
+  aethis_set_tests: {
+    endpoints: [
+      {
+        method: "POST",
+        path: `${PUB}/projects/{project_id}/tests`,
+        pathParams: { project_id: "project_id" },
+        body: { test_cases: "test_cases" },
+        bodyDefaults: ["replace"],
+      },
+    ],
+  },
+
   // Authoring Coach (aethis-workspace#514). The LLM-key inputs are resolved to
   // the X-Anthropic-Key header (mcpOnly), never a body field; `coach` is the
   // one JSON body field of ReviewRequest.

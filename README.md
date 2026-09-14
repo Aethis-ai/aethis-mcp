@@ -80,7 +80,7 @@ Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark
 
 ## Tools
 
-30 tools across six groups.
+35 tools across six groups.
 
 | Group | Access | Tools |
 |-------|--------|-------|
@@ -89,7 +89,7 @@ Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark
 | **Discovery — your tenant** | private beta | `aethis_list_projects`, `aethis_list_rulesets`, `aethis_list_rulebooks`, `aethis_rulebook_schema` |
 | **Authoring — rulebooks** | private beta | `aethis_create_rulebook`, `aethis_update_rulebook` |
 | **Authoring — sections & fields** | private beta | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` |
-| **Authoring — generation** | private beta | `aethis_create_ruleset`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_generation_status`, `aethis_cancel_generation`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` |
+| **Authoring — generation** | private beta | `aethis_create_ruleset`, `aethis_set_tests`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_generation_status`, `aethis_cancel_generation`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` |
 | **Management** | private beta | `aethis_archive_project`, `aethis_archive_ruleset` |
 
 `aethis_graph` is public for a public showcase ruleset (`ruleset_id`) and tenant-scoped for a rulebook (`rulebook_id`) — it returns the ruleset-map graph (`{nodes, edges, sections, stats}`, each node's `display.sentence`/`display.routes`/`display.expr`) plus a ready-to-render `mermaid` diagram string. Pass `include_graph_overlay: true` to `aethis_decide` to get that same graph back with a specific decision's per-criterion status (`satisfied`/`not_satisfied`/`pending`) stamped onto it (`graph_overlay` in the response) — a "you are here" map for those inputs.

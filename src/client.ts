@@ -129,10 +129,17 @@ export class AethisClient {
     }
   }
 
-  private async request(method: string, path: string, body?: unknown, llmKey?: string): Promise<unknown> {
+  private async request(
+    method: string,
+    path: string,
+    body?: unknown,
+    llmKey?: string,
+    retry = true,
+  ): Promise<unknown> {
     const url = `${this.baseUrl}${path}`;
+    const maxRetries = retry ? MAX_RETRIES : 0;
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       let resp: Response;
 
       try {
@@ -155,17 +162,17 @@ export class AethisClient {
         };
         resp = await this.fetchFn(url, init);
       } catch (err) {
-        if (attempt < MAX_RETRIES) {
+        if (attempt < maxRetries) {
           await this.sleep(2 ** attempt * this.retryDelayMs);
           continue;
         }
         throw new AethisAPIError(
           0,
-          `Connection failed after ${MAX_RETRIES + 1} attempts: ${(err as Error).message}`,
+          `Connection failed after ${maxRetries + 1} attempt${maxRetries === 0 ? "" : "s"}: ${(err as Error).message}`,
         );
       }
 
-      if (RETRYABLE_STATUSES.has(resp.status) && attempt < MAX_RETRIES) {
+      if (RETRYABLE_STATUSES.has(resp.status) && attempt < maxRetries) {
         const retryAfter = parseFloat(resp.headers.get("Retry-After") ?? String(2 ** attempt));
         await this.sleep(Math.min(retryAfter, 30) * this.retryDelayMs);
         continue;
@@ -213,7 +220,7 @@ export class AethisClient {
 
     throw new AethisAPIError(
       0,
-      `Request failed after ${MAX_RETRIES + 1} attempts`,
+      `Request failed after ${maxRetries + 1} attempt${maxRetries === 0 ? "" : "s"}`,
     );
   }
 
@@ -553,6 +560,79 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`, {
       test_cases: testCases,
     });
+  }
+
+  /**
+   * Return whether a deliberately small, understood subset of JSON Schema
+   * accepts the literal boolean `true`.  The OpenAPI document is untrusted
+   * capability data: an unfamiliar schema must not permit a destructive
+   * request merely because the property happens to be present.
+   */
+  private supportsReplacementTrue(schema: unknown): boolean {
+    if (schema === true) return true;
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) return false;
+
+    const record = schema as Record<string, unknown>;
+    const supportedKeywords = new Set([
+      "type", "const", "enum", "title", "description", "default", "examples",
+      "deprecated", "readOnly", "writeOnly", "$comment",
+    ]);
+    if (Object.keys(record).some((key) => !supportedKeywords.has(key) && !key.startsWith("x-"))) {
+      return false;
+    }
+
+    const typeSupportsBoolean = record.type === undefined || record.type === "boolean" || (
+      Array.isArray(record.type) && record.type.every((value) => typeof value === "string") && record.type.includes("boolean")
+    );
+    if (!typeSupportsBoolean) return false;
+    if (record.const !== undefined && record.const !== true) return false;
+    if (record.enum !== undefined && (!Array.isArray(record.enum) || !record.enum.includes(true))) {
+      return false;
+    }
+    return record.type !== undefined || record.const === true || Array.isArray(record.enum);
+  }
+
+  /**
+   * Replace a project's complete test suite. The OpenAPI check is deliberately
+   * performed before the mutation: older engines append tests and would create
+   * a second suite. The replacement POST itself is sent exactly once because a
+   * retry after a lost response may allocate fresh test identities.
+   */
+  async replaceTests(projectId: string, testCases: unknown[]): Promise<unknown> {
+    let openApi: unknown;
+    try {
+      openApi = await this.request("GET", "/openapi.json");
+    } catch {
+      throw new AethisAPIError(400, "Test-suite replacement is unavailable: the target OpenAPI document could not be read. No tests were changed.");
+    }
+    const replace = (
+      openApi as {
+        components?: { schemas?: { AddTestCaseRequest?: { properties?: Record<string, unknown> } } };
+      }
+    ).components?.schemas?.AddTestCaseRequest?.properties?.replace;
+    if (!this.supportsReplacementTrue(replace)) {
+      throw new AethisAPIError(
+        400,
+        "Test-suite replacement is unavailable: the target OpenAPI document does not expose a readable replace capability that accepts true. No tests were changed.",
+      );
+    }
+    try {
+      return await this.request(
+        "POST",
+        `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`,
+        { test_cases: testCases, replace: true },
+        undefined,
+        false,
+      );
+    } catch (error) {
+      // The server may have committed the replacement before a gateway or
+      // transport failure reached us. Do not retry and force the caller to
+      // inspect the project before another approved replacement.
+      if (error instanceof AethisAPIError && error.statusCode >= 400 && error.statusCode < 500) {
+        throw error;
+      }
+      throw new AethisAPIError(0, "Replacement response could not be read after the single request.");
+    }
   }
 
   async runTests(projectId: string): Promise<unknown> {
