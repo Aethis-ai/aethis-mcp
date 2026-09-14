@@ -34,6 +34,8 @@ vi.mock("node:fs/promises", async () => {
 
 const {
   resolveApiKey,
+  resolveCredentials,
+  InvalidCredentialsError,
   resolveLlmKey,
   MissingLlmKeyError,
   UnsafeCredentialsError,
@@ -46,6 +48,8 @@ describe("resolveApiKey (fallback chain)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     delete process.env.AETHIS_API_KEY;
+    delete process.env.AETHIS_BASE_URL;
+    delete process.env.AETHIS_PROFILE;
     delete process.env.XDG_CONFIG_HOME;
     // Default: pretend the credentials file is absent so tests have to
     // opt in to file resolution.
@@ -65,6 +69,116 @@ describe("resolveApiKey (fallback chain)", () => {
     expect(key).toBe("ak_from_env");
     expect(mockExecFile).not.toHaveBeenCalled();
     expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  function profileFile(content: string): void {
+    mockRealpath.mockResolvedValueOnce(join(homedir(), ".config/aethis/credentials"));
+    mockStat.mockResolvedValueOnce({ mode: 0o100600 });
+    mockReadFile.mockResolvedValueOnce(content);
+  }
+
+  it("uses selected profile pair before a conflicting stale keychain", async () => {
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: null, stdout: string) => void) => cb(null, "ak_stale"));
+    profileFile("active_profile: staging\nprofiles:\n  default:\n    api_key: ak_prod\n  staging:\n    api_key: 'ak_selected' # comment\n    base_url: https://staging.example\n");
+    expect(await resolveCredentials()).toEqual({ apiKey: "ak_selected", baseUrl: "https://staging.example", source: "profile" });
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("honors a named selection regardless of active_profile", async () => {
+    process.env.AETHIS_PROFILE = "pinned";
+    profileFile("active_profile: default\nprofiles:\n  pinned: {api_key: ak_pinned, base_url: https://pinned.example}\n  default: {api_key: ak_other}\n");
+    expect(await resolveCredentials()).toMatchObject({ apiKey: "ak_pinned", baseUrl: "https://pinned.example" });
+  });
+
+  it.each([
+    "profiles: {other: {api_key: ak_secret}}",
+    "profiles: {pinned: ak_secret}",
+    "profiles: {pinned: {api_key: [ak_secret]}}",
+    "profiles: {pinned: {base_url: 12, api_key: ak_secret}}",
+    "profiles: [ak_secret]",
+    "profiles: {pinned: {api_key: ak_secret, api_key: another}}",
+    "profiles: {pinned: {api_key: [ak_secret}",
+    "- ak_secret",
+    "profiles: {pinned: {auth_mode: gcloud_id_token, api_key: ak_secret}}",
+  ])("refuses invalid explicitly selected profile without leaking source text: %s", async (content) => {
+    process.env.AETHIS_PROFILE = "pinned";
+    process.env.AETHIS_API_KEY = "ak_override";
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    profileFile(content);
+    try { await resolveCredentials(); throw new Error("Expected refusal"); } catch (error) {
+      expect(error).toBeInstanceOf(InvalidCredentialsError);
+      expect((error as Error).message).not.toMatch(/ak_secret|ak_override/);
+    }
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("refuses a missing explicitly named profile without falling back", async () => {
+    process.env.AETHIS_PROFILE = "pinned";
+    await expect(resolveCredentials()).rejects.toThrow(/explicitly selected.*missing/i);
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it.each(["__proto__", "constructor", "toString"])("never selects inherited map properties as profiles: %s", async (name) => {
+    process.env.AETHIS_PROFILE = name;
+    profileFile("profiles: {default: {api_key: ak_other}}");
+    await expect(resolveCredentials()).rejects.toThrow(/selected.*missing/i);
+  });
+
+  it("refuses invalid implicit active selection", async () => {
+    profileFile("active_profile: gone\nprofiles: {default: {api_key: ak_other}}");
+    await expect(resolveCredentials()).rejects.toThrow(/selected.*missing/i);
+  });
+
+  it("does not borrow a stale key when selected profile is awaiting login", async () => {
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    profileFile("profiles: {default: {base_url: https://staging.example}}");
+    expect(await resolveCredentials()).toMatchObject({ apiKey: "", baseUrl: "https://staging.example" });
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it.each(["anonymous", ""])('handles reserved anonymous and rejects blank selection: "%s"', async (name) => {
+    process.env.AETHIS_PROFILE = name;
+    process.env.AETHIS_API_KEY = "ak_override";
+    if (name) expect(await resolveCredentials()).toEqual({ apiKey: "", baseUrl: "https://api.aethis.ai", source: "anonymous" });
+    else await expect(resolveCredentials()).rejects.toThrow(/must name a profile/);
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("preserves explicit key and URL overrides of a valid selected profile", async () => {
+    process.env.AETHIS_PROFILE = "default";
+    process.env.AETHIS_API_KEY = "ak_override";
+    process.env.AETHIS_BASE_URL = "https://override.example";
+    profileFile("profiles: {default: {api_key: ak_stored, base_url: https://stored.example}}");
+    expect(await resolveCredentials()).toEqual({ apiKey: "ak_override", baseUrl: "https://override.example", source: "environment" });
+  });
+
+  it.each(["default", "anonymous"])("pairs an environment key with the default URL regardless of implicit profile %s", async (active) => {
+    process.env.AETHIS_API_KEY = "ak_override";
+    profileFile(`active_profile: ${active}\nprofiles: {default: {api_key: ak_stored, base_url: https://stored.example}}`);
+    expect(await resolveCredentials()).toEqual({ apiKey: "ak_override", baseUrl: "https://api.aethis.ai", source: "environment" });
+    expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicitly selected stored URL when only its key is overridden", async () => {
+    process.env.AETHIS_PROFILE = "default";
+    process.env.AETHIS_API_KEY = "ak_override";
+    profileFile("api_key: ak_stored\nbase_url: https://stored.example");
+    expect(await resolveCredentials()).toMatchObject({ apiKey: "ak_override", baseUrl: "https://stored.example" });
+  });
+
+  it("reads safe legacy suffixed credentials as a key/URL pair", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" });
+    mockRealpath.mockRejectedValueOnce(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    mockRealpath.mockResolvedValueOnce(join(homedir(), ".config/aethis/credentials.yaml"));
+    mockStat.mockResolvedValueOnce({ mode: 0o100600 });
+    mockReadFile.mockResolvedValueOnce("api_key: ak_legacy\nbase_url: https://legacy.example");
+    expect(await resolveCredentials()).toEqual({ apiKey: "ak_legacy", baseUrl: "https://legacy.example", source: "legacy-file" });
+  });
+
+  it("refuses relative XDG_CONFIG_HOME", async () => {
+    process.env.XDG_CONFIG_HOME = "relative/config";
+    await expect(resolveCredentials()).rejects.toBeInstanceOf(UnsafeCredentialsError);
   });
 
   it("ignores whitespace-only env var and falls to file", async () => {
@@ -161,6 +275,8 @@ describe("resolveApiKey safety checks (#33)", () => {
   beforeEach(async () => {
     vi.resetAllMocks();
     delete process.env.AETHIS_API_KEY;
+    delete process.env.AETHIS_BASE_URL;
+    delete process.env.AETHIS_PROFILE;
     const real = await vi.importActual<typeof import("node:fs/promises")>(
       "node:fs/promises",
     );

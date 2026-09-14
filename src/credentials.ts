@@ -1,17 +1,14 @@
 /**
- * Credential resolution for Aethis API keys.
- *
- * Fallback chain (matches the Python CLI's config.resolve_api_key):
- *   1. AETHIS_API_KEY environment variable
- *   2. macOS Keychain (service: aethis-cli, account: api_key)
- *   3. ~/.config/aethis/credentials YAML file (refuses if not 0600 or if it
- *      resolves outside the user's home / XDG_CONFIG_HOME)
+ * Resolve Aethis credentials and endpoint as one configuration snapshot.
+ * Explicit process environment overrides take precedence; the selected CLI
+ * profile outranks legacy keychain and flat-file credentials.
  */
 
 import { execFile } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
+import { parseDocument } from "yaml";
 
 const KEYCHAIN_SERVICE = "aethis-cli";
 const KEYCHAIN_ACCOUNT = "api_key";
@@ -78,10 +75,13 @@ async function safeRealpath(p: string): Promise<string> {
  * Any other resolved location (symlinks pointing into /tmp, into another
  * user's home, into world-writable directories, etc.) is rejected.
  */
-async function safeCredentialsPath(): Promise<string | null> {
+async function safeCredentialsPath(suffix = ""): Promise<string | null> {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
-  const configDir = xdg && isAbsolute(xdg) ? xdg : join(homedir(), ".config");
-  const declaredPath = join(configDir, "aethis", "credentials");
+  if (xdg && !isAbsolute(xdg)) {
+    throw new UnsafeCredentialsError("XDG_CONFIG_HOME must be an absolute path. Fix the MCP process environment and restart.");
+  }
+  const configDir = xdg || join(homedir(), ".config");
+  const declaredPath = join(configDir, "aethis", "credentials" + suffix);
 
   let resolvedPath: string;
   try {
@@ -112,26 +112,130 @@ async function safeCredentialsPath(): Promise<string | null> {
   return resolvedPath;
 }
 
-async function fromCredentialsFile(): Promise<string | undefined> {
-  const credsPath = await safeCredentialsPath();
-  if (!credsPath) return undefined;
+export class InvalidCredentialsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidCredentialsError";
+  }
+}
 
+const DEFAULT_BASE_URL = "https://api.aethis.ai";
+type ConfigMap = Record<string, unknown>;
+function isMap(value: unknown): value is ConfigMap {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+async function readCredentials(suffix = ""): Promise<ConfigMap | undefined> {
+  const credsPath = await safeCredentialsPath(suffix);
+  if (!credsPath) return undefined;
   const info = await stat(credsPath);
-  // Require the equivalent of `chmod 600`. Any group/other bit set is a
-  // refusal — matches `ssh` and `aws-cli` behaviour, prevents another
-  // local user from reading the key.
   const mode = info.mode & 0o777;
   if ((mode & 0o077) !== 0) {
-    const octal = mode.toString(8).padStart(3, "0");
     throw new UnsafeCredentialsError(
-      `Permissions 0${octal} for '${credsPath}' are too open. ` +
-        `Run: chmod 600 ${credsPath}`,
+      `Permissions 0${mode.toString(8).padStart(3, "0")} for '${credsPath}' are too open. ` +
+      `Run: chmod 600 ${credsPath}`,
     );
   }
+  // Never surface parser diagnostics: they can contain the secret source line.
+  const document = parseDocument(await readFile(credsPath, "utf-8"), { uniqueKeys: true });
+  if (document.errors.length > 0) {
+    throw new InvalidCredentialsError("Invalid Aethis credentials YAML. Fix the credentials file and restart.");
+  }
+  let raw: unknown;
+  try { raw = document.toJS({ maxAliasCount: 100 }); } catch {
+    throw new InvalidCredentialsError("Invalid Aethis credentials YAML. Fix the credentials file and restart.");
+  }
+  if (!isMap(raw)) {
+    throw new InvalidCredentialsError("Aethis credentials must be a YAML mapping. Fix the credentials file and restart.");
+  }
+  return raw;
+}
 
-  const content = await readFile(credsPath, "utf-8");
-  const match = content.match(/^api_key:\s*(.+)$/m);
-  return match?.[1]?.trim() || undefined;
+function optionalString(profile: ConfigMap, field: string): string | undefined {
+  const value = profile[field];
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new InvalidCredentialsError(`The selected Aethis profile has an invalid ${field}. Fix it and restart.`);
+  }
+  return value.trim();
+}
+
+export interface ResolvedCredentials {
+  apiKey: string;
+  baseUrl: string;
+  /** Non-secret provenance, safe to report on stderr. */
+  source: "environment" | "profile" | "legacy-file" | "keychain" | "anonymous";
+}
+
+/**
+ * Resolve the full key/endpoint pair. Missing keys are valid anonymous startup;
+ * missing explicitly selected profiles and malformed/unsafe files are refusals.
+ * A configured profile never borrows a key from another credential source.
+ */
+export async function resolveCredentials(): Promise<ResolvedCredentials> {
+  const explicitProfile = process.env.AETHIS_PROFILE;
+  if (explicitProfile !== undefined && !explicitProfile.trim()) {
+    throw new InvalidCredentialsError("AETHIS_PROFILE must name a profile. Fix the MCP process environment and restart.");
+  }
+  const selectedName = explicitProfile?.trim();
+  const envKey = fromEnvVar();
+  const envBaseUrl = process.env.AETHIS_BASE_URL?.trim() || undefined;
+  // A key supplied without a profile selector keeps the legacy environment
+  // endpoint contract. Never send it to an implicitly selected profile host.
+  if (envKey && selectedName === undefined) {
+    return { apiKey: envKey, baseUrl: envBaseUrl || DEFAULT_BASE_URL, source: "environment" };
+  }
+  const raw = await readCredentials();
+  let profileName = selectedName || "default";
+  let profile: ConfigMap | undefined;
+  let source: ResolvedCredentials["source"] = "profile";
+  if (raw) {
+    if ("profiles" in raw) {
+      if (!isMap(raw.profiles)) {
+        throw new InvalidCredentialsError("Aethis credentials profiles must be a YAML mapping. Fix it and restart.");
+      }
+      if (!selectedName && raw.active_profile !== undefined) {
+        const active = optionalString(raw, "active_profile");
+        profileName = active || "default";
+      }
+      const value = Object.hasOwn(raw.profiles, profileName) ? raw.profiles[profileName] : undefined;
+      if (value !== undefined) {
+        if (!isMap(value)) {
+          throw new InvalidCredentialsError("The selected Aethis profile must be a YAML mapping. Fix it and restart.");
+        }
+        profile = value;
+      }
+      if (!profile && profileName !== "anonymous") {
+        throw new InvalidCredentialsError("The selected Aethis profile is missing. Run 'aethis profile list', select a stored profile, and restart.");
+      }
+    } else {
+      source = "legacy-file";
+      if (profileName === "default" && ("api_key" in raw || "base_url" in raw)) profile = raw;
+    }
+  }
+  if (!profile && selectedName && profileName !== "anonymous") {
+    throw new InvalidCredentialsError("The explicitly selected Aethis profile is missing. Save it with 'aethis login' or select a stored profile and restart.");
+  }
+  if (profileName === "anonymous") {
+    return { apiKey: "", baseUrl: envBaseUrl || (profile && optionalString(profile, "base_url")) || DEFAULT_BASE_URL, source: "anonymous" };
+  }
+  if (profile) {
+    const authMode = optionalString(profile, "auth_mode");
+    if (authMode && authMode !== "api_key") {
+      throw new InvalidCredentialsError("The selected Aethis profile uses an authentication mode unsupported by this MCP server. Select an API-key profile and restart.");
+    }
+    const key = optionalString(profile, "api_key");
+    const endpoint = optionalString(profile, "base_url");
+    return { apiKey: envKey || key || "", baseUrl: envBaseUrl || endpoint || DEFAULT_BASE_URL, source: envKey ? "environment" : source };
+  }
+  if (envKey) return { apiKey: envKey, baseUrl: envBaseUrl || DEFAULT_BASE_URL, source: "environment" };
+  const keychainKey = await fromKeychain();
+  if (keychainKey) return { apiKey: keychainKey, baseUrl: envBaseUrl || DEFAULT_BASE_URL, source: "keychain" };
+  const legacy = await readCredentials(".yaml");
+  if (legacy) {
+    return { apiKey: optionalString(legacy, "api_key") || "", baseUrl: envBaseUrl || optionalString(legacy, "base_url") || DEFAULT_BASE_URL, source: "legacy-file" };
+  }
+  return { apiKey: "", baseUrl: envBaseUrl || DEFAULT_BASE_URL, source: "anonymous" };
 }
 
 /**
@@ -228,29 +332,12 @@ export async function resolveLlmKey(args: LlmKeyArgs): Promise<string> {
   );
 }
 
-/**
- * Resolve an Aethis API key from available credential sources.
- * Throws if no key is found anywhere, or if the credentials file is
- * structurally unsafe (wrong permissions, symlinked outside $HOME).
- */
+/** Backwards-compatible key-only API; new clients must resolve the full pair. */
 export async function resolveApiKey(): Promise<string> {
-  const fromEnv = fromEnvVar();
-  if (fromEnv) return fromEnv;
-
-  const fromKc = await fromKeychain();
-  if (fromKc) return fromKc;
-
-  // UnsafeCredentialsError from this call deliberately propagates: the
-  // refusal must be visible, not silently swallowed.
-  const fromFile = await fromCredentialsFile();
-  if (fromFile) return fromFile;
-
+  const credentials = await resolveCredentials();
+  if (credentials.apiKey) return credentials.apiKey;
   throw new Error(
-    "No Aethis API key found. Checked:\n" +
-      "  1. $AETHIS_API_KEY environment variable\n" +
-      "  2. macOS Keychain (service: aethis-cli)\n" +
-      "  3. ~/.config/aethis/credentials\n\n" +
-      "Run 'aethis login' to store your API key, or set AETHIS_API_KEY.\n" +
-      "Note: Authentication is only needed for rule authoring — decision tools work without it.",
+    "No Aethis API key found. Run 'aethis login' to store your API key, or set AETHIS_API_KEY. " +
+    "Decision tools work without authentication.",
   );
 }
