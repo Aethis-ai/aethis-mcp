@@ -1039,6 +1039,20 @@ describe("aethis_set_tests", () => {
     expect(text(result)).toContain("not retried");
   });
 
+  it("reports an OpenAPI preflight refusal without claiming a replacement was sent", async () => {
+    const client = mockClient({
+      replaceTests: vi.fn().mockRejectedValue(new AethisAPIError(
+        400,
+        "Test-suite replacement is unavailable: the target OpenAPI document could not be read. No tests were changed.",
+      )),
+    });
+    const result = await createToolHandlers(client).aethis_set_tests({ project_id: "p_existing", test_cases: completeSuite });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("No tests were changed");
+    expect(text(result)).not.toContain("outcome is unknown");
+    expect(text(result)).not.toContain("request was sent");
+  });
+
   it("reports a rejected project or tenant without retrying the replacement", async () => {
     const replaceTests = vi.fn().mockRejectedValue(new AethisAPIError(404, "Project not found"));
     const result = await createToolHandlers(mockClient({ replaceTests })).aethis_set_tests({ project_id: "p_other_tenant", test_cases: completeSuite });

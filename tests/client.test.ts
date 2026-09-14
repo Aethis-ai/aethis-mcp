@@ -400,25 +400,56 @@ describe("AethisClient API methods", () => {
     expect(JSON.parse(fetchSpy.mock.calls[1][1].body)).toEqual({ test_cases: cases, replace: true });
   });
 
-  it("replaceTests() refuses an unsupported OpenAPI schema before any write", async () => {
-    fetchSpy.mockResolvedValueOnce(jsonResponse({ components: { schemas: { AddTestCaseRequest: { properties: {} } } } }));
+  it.each([
+    [undefined, "absent"],
+    [false, "false schema"],
+    [null, "null schema"],
+    ["boolean", "malformed schema"],
+    [{ type: "string", enum: [true] }, "schema that cannot accept true"],
+  ])("replaceTests() refuses a %s replacement capability before any write", async (replace) => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({
+      components: { schemas: { AddTestCaseRequest: { properties: replace === undefined ? {} : { replace } } } },
+    }));
     await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({ statusCode: 400 });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("replaceTests() refuses an unreadable OpenAPI document before any write", async () => {
     fetchSpy.mockResolvedValue(errorResponse(404, "not found"));
-    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({ statusCode: 404 });
+    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({
+      statusCode: 400,
+      detail: expect.stringContaining("No tests were changed"),
+    });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("replaceTests() does not retry a failed replacement POST", async () => {
+  it("replaceTests() reports a preflight transport failure without claiming a write", async () => {
+    fetchSpy.mockRejectedValue(new TypeError("offline"));
+    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({
+      statusCode: 400,
+      detail: expect.stringContaining("No tests were changed"),
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(fetchSpy.mock.calls.every(([url]) => url.endsWith("/openapi.json"))).toBe(true);
+  });
+
+  it("replaceTests() accepts a boolean JSON Schema that allows true", async () => {
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({
+        components: { schemas: { AddTestCaseRequest: { properties: { replace: true } } } },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ added: 1, replaced: 0 }));
+    await expect(client.replaceTests("p_1", [])).resolves.toEqual({ added: 1, replaced: 0 });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("replaceTests() treats a failed replacement gateway response as potentially committed and does not retry", async () => {
     fetchSpy
       .mockResolvedValueOnce(jsonResponse({
         components: { schemas: { AddTestCaseRequest: { properties: { replace: { type: "boolean" } } } } },
       }))
       .mockResolvedValueOnce(errorResponse(503, "replacement failed"));
-    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({ statusCode: 503 });
+    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({ statusCode: 0 });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
