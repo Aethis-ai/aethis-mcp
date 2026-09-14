@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.0 (2026-09-14)
+
+- Add `aethis_set_tests(project_id, test_cases)` for destructive replacement of one existing project's complete reviewed 1–100-case suite. It verifies the target OpenAPI replacement capability before writing, preserves project sources, fields and guidance, and never creates another project.
+- Replacement POSTs are sent once. Interrupted responses report an unknown outcome and require inspection before another approved replacement.
+- Preserve immutable publication receipt metadata (`published_version_id`, `content_digest`, and `published_version_label`) in `aethis_publish` output.
+
 ## 0.17.5 (2026-09-14)
 
 - Resolve the selected CLI profile’s API key and endpoint together, honoring non-secret `AETHIS_PROFILE` and absolute `XDG_CONFIG_HOME` references. Profile credentials outrank stale legacy keychain entries; flat legacy files remain supported.

@@ -6,7 +6,7 @@
  * and output structure — without starting a real MCP transport.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AethisClient } from "../src/client.js";
+import { AethisAPIError, type AethisClient } from "../src/client.js";
 
 import {
   createToolHandlers,
@@ -46,6 +46,7 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_abc" }),
     uploadSourceText: vi.fn().mockResolvedValue({ uploaded: 1 }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
+    replaceTests: vi.fn().mockResolvedValue({ added: 1, replaced: 0 }),
     addGuidance: vi.fn().mockResolvedValue({ hint_id: "h_1" }),
     addDomainGuidance: vi.fn().mockResolvedValue({ hint_id: "h_d1" }),
     listDomainGuidance: vi.fn().mockResolvedValue([]),
@@ -113,10 +114,10 @@ function parseData(result: { content: Array<{ type: string; text?: string }> }):
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 35 tool handlers", () => {
+  it("returns all 36 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(35);
+    expect(names).toHaveLength(36);
     // Decision
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
@@ -138,6 +139,7 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_archive_ruleset");
     // Authoring lifecycle
     expect(names).toContain("aethis_create_ruleset");
+    expect(names).toContain("aethis_set_tests");
     expect(names).toContain("aethis_add_guidance");
     expect(names).toContain("aethis_list_guidance");
     expect(names).toContain("aethis_generate_and_test");
@@ -996,6 +998,56 @@ describe("aethis_create_ruleset", () => {
   });
 });
 
+describe("aethis_set_tests", () => {
+  const completeSuite = [
+    { name: "eligible", field_values: { "applicant.age": 30 }, expected_outcome: "eligible" },
+    { name: "ineligible", field_values: { "applicant.age": 10 }, expected_outcome: "not_eligible" },
+  ];
+
+  it("replaces a supplied project's complete suite without creating it", async () => {
+    const client = mockClient({ replaceTests: vi.fn().mockResolvedValue({ added: 2, replaced: 3 }) });
+    const result = await createToolHandlers(client).aethis_set_tests({ project_id: "p_existing", test_cases: completeSuite });
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("p_existing", completeSuite);
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(text(result)).toContain("Added: 2");
+    expect(text(result)).toContain("Replaced: 3");
+  });
+
+  it.each([[[]], [Array.from({ length: 101 }, (_, i) => ({ name: `c${i}`, field_values: {}, expected_outcome: "eligible" }))]])(
+    "rejects incomplete or oversized suites before mutation",
+    async (test_cases) => {
+      const client = mockClient();
+      const result = await createToolHandlers(client).aethis_set_tests({ project_id: "p_existing", test_cases });
+      expect(result.isError).toBe(true);
+      expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects an invalid project ID or case shape before mutation", async () => {
+    const client = mockClient();
+    const h = createToolHandlers(client);
+    expect((await h.aethis_set_tests({ project_id: "", test_cases: completeSuite })).isError).toBe(true);
+    expect((await h.aethis_set_tests({ project_id: "p_existing", test_cases: [{ name: "bad", field_values: [], expected_outcome: "eligible" }] })).isError).toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("makes a transport-lost replacement explicit and requires inspection", async () => {
+    const client = mockClient({ replaceTests: vi.fn().mockRejectedValue(new AethisAPIError(0, "connection reset")) });
+    const result = await createToolHandlers(client).aethis_set_tests({ project_id: "p_existing", test_cases: completeSuite });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("outcome is unknown");
+    expect(text(result)).toContain("not retried");
+  });
+
+  it("reports a rejected project or tenant without retrying the replacement", async () => {
+    const replaceTests = vi.fn().mockRejectedValue(new AethisAPIError(404, "Project not found"));
+    const result = await createToolHandlers(mockClient({ replaceTests })).aethis_set_tests({ project_id: "p_other_tenant", test_cases: completeSuite });
+    expect(result.isError).toBe(true);
+    expect(replaceTests).toHaveBeenCalledOnce();
+    expect(text(result)).toContain("Error (HTTP 404)");
+  });
+});
+
 describe("aethis_add_guidance", () => {
   it("adds guidance and suggests next step", async () => {
     const client = mockClient();
@@ -1214,6 +1266,21 @@ describe("aethis_publish", () => {
     expect(t).toContain("v2");
     expect(t).toContain("b_old");
     expect((client.publish as ReturnType<typeof vi.fn>)).toHaveBeenCalledOnce();
+  });
+
+  it("passes through immutable publication receipt metadata", async () => {
+    const client = mockClient({
+      publish: vi.fn().mockResolvedValue({
+        ruleset_id: "b_1", version: "v2", deprecated_rulesets: [],
+        published_version_id: "pv_123", content_digest: "sha256:abc", published_version_label: "reviewed cut",
+      }),
+    });
+    const result = await createToolHandlers(client).aethis_publish({ project_id: "p_1" });
+    const output = text(result);
+    expect(output).toContain("pv_123");
+    expect(output).toContain("sha256:abc");
+    expect(output).toContain("reviewed cut");
+    expect(output).toContain("<api_response");
   });
 
   it("force publishes despite failures", async () => {

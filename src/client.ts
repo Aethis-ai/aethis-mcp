@@ -129,10 +129,17 @@ export class AethisClient {
     }
   }
 
-  private async request(method: string, path: string, body?: unknown, llmKey?: string): Promise<unknown> {
+  private async request(
+    method: string,
+    path: string,
+    body?: unknown,
+    llmKey?: string,
+    retry = true,
+  ): Promise<unknown> {
     const url = `${this.baseUrl}${path}`;
+    const maxRetries = retry ? MAX_RETRIES : 0;
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       let resp: Response;
 
       try {
@@ -155,17 +162,17 @@ export class AethisClient {
         };
         resp = await this.fetchFn(url, init);
       } catch (err) {
-        if (attempt < MAX_RETRIES) {
+        if (attempt < maxRetries) {
           await this.sleep(2 ** attempt * this.retryDelayMs);
           continue;
         }
         throw new AethisAPIError(
           0,
-          `Connection failed after ${MAX_RETRIES + 1} attempts: ${(err as Error).message}`,
+          `Connection failed after ${maxRetries + 1} attempt${maxRetries === 0 ? "" : "s"}: ${(err as Error).message}`,
         );
       }
 
-      if (RETRYABLE_STATUSES.has(resp.status) && attempt < MAX_RETRIES) {
+      if (RETRYABLE_STATUSES.has(resp.status) && attempt < maxRetries) {
         const retryAfter = parseFloat(resp.headers.get("Retry-After") ?? String(2 ** attempt));
         await this.sleep(Math.min(retryAfter, 30) * this.retryDelayMs);
         continue;
@@ -213,7 +220,7 @@ export class AethisClient {
 
     throw new AethisAPIError(
       0,
-      `Request failed after ${MAX_RETRIES + 1} attempts`,
+      `Request failed after ${maxRetries + 1} attempt${maxRetries === 0 ? "" : "s"}`,
     );
   }
 
@@ -553,6 +560,45 @@ export class AethisClient {
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`, {
       test_cases: testCases,
     });
+  }
+
+  /**
+   * Replace a project's complete test suite. The OpenAPI check is deliberately
+   * performed before the mutation: older engines append tests and would create
+   * a second suite. The replacement POST itself is sent exactly once because a
+   * retry after a lost response may allocate fresh test identities.
+   */
+  async replaceTests(projectId: string, testCases: unknown[]): Promise<unknown> {
+    let openApi: unknown;
+    try {
+      openApi = await this.request("GET", "/openapi.json");
+    } catch (error) {
+      if (error instanceof AethisAPIError) throw error;
+      throw new AethisAPIError(400, "Test-suite replacement is unavailable: the target OpenAPI document could not be read. No tests were changed.");
+    }
+    const replace = (
+      openApi as {
+        components?: { schemas?: { AddTestCaseRequest?: { properties?: Record<string, unknown> } } };
+      }
+    ).components?.schemas?.AddTestCaseRequest?.properties?.replace;
+    if (replace === undefined) {
+      throw new AethisAPIError(
+        400,
+        "Test-suite replacement is unavailable: the target OpenAPI document does not expose AddTestCaseRequest.properties.replace. No tests were changed.",
+      );
+    }
+    try {
+      return await this.request(
+        "POST",
+        `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`,
+        { test_cases: testCases, replace: true },
+        undefined,
+        false,
+      );
+    } catch (error) {
+      if (error instanceof AethisAPIError) throw error;
+      throw new AethisAPIError(0, "Replacement response could not be read after the single request.");
+    }
   }
 
   async runTests(projectId: string): Promise<unknown> {

@@ -460,6 +460,25 @@ export function createToolHandlers(client: AethisClient) {
   const REQUIRED_TC_KEYS = new Set(["name", "field_values", "expected_outcome"]);
   const VALID_OUTCOMES = new Set(["eligible", "not_eligible", "undetermined"]);
 
+  function validateReplacementTestCases(testCases: Array<Record<string, unknown>>): string | null {
+    if (testCases.length < 1 || testCases.length > 100) {
+      return "Error: test_cases must contain a complete suite of 1 to 100 cases.";
+    }
+    for (let i = 0; i < testCases.length; i++) {
+      const tc = testCases[i];
+      if (typeof tc.name !== "string" || !tc.name.trim()) {
+        return `Error: Test case ${i + 1} needs a non-empty name.`;
+      }
+      if (!tc.field_values || typeof tc.field_values !== "object" || Array.isArray(tc.field_values)) {
+        return `Error: Test case ${i + 1} needs field_values as an object.`;
+      }
+      if (!VALID_OUTCOMES.has(tc.expected_outcome as string)) {
+        return `Error: Test case ${i + 1} has invalid expected_outcome '${tc.expected_outcome}'. Must be: eligible, not_eligible, or undetermined.`;
+      }
+    }
+    return null;
+  }
+
   // Track test results per project for diff detection across iterations
   const previousTestResults = new Map<string, TestRunResult>();
   const iterationCounts = new Map<string, number>();
@@ -909,6 +928,36 @@ export function createToolHandlers(client: AethisClient) {
           `Next step: Call aethis_generate_and_test(project_id="${projectId}") to generate rules and run tests.`,
         ].join("\n"));
       } catch (e) { return apiError(e); }
+    },
+
+    async aethis_set_tests(args: {
+      project_id: string;
+      test_cases: Array<Record<string, unknown>>;
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      const casesErr = validateReplacementTestCases(args.test_cases);
+      if (casesErr) return err(casesErr);
+      try {
+        const result = await client.replaceTests(args.project_id, args.test_cases) as Record<string, unknown>;
+        const added = typeof result.added === "number" ? result.added : "unknown";
+        const replaced = typeof result.replaced === "number" ? result.replaced : "unknown";
+        return ok([
+          `Complete test suite replaced for project ${args.project_id}.`,
+          `  Added: ${added}`,
+          `  Replaced: ${replaced}`,
+        ].join("\n"));
+      } catch (e) {
+        if (e instanceof AethisAPIError && e.statusCode === 0) {
+          return err(
+            `Test-suite replacement outcome is unknown for project ${args.project_id}. ` +
+            "The request was sent once and was not retried. Inspect the project before approving another replacement.",
+          );
+        }
+        return apiError(e);
+      }
     },
 
     async aethis_list_guidance(args: { project_id: string }): Promise<ToolResult> {
@@ -1427,6 +1476,15 @@ export function createToolHandlers(client: AethisClient) {
         if (deprecated.length) {
           lines.push(`  Deprecated: ${deprecated.join(", ")}`);
         }
+        if (typeof pubResult.published_version_id === "string") {
+          lines.push(`  Published version ID: ${pubResult.published_version_id}`);
+        }
+        if (typeof pubResult.content_digest === "string") {
+          lines.push(`  Content digest: ${pubResult.content_digest}`);
+        }
+        if (typeof pubResult.published_version_label === "string") {
+          lines.push(`  Published version label: ${fenceUntrusted("published_version_label", pubResult.published_version_label)}`);
+        }
 
         // Ambient authoring-coach hint on the publish response (server-produced).
         const hint = formatReviewHint((pubResult as { review_hint?: ReviewHint | null }).review_hint);
@@ -1584,6 +1642,7 @@ export const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
   aethis_create_rulebook: { auth: "api_key", mutating: true, title: "Create rulebook" },
   aethis_update_rulebook: { auth: "api_key", mutating: true, idempotent: true, title: "Update rulebook" },
   aethis_create_ruleset: { auth: "api_key", mutating: true, title: "Create ruleset (TDD)" },
+  aethis_set_tests: { auth: "api_key", mutating: true, destructive: true, title: "Replace complete test suite" },
   aethis_add_guidance: { auth: "api_key", mutating: true, title: "Add project guidance" },
   aethis_add_domain_guidance: { auth: "api_key", mutating: true, title: "Add domain guidance" },
   aethis_set_field_spec: { auth: "api_key", mutating: true, idempotent: true, title: "Set field spec" },
@@ -1813,6 +1872,21 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     },
     toolAnnotations("aethis_create_ruleset"),
     (args) => handlers.aethis_create_ruleset(args),
+  );
+
+  server.tool(
+    "aethis_set_tests",
+    "Replace the complete reviewed test suite for an existing project after field discovery. Requires 1 to 100 cases and replaces prior tests without creating a project or changing its sources, fields, or guidance. This is destructive. The target API must advertise replacement support before any write. If the response is interrupted, inspect the project before approving another replacement.",
+    {
+      project_id: z.string().describe("Existing project ID whose complete test suite will be replaced"),
+      test_cases: z.array(z.object({
+        name: z.string().min(1).describe("Stable reviewed test-case name"),
+        field_values: z.record(z.string(), z.unknown()).describe("Input values using discovered field names"),
+        expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("Reviewed expected eligibility outcome"),
+      }).passthrough()).min(1).max(100).describe("The complete authoritative reviewed suite (1-100 cases); this replaces existing tests"),
+    },
+    toolAnnotations("aethis_set_tests"),
+    (args) => handlers.aethis_set_tests(args),
   );
 
   server.tool(
@@ -2100,7 +2174,7 @@ Now that you have the correct field vocabulary, write the full test suite:
 - Use "undetermined" when fields are absent and caseworker discretion applies
 - Use "undetermined" (NOT "not_eligible") for advisory restrictions that aren't statutory bars
 
-Update the ruleset with the full test suite by calling aethis_create_ruleset again with the complete test_cases list.
+Replace the existing project's tests with the full reviewed suite by calling aethis_set_tests with its project_id and complete test_cases list. Do not create another project. This destructive replacement accepts 1-100 cases; if its outcome is interrupted, inspect the project before approving another replacement.
 
 ## Step 5 — Seed domain guidance (recommended)
 If domain-level guidance exists (e.g., cross-section principles), import it before generating:
@@ -2302,7 +2376,7 @@ async function main(): Promise<void> {
         "Aethis is an AI platform for regulated eligibility checks.",
         "",
         "## Workflows",
-        "**Author rules** (TDD): aethis_create_ruleset → aethis_discover_fields → write tests with discovered field names → aethis_generate_and_test (60-120s) → aethis_refine (if failures) → aethis_publish",
+        "**Author rules** (TDD): aethis_create_ruleset → aethis_discover_fields → aethis_set_tests (complete reviewed suite) → aethis_generate_and_test (60-120s) → aethis_refine (if failures) → aethis_publish",
         "**Evaluate eligibility**: aethis_schema (discover fields) → aethis_decide (with optional include_trace/include_explanation)",
         "**Conversational check**: aethis_next_question iteratively with growing field_values until decision reached",
         "**Discover (public catalogue)**: aethis_discover_rulesets — no auth required; cross-tenant showcase rulesets",

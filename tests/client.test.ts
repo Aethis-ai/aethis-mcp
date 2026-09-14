@@ -386,6 +386,52 @@ describe("AethisClient API methods", () => {
     expect(JSON.parse(init.body)).toEqual({ test_cases: cases });
   });
 
+  it("replaceTests() checks OpenAPI support then posts one replacement request", async () => {
+    const cases = [{ name: "c1", field_values: {}, expected_outcome: "eligible" }];
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({
+        components: { schemas: { AddTestCaseRequest: { properties: { replace: { type: "boolean" } } } } },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ added: 1, replaced: 2 }));
+    await expect(client.replaceTests("p_1", cases)).resolves.toEqual({ added: 1, replaced: 2 });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[0][0]).toBe("https://api.aethis.ai/openapi.json");
+    expect(fetchSpy.mock.calls[1][0]).toBe("https://api.aethis.ai/api/v1/public/projects/p_1/tests");
+    expect(JSON.parse(fetchSpy.mock.calls[1][1].body)).toEqual({ test_cases: cases, replace: true });
+  });
+
+  it("replaceTests() refuses an unsupported OpenAPI schema before any write", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ components: { schemas: { AddTestCaseRequest: { properties: {} } } } }));
+    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({ statusCode: 400 });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaceTests() refuses an unreadable OpenAPI document before any write", async () => {
+    fetchSpy.mockResolvedValue(errorResponse(404, "not found"));
+    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({ statusCode: 404 });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaceTests() does not retry a failed replacement POST", async () => {
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({
+        components: { schemas: { AddTestCaseRequest: { properties: { replace: { type: "boolean" } } } } },
+      }))
+      .mockResolvedValueOnce(errorResponse(503, "replacement failed"));
+    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({ statusCode: 503 });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("replaceTests() does not retry a transport failure after capability preflight", async () => {
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({
+        components: { schemas: { AddTestCaseRequest: { properties: { replace: { type: "boolean" } } } } },
+      }))
+      .mockRejectedValueOnce(new Error("connection reset after commit"));
+    await expect(client.replaceTests("p_1", [])).rejects.toMatchObject({ statusCode: 0 });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("runTests() posts to /api/v1/public/projects/:id/test-run", async () => {
     await client.runTests("p_1");
     const [url, init] = fetchSpy.mock.calls[0];
