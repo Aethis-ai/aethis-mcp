@@ -130,7 +130,7 @@ Returns the most informative remaining question and the `optimal_path` of remain
 
 ## Setup
 
-Decision tools work with no key. Add `AETHIS_API_KEY` for authoring access (private beta).
+Decision tools work with no key. For invited authoring access, run `aethis login`, then install with `aethis mcp install --target <client>`. The installer references a saved profile so the host configuration does not contain the API key.
 
 ### Claude Code
 
@@ -139,7 +139,7 @@ Decision tools work with no key. Add `AETHIS_API_KEY` for authoring access (priv
 claude mcp add aethis -- npx -y aethis-mcp
 
 # With authoring access
-claude mcp add aethis -e AETHIS_API_KEY=<your-key> -- npx -y aethis-mcp
+claude mcp add aethis -e AETHIS_PROFILE=default -e XDG_CONFIG_HOME=/absolute/path/to/config -- npx -y aethis-mcp
 ```
 
 ### Claude Desktop
@@ -157,7 +157,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 }
 ```
 
-For authoring, add `"env": { "AETHIS_API_KEY": "<your-key>" }`.
+For authoring, add `"env": { "AETHIS_PROFILE": "default", "XDG_CONFIG_HOME": "/absolute/path/to/config" }`. Use your saved profile name and the absolute directory containing `aethis/credentials` (normally your home directory’s `.config`).
 
 ### Cursor / Windsurf
 
@@ -165,9 +165,19 @@ Add to `~/.cursor/mcp.json` or `~/.codeium/windsurf/mcp_config.json` (same JSON 
 
 ### Keys
 
-- `AETHIS_API_KEY` (`ak_live_...`) — Aethis platform key. **Set in the MCP client config**, not your shell — the MCP server doesn't inherit shell env. Mint with `aethis login` or via the dashboard.
+- `AETHIS_PROFILE` — non-secret saved profile name. It pins the account and endpoint used by this registration, even if the CLI’s `active_profile` later changes.
+- `XDG_CONFIG_HOME` — absolute config directory containing `aethis/credentials`. Relative values and credentials symlinks escaping your home/config directory are refused; credential files must have no group/other permission bits (normally `0600`).
+- `AETHIS_API_KEY` — optional deliberate process-environment override for the platform key. Prefer saved-profile references when installing; avoid putting raw keys in host config or command arguments. The host must securely supply the process environment; it may not inherit your shell environment.
 - `ANTHROPIC_API_KEY` — forwarded per-request to `aethis_generate_and_test`. Used per-call, never stored. See [Passing your Anthropic key safely](#passing-your-anthropic-key-safely) below — prefer the env-var or keychain reference forms over passing the raw key as a tool argument.
 - Rotate via `aethis account generate` + `aethis account revoke <key_id>`. Mint one key per machine for surgical revocation.
+
+### Credential precedence and restart behavior
+
+MCP parses the CLI credentials file as YAML. `AETHIS_PROFILE` selects a named profile; otherwise the file’s `active_profile` (or `default`) selects it. The profile supplies both its API key and `base_url`, with `https://api.aethis.ai` as the default endpoint. `AETHIS_API_KEY` and `AETHIS_BASE_URL` deliberately override their respective values. Missing or malformed explicitly selected profiles fail visibly, including when environment overrides are present. The reserved `anonymous` profile always stays unsigned. After anonymous setup, run `aethis login` and install again to reference the saved authoring profile, then restart the host.
+
+A saved profile outranks old macOS Keychain entries. If no profile is configured and no explicit name is selected, MCP can use the legacy default keychain entry, then the older flat `credentials.yaml` file. Flat `api_key`/`base_url` files at `aethis/credentials` remain supported. A configured profile awaiting login stays unsigned instead of borrowing another stored key.
+
+The server keeps its authenticated startup key and endpoint paired until restart. If it started without a key, an authenticated tool can pick up a later login for the same endpoint. A changed endpoint causes a visible refusal: restart the MCP host to load the new pair. Startup stderr reports only the credential source, never key values.
 
 ### Passing your Anthropic key safely
 
@@ -183,7 +193,8 @@ Authoring tools (`aethis_generate_and_test`, `aethis_refine`, `aethis_discover_f
          "command": "npx",
          "args": ["aethis-mcp"],
          "env": {
-           "AETHIS_API_KEY": "ak_live_...",
+           "AETHIS_PROFILE": "default",
+           "XDG_CONFIG_HOME": "/absolute/path/to/config",
            "ANTHROPIC_API_KEY": "sk-ant-..."   // never echoed back to the LLM
          }
        }

@@ -606,7 +606,7 @@ describe("aethis_list_rulebooks", () => {
   it("returns auth-required hint when no key can be resolved", async () => {
     vi.resetModules();
     vi.doMock("../src/credentials.js", () => ({
-      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveCredentials: vi.fn().mockRejectedValue(new Error("no key")),
       resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
       MissingLlmKeyError: class MissingLlmKeyError extends Error {},
     }));
@@ -702,7 +702,7 @@ describe("aethis_rulebook_schema", () => {
   it("returns auth-required hint when no key can be resolved", async () => {
     vi.resetModules();
     vi.doMock("../src/credentials.js", () => ({
-      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveCredentials: vi.fn().mockRejectedValue(new Error("no key")),
       resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
       MissingLlmKeyError: class MissingLlmKeyError extends Error {},
     }));
@@ -753,7 +753,7 @@ describe("aethis_graph", () => {
   it("returns auth-required hint for a rulebook graph when no key can be resolved", async () => {
     vi.resetModules();
     vi.doMock("../src/credentials.js", () => ({
-      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveCredentials: vi.fn().mockRejectedValue(new Error("no key")),
       resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
       MissingLlmKeyError: class MissingLlmKeyError extends Error {},
     }));
@@ -827,7 +827,7 @@ describe("aethis_create_rulebook", () => {
   it("returns auth-required hint when no key can be resolved", async () => {
     vi.resetModules();
     vi.doMock("../src/credentials.js", () => ({
-      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveCredentials: vi.fn().mockRejectedValue(new Error("no key")),
       resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
       MissingLlmKeyError: class MissingLlmKeyError extends Error {},
     }));
@@ -887,7 +887,7 @@ describe("aethis_update_rulebook", () => {
   it("returns auth-required hint when no key can be resolved", async () => {
     vi.resetModules();
     vi.doMock("../src/credentials.js", () => ({
-      resolveApiKey: vi.fn().mockRejectedValue(new Error("no key")),
+      resolveCredentials: vi.fn().mockRejectedValue(new Error("no key")),
       resolveLlmKey: vi.fn().mockResolvedValue("dummy"),
       MissingLlmKeyError: class MissingLlmKeyError extends Error {},
     }));

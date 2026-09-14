@@ -9,8 +9,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { AethisClient, AethisAPIError } from "./client.js";
-import { resolveApiKey, resolveLlmKey } from "./credentials.js";
+import { AethisClient, AethisAPIError, type AethisClientOptions } from "./client.js";
+import { resolveCredentials, resolveLlmKey } from "./credentials.js";
 import type { LlmKeyArgs } from "./credentials.js";
 import { runStartupUpdateCheck } from "./version-check.js";
 
@@ -431,12 +431,19 @@ export function formatReviewReport(report: ReviewReport): string {
 async function requireAuth(client: AethisClient): Promise<ToolResult | null> {
   if (client.hasApiKey) return null;
   try {
-    const key = await resolveApiKey();
-    client.setApiKey(key);
+    const credentials = await resolveCredentials();
+    if (!credentials.apiKey) {
+      if (process.env.AETHIS_PROFILE?.trim() === "anonymous") {
+        throw new Error("The anonymous profile is selected. Run 'aethis login', reinstall with 'aethis mcp install --target <client>' to reference an API-key profile, and restart your MCP host.");
+      }
+      throw new Error("No Aethis API key found. Run 'aethis login' or set AETHIS_API_KEY.");
+    }
+    client.setResolvedCredentials(credentials.apiKey, credentials.baseUrl);
     return null;
-  } catch {
+  } catch (error) {
     return err(
       "Authentication required for this operation.\n" +
+        (error as Error).message + "\n" +
         "Run 'aethis login' (CLI) or set AETHIS_API_KEY.\n" +
         "Decision tools (aethis_decide, aethis_schema, aethis_explain) work without authentication.",
     );
@@ -2270,22 +2277,22 @@ export function buildToolInventory(): ToolInventory {
 // Main
 // ---------------------------------------------------------------------------
 
+/** Construct the same credential snapshot used by the stdio server. */
+export async function createConfiguredClient(options?: AethisClientOptions): Promise<AethisClient> {
+  const credentials = await resolveCredentials();
+  const client = new AethisClient(credentials.apiKey, credentials.baseUrl, options);
+  console.error(`Aethis credentials source: ${credentials.source}`);
+  return client;
+}
+
 async function main(): Promise<void> {
   // Fire-and-forget: never awaited, so a slow/failed npm registry lookup
   // can never delay server readiness. See src/version-check.ts.
   runStartupUpdateCheck(PKG_VERSION);
 
-  const baseUrl = process.env.AETHIS_BASE_URL ?? "https://api.aethis.ai";
-
-  // Try to resolve a key, but don't fail — decision tools work without auth
-  let apiKey = "";
-  try {
-    apiKey = await resolveApiKey();
-  } catch {
-    // No key found — authoring tools will prompt when called
-  }
-
-  const client = new AethisClient(apiKey, baseUrl);
+  // Missing keys are allowed; invalid selected profiles and unsafe files fail
+  // visibly instead of silently switching the account to anonymous.
+  const client = await createConfiguredClient();
   const handlers = createToolHandlers(client);
 
   const server = new McpServer(

@@ -101,8 +101,26 @@ export class AethisClient {
     this.apiKey = key;
   }
 
+  /**
+   * Late login may add a key only for this client's existing endpoint.
+   * Changing the endpoint requires a new server snapshot, so outstanding
+   * requests can never cross from one account/endpoint pair to another.
+   */
+  setResolvedCredentials(key: string, baseUrl: string): void {
+    if (baseUrl.replace(/\/+$/, "") !== this.baseUrl) {
+      throw new Error("Aethis profile endpoint changed after server startup. Restart your MCP host to load the new credential/endpoint pair.");
+    }
+    this.apiKey = key;
+  }
+
   private validateBaseUrl(url: string): void {
-    const parsed = new URL(url);
+    let parsed: URL;
+    try { parsed = new URL(url); } catch {
+      throw new AethisAPIError(400, "Invalid Aethis base URL. Use an HTTP(S) endpoint and restart.");
+    }
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+      throw new AethisAPIError(400, "Invalid Aethis base URL. Use an HTTP(S) endpoint without embedded credentials, query, or fragment and restart.");
+    }
     if (parsed.protocol === "http:" && !LOCAL_HOSTS.has(parsed.hostname)) {
       throw new AethisAPIError(
         400,
