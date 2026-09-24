@@ -5,7 +5,7 @@
  * rejected key; nothing key-shaped is ever relayed. Fails closed: a value that
  * cannot be rendered is replaced, never passed through.
  */
-const KEY_PATTERN = /sk-(?:ant-|proj-|svcacct-|admin-)?[A-Za-z0-9_\-*.]{6,}/g;
+const KEY_PATTERN = /(?<![A-Za-z0-9])sk-(?:ant-|proj-|svcacct-|admin-)?[A-Za-z0-9_\-*.]{6,}/g;
 
 export const REDACTED = "[REDACTED_PROVIDER_KEY]";
 

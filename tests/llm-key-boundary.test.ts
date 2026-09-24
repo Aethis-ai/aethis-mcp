@@ -170,3 +170,10 @@ describe("key-shaped text never reaches a tool result", () => {
     delete process.env.MY_AETHIS_ANTHROPIC_KEY;
   });
 });
+
+describe("masking leaves ordinary identifiers alone", () => {
+  it.each(["risk-assessment-v2", "task-management-queue", "desk-booking"])("%s survives", async (word) => {
+    const { redactSecrets } = await import("../src/redact.js");
+    expect(redactSecrets(`field ${word} ok`)).toBe(`field ${word} ok`);
+  });
+});
