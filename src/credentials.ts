@@ -298,38 +298,80 @@ export class MissingLlmKeyError extends Error {
   }
 }
 
+/** A provider credential was offered in a form this server will not send. */
+export class LlmKeyNotPermittedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LlmKeyNotPermittedError";
+  }
+}
+
 /**
- * Resolve a per-call LLM API key from the safer reference forms first
- * (env var / keychain), falling back to the raw `anthropic_key` /
- * `openai_key` arguments. Throws MissingLlmKeyError if all forms are
- * empty.
+ * The MCP server config variable in which the USER names the environment
+ * variable holding their Anthropic key. Only that variable is ever read: an
+ * env-var name supplied in a tool call is chosen by the host model, not the
+ * user, so it is never sufficient on its own.
+ */
+export const ANTHROPIC_KEY_ENV_SETTING = "AETHIS_ANTHROPIC_KEY_ENV";
+
+const ANTHROPIC_KEY_PREFIX = "sk-ant-";
+
+const SETUP_HINT =
+  "To let Aethis use an Anthropic key, the user must configure it: set " +
+  `${ANTHROPIC_KEY_ENV_SETTING}=<name of the env var holding the key> in this MCP server's config ` +
+  "(or store it in the macOS keychain under the 'aethis-anthropic-key' service), then restart the MCP host.";
+
+function requireAnthropicShape(value: string): string {
+  if (!value.startsWith(ANTHROPIC_KEY_PREFIX)) {
+    throw new LlmKeyNotPermittedError(
+      "The supplied value is not an Anthropic API key, so it was not sent. Aethis only accepts Anthropic keys " +
+        `(prefix '${ANTHROPIC_KEY_PREFIX}'). ${SETUP_HINT}`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Resolve the Anthropic key for an LLM-backed tool, or refuse.
  *
- * Background (#35): when an MCP host renders a tool call, raw secret
- * strings appear in the session transcript JSONL on disk. The reference
- * forms let the user keep the raw value off the wire — the server reads
- * it locally at call time from env or keychain.
+ * A provider credential leaves this process only when the user configured it:
+ *   1. the env var named by `AETHIS_ANTHROPIC_KEY_ENV` in the server config
+ *      (a tool call may repeat that exact name, but never choose another);
+ *   2. an explicit macOS keychain reference (an entry the user created for Aethis);
+ *   3. a raw `anthropic_key` argument the user pasted (deprecated: it lands in
+ *      the host transcript).
+ * `openai_key` is refused, and every value must be Anthropic-shaped. No error
+ * message contains a key value.
  */
 export async function resolveLlmKey(args: LlmKeyArgs): Promise<string> {
-  const envName = args.anthropic_key_env?.trim();
-  if (envName) {
-    const v = process.env[envName]?.trim();
-    if (v) return v;
+  if (args.openai_key?.trim()) {
+    throw new LlmKeyNotPermittedError(
+      "openai_key is no longer accepted: Aethis LLM tools use Anthropic models only, and a key is never sent to " +
+        `a different provider. ${SETUP_HINT}`,
+    );
   }
+
+  const configured = process.env[ANTHROPIC_KEY_ENV_SETTING]?.trim();
+  const requested = args.anthropic_key_env?.trim();
+  if (requested && requested !== configured) {
+    throw new LlmKeyNotPermittedError(
+      `This server does not read environment variables named in a tool call. ${SETUP_HINT}`,
+    );
+  }
+  if (configured) {
+    const v = process.env[configured]?.trim();
+    if (v) return requireAnthropicShape(v);
+  }
+
   const keychainRef = args.anthropic_key_keychain?.trim();
   if (keychainRef) {
     const v = await fromLlmKeychainEntry(keychainRef);
-    if (v) return v;
+    if (v) return requireAnthropicShape(v);
   }
-  const raw = args.anthropic_key?.trim() || args.openai_key?.trim();
-  if (raw) return raw;
+  const raw = args.anthropic_key?.trim();
+  if (raw) return requireAnthropicShape(raw);
 
-  throw new MissingLlmKeyError(
-    "An Anthropic API key is required for this tool. " +
-      "Preferred forms (raw value never appears in the session transcript):\n" +
-      "  - anthropic_key_env: 'ANTHROPIC_API_KEY'  (env var name set in your MCP client config)\n" +
-      "  - anthropic_key_keychain: 'my-anthropic'  (macOS keychain account; service defaults to 'aethis-anthropic-key')\n" +
-      "Direct anthropic_key is also accepted but deprecated: the raw key lands in the host's session JSONL.",
-  );
+  throw new MissingLlmKeyError(`An Anthropic API key is required for this tool and none is configured. ${SETUP_HINT}`);
 }
 
 /** Backwards-compatible key-only API; new clients must resolve the full pair. */

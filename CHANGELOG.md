@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.19.0 (2026-09-24)
+
+**Security: provider credentials leave the process only when the user configured them for Aethis.** Upgrade recommended.
+
+- **Breaking:** an Anthropic key is read from the environment only via the new `AETHIS_ANTHROPIC_KEY_ENV` server setting, in which the user names the variable holding the key. An `anthropic_key_env` value supplied in a tool call is refused unless it equals that configured name, so a host model can no longer opt a user's `ANTHROPIC_API_KEY` (or any other variable) in on its own. The missing-key error now tells the user how to configure a key instead of suggesting an argument for the model to retry with.
+- **Breaking:** the retired `openai_key` argument is refused. Previously it was sent in the Anthropic key header.
+- Any key value that is not Anthropic-shaped (`sk-ant-…`) is refused locally and never sent.
+- Key-shaped text (`sk-ant-…`, `sk-proj-…`, provider-masked echoes) in any upstream response or error is masked before it reaches the MCP client.
+- If you previously exported a provider key in your MCP host's environment and used the authoring tools, rotate that key.
+
 ## 0.18.0 (2026-09-14)
 
 - Add `aethis_set_tests(project_id, test_cases)` for destructive replacement of one existing project's complete reviewed 1–100-case suite. It verifies the target OpenAPI replacement capability before writing, preserves project sources, fields and guidance, and never creates another project.
