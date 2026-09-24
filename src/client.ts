@@ -3,6 +3,7 @@
  */
 
 import { createRequire } from "node:module";
+import { redactSecrets } from "./redact.js";
 
 const require = createRequire(import.meta.url);
 const { version: CLIENT_VERSION } = require("../package.json") as { version: string };
@@ -20,7 +21,9 @@ export class AethisAPIError extends Error {
     public readonly action?: string,
     public readonly missingPermissions: string[] = [],
   ) {
+    detail = redactSecrets(detail);
     super(`HTTP ${statusCode}: ${detail}`);
+    this.detail = detail;
     this.name = "AethisAPIError";
   }
 }

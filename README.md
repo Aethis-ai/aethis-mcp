@@ -168,7 +168,7 @@ Add to `~/.cursor/mcp.json` or `~/.codeium/windsurf/mcp_config.json` (same JSON 
 - `AETHIS_PROFILE` — non-secret saved profile name. It pins the account and endpoint used by this registration, even if the CLI’s `active_profile` later changes.
 - `XDG_CONFIG_HOME` — absolute config directory containing `aethis/credentials`. Relative values and credentials symlinks escaping your home/config directory are refused; credential files must have no group/other permission bits (normally `0600`).
 - `AETHIS_API_KEY` — optional deliberate process-environment override for the platform key. Prefer saved-profile references when installing; avoid putting raw keys in host config or command arguments. The host must securely supply the process environment; it may not inherit your shell environment.
-- `ANTHROPIC_API_KEY` — forwarded per-request to `aethis_generate_and_test`. Used per-call, never stored. See [Passing your Anthropic key safely](#passing-your-anthropic-key-safely) below — prefer the env-var or keychain reference forms over passing the raw key as a tool argument.
+- `AETHIS_ANTHROPIC_KEY_ENV` — the **name** of the env var holding the Anthropic key Aethis authoring tools may use (e.g. `AETHIS_ANTHROPIC_KEY`). The server never reads a provider key from the environment unless you set this. See [Passing your Anthropic key safely](#passing-your-anthropic-key-safely).
 - Rotate via `aethis account generate` + `aethis account revoke <key_id>`. Mint one key per machine for surgical revocation.
 
 ### Credential precedence and restart behavior
@@ -183,7 +183,9 @@ The server keeps its authenticated startup key and endpoint paired until restart
 
 Authoring tools (`aethis_generate_and_test`, `aethis_refine`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_discover_sections`, `aethis_refine_sections`) need an Anthropic API key per call. Three accepted forms — listed in **preferred order**:
 
-1. **`anthropic_key_env`** (recommended). Name of an env var (set in the MCP client config) that holds the key. The raw value never appears in the tool call payload, so it does not land in the MCP host's session transcript on disk.
+The server sends a provider key to Aethis **only when you configured one for Aethis**. It never picks up `ANTHROPIC_API_KEY` (or any other variable) from your environment on its own, and an env-var name supplied in a tool call by the host model is refused unless it is the one you configured. Only Anthropic keys (`sk-ant-…`) are accepted; anything else is refused locally and not sent.
+
+1. **`AETHIS_ANTHROPIC_KEY_ENV`** (recommended). In the MCP server config, put the key in a dedicated env var and name that var in `AETHIS_ANTHROPIC_KEY_ENV`. Tools then use it automatically. The raw value never appears in the tool call payload, so it does not land in the MCP host's session transcript on disk.
 
    ```jsonc
    // claude_desktop_config.json
@@ -195,7 +197,8 @@ Authoring tools (`aethis_generate_and_test`, `aethis_refine`, `aethis_discover_f
          "env": {
            "AETHIS_PROFILE": "default",
            "XDG_CONFIG_HOME": "/absolute/path/to/config",
-           "ANTHROPIC_API_KEY": "sk-ant-..."   // never echoed back to the LLM
+           "AETHIS_ANTHROPIC_KEY_ENV": "AETHIS_ANTHROPIC_KEY",
+           "AETHIS_ANTHROPIC_KEY": "sk-ant-..."   // never echoed back to the LLM
          }
        }
      }
@@ -203,7 +206,7 @@ Authoring tools (`aethis_generate_and_test`, `aethis_refine`, `aethis_discover_f
    ```
 
    ```
-   aethis_generate_and_test({ project_id, anthropic_key_env: "ANTHROPIC_API_KEY" })
+   aethis_generate_and_test({ project_id })   // uses the configured key
    ```
 
 2. **`anthropic_key_keychain`** (macOS). A keychain reference — either `"account"` (service defaults to `aethis-anthropic-key`) or `"service:account"`. Store the key once with `security add-generic-password -U -s aethis-anthropic-key -a my-anthropic -w 'sk-ant-...'`, then call:
@@ -292,7 +295,7 @@ aethis_explain_failure({
 > **Tests are the publish gate.** `aethis_publish` refuses to publish a ruleset with a failing test. SMEs write the tests; the LLM generates the rules from source text + guidance; the platform refuses to ship rules that don't satisfy the tests. Better tests = faster convergence.
 
 > [!IMPORTANT]
-> Anthropic key required for authoring. Prefer `anthropic_key_env` (env var name) or `anthropic_key_keychain` (macOS keychain ref) over the raw `anthropic_key` argument — see [Passing your Anthropic key safely](#passing-your-anthropic-key-safely). Used per-request, never stored server-side; the raw form, however, lands in the MCP host's session transcript on disk.
+> Anthropic key required for authoring. Configure `AETHIS_ANTHROPIC_KEY_ENV` or use `anthropic_key_keychain` (macOS keychain ref) rather than the raw `anthropic_key` argument — see [Passing your Anthropic key safely](#passing-your-anthropic-key-safely). Used per-request, never stored server-side; the raw form, however, lands in the MCP host's session transcript on disk.
 
 > [!IMPORTANT]
 > DATE fields use integer ordinals (`date.toordinal()`), not ISO strings. `2025-04-13` = `739354`. Quick conversion: `python3 -c "from datetime import date; print(date(2025,4,13).toordinal())"`.
@@ -346,7 +349,7 @@ aethis_explain_failure({
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `API key is required` | `AETHIS_API_KEY` not set (authoring) | Configure in MCP client settings, not shell profile |
-| `X-Anthropic-Key header is required` | Missing Anthropic key | Pass `anthropic_key_env` (preferred) / `anthropic_key_keychain` / `anthropic_key` on the tool call. See [Passing your Anthropic key safely](#passing-your-anthropic-key-safely). |
+| `X-Anthropic-Key header is required` | Missing Anthropic key | Set `AETHIS_ANTHROPIC_KEY_ENV` in the MCP server config (preferred), or pass `anthropic_key_keychain` / `anthropic_key` on the tool call. See [Passing your Anthropic key safely](#passing-your-anthropic-key-safely). |
 | `Ruleset not found` (404) | Wrong ID or archived | `aethis_list_projects` → `aethis_list_rulesets` |
 | `Rate limit exceeded` (429) | Daily limit | Client retries automatically. [eng@aethis.ai](mailto:eng@aethis.ai) for higher tier |
 | `Cannot publish: tests failing` | Tests don't pass | `aethis_refine` until all tests pass |

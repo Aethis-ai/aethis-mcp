@@ -38,6 +38,7 @@ const {
   InvalidCredentialsError,
   resolveLlmKey,
   MissingLlmKeyError,
+  LlmKeyNotPermittedError,
   UnsafeCredentialsError,
 } = await import("../src/credentials.js");
 
@@ -195,11 +196,11 @@ describe("resolveApiKey (fallback chain)", () => {
     Object.defineProperty(process, "platform", { value: "darwin" });
     mockExecFile.mockImplementation(
       (_cmd: string, _args: string[], _opts: unknown, cb: (err: null, stdout: string) => void) => {
-        cb(null, "ak_from_keychain\n");
+        cb(null, "sk-ant-from-keychain\n");
       },
     );
     const key = await resolveApiKey();
-    expect(key).toBe("ak_from_keychain");
+    expect(key).toBe("sk-ant-from-keychain");
     expect(mockExecFile).toHaveBeenCalledWith(
       "security",
       ["find-generic-password", "-s", "aethis-cli", "-a", "api_key", "-w"],
@@ -362,6 +363,7 @@ describe("resolveLlmKey", () => {
     // assertions that expect the env-var path to be absent.
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.LLM_KEY_VIA_ENV;
+    delete process.env.AETHIS_ANTHROPIC_KEY_ENV;
   });
 
   afterEach(() => {
@@ -369,21 +371,23 @@ describe("resolveLlmKey", () => {
     Object.defineProperty(process, "platform", { value: originalPlatform });
   });
 
-  it("resolves from anthropic_key_env when the named var is set", async () => {
-    process.env.LLM_KEY_VIA_ENV = "ak_from_env";
+  it("resolves from the env var the user configured via AETHIS_ANTHROPIC_KEY_ENV", async () => {
+    process.env.AETHIS_ANTHROPIC_KEY_ENV = "LLM_KEY_VIA_ENV";
+    process.env.LLM_KEY_VIA_ENV = "sk-ant-from-env";
     const key = await resolveLlmKey({ anthropic_key_env: "LLM_KEY_VIA_ENV" });
-    expect(key).toBe("ak_from_env");
+    expect(key).toBe("sk-ant-from-env");
     // No keychain or raw-key lookup happened.
     expect(mockExecFile).not.toHaveBeenCalled();
   });
 
   it("ignores empty env var and falls back to raw anthropic_key", async () => {
+    process.env.AETHIS_ANTHROPIC_KEY_ENV = "LLM_KEY_VIA_ENV";
     process.env.LLM_KEY_VIA_ENV = "";
     const key = await resolveLlmKey({
       anthropic_key_env: "LLM_KEY_VIA_ENV",
-      anthropic_key: "ak_raw_fallback",
+      anthropic_key: "sk-ant-raw-fallback",
     });
-    expect(key).toBe("ak_raw_fallback");
+    expect(key).toBe("sk-ant-raw-fallback");
   });
 
   it("resolves from anthropic_key_keychain on macOS", async () => {
@@ -403,11 +407,11 @@ describe("resolveLlmKey", () => {
           "my-anthropic",
           "-w",
         ]);
-        cb(null, "ak_from_keychain\n");
+        cb(null, "sk-ant-from-keychain\n");
       },
     );
     const key = await resolveLlmKey({ anthropic_key_keychain: "my-anthropic" });
-    expect(key).toBe("ak_from_keychain");
+    expect(key).toBe("sk-ant-from-keychain");
   });
 
   it("supports explicit service:account form for keychain", async () => {
@@ -427,13 +431,13 @@ describe("resolveLlmKey", () => {
           "my-account",
           "-w",
         ]);
-        cb(null, "ak_explicit\n");
+        cb(null, "sk-ant-explicit\n");
       },
     );
     const key = await resolveLlmKey({
       anthropic_key_keychain: "my-service:my-account",
     });
-    expect(key).toBe("ak_explicit");
+    expect(key).toBe("sk-ant-explicit");
   });
 
   it("falls back to raw anthropic_key when keychain lookup fails", async () => {
@@ -445,21 +449,20 @@ describe("resolveLlmKey", () => {
     );
     const key = await resolveLlmKey({
       anthropic_key_keychain: "missing",
-      anthropic_key: "ak_raw_after_keychain_miss",
+      anthropic_key: "sk-ant-raw-after-keychain-miss",
     });
-    expect(key).toBe("ak_raw_after_keychain_miss");
+    expect(key).toBe("sk-ant-raw-after-keychain-miss");
   });
 
-  it("falls back to deprecated openai_key when no other source provides one", async () => {
-    const key = await resolveLlmKey({ openai_key: "sk-deprecated" });
-    expect(key).toBe("sk-deprecated");
+  it("refuses the retired openai_key argument", async () => {
+    await expect(resolveLlmKey({ openai_key: "sk-deprecated" })).rejects.toBeInstanceOf(LlmKeyNotPermittedError);
   });
 
   it("throws MissingLlmKeyError when every source is empty", async () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     await expect(resolveLlmKey({})).rejects.toBeInstanceOf(MissingLlmKeyError);
-    await expect(resolveLlmKey({})).rejects.toThrow(/anthropic_key_env/);
-    await expect(resolveLlmKey({})).rejects.toThrow(/anthropic_key_keychain/);
+    await expect(resolveLlmKey({})).rejects.toThrow(/AETHIS_ANTHROPIC_KEY_ENV/);
+    await expect(resolveLlmKey({})).rejects.toThrow(/keychain/);
   });
 
   it("throws when whitespace-only values are passed for every form", async () => {
@@ -467,7 +470,6 @@ describe("resolveLlmKey", () => {
     await expect(
       resolveLlmKey({
         anthropic_key: "   ",
-        openai_key: "\t",
         anthropic_key_env: "  ",
         anthropic_key_keychain: " ",
       }),

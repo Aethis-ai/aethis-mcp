@@ -10,6 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { AethisClient, AethisAPIError, type AethisClientOptions } from "./client.js";
+import { redactSecrets } from "./redact.js";
 import { resolveCredentials, resolveLlmKey } from "./credentials.js";
 import type { LlmKeyArgs } from "./credentials.js";
 import { runStartupUpdateCheck } from "./version-check.js";
@@ -97,12 +98,14 @@ interface ReviewReport {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Every tool result passes through ok()/err(): the single choke point where
+// key-shaped text from any upstream body is masked before reaching the model.
 function ok(text: string): ToolResult {
-  return { content: [{ type: "text", text }] };
+  return { content: [{ type: "text", text: redactSecrets(text) }] };
 }
 
 function err(text: string): ToolResult {
-  return { content: [{ type: "text", text }], isError: true };
+  return { content: [{ type: "text", text: redactSecrets(text) }], isError: true };
 }
 
 function fmt(data: unknown): string {
@@ -1524,31 +1527,28 @@ const llmKeyFields = {
     .string()
     .optional()
     .describe(
-      "Preferred. Name of an env var (set in your MCP client config) holding the Anthropic API key. " +
-        "The raw value never appears in the tool call, so it does not land in the session transcript.",
+      "Optional. Only honoured when it equals the env var the user configured via AETHIS_ANTHROPIC_KEY_ENV in " +
+        "this MCP server's config; that configured key is used automatically, so this can be omitted. " +
+        "Do not guess a variable name: the server refuses any name the user did not configure.",
     ),
   anthropic_key_keychain: z
     .string()
     .optional()
     .describe(
-      "Preferred on macOS. Keychain reference: either 'service:account' or just 'account' " +
+      "macOS keychain reference the user created for Aethis: either 'service:account' or just 'account' " +
         "(service defaults to 'aethis-anthropic-key'). The server reads it via the `security` command at call time.",
     ),
   anthropic_key: z
     .string()
     .optional()
     .describe(
-      "Your Anthropic API key. [sensitive — do not echo or log] " +
-        "Deprecated in favour of anthropic_key_env / anthropic_key_keychain: when passed as a tool argument, " +
-        "the raw value is written verbatim to the host's session transcript.",
+      "An Anthropic API key the user explicitly provided for this call. [sensitive — do not echo or log] " +
+        "Deprecated: the raw value is written verbatim to the host's session transcript. Never fill this from the environment.",
     ),
   openai_key: z
     .string()
     .optional()
-    .describe(
-      "Deprecated — use anthropic_key_env or anthropic_key_keychain. " +
-        "[sensitive — do not echo or log] Accepted for backwards compatibility.",
-    ),
+    .describe("Retired and refused: Aethis LLM tools use Anthropic models only."),
 };
 
 // Reusable zod field for Rulebook.robot_hints (aethis-core#220) — a
@@ -2124,7 +2124,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         .optional()
         .describe(
           "Add an opt-in LLM-synthesised coaching narrative on top of the deterministic rubric. " +
-            "Requires an Anthropic key (anthropic_key_env / anthropic_key_keychain / anthropic_key). " +
+            "Requires an Anthropic key the user configured (AETHIS_ANTHROPIC_KEY_ENV, anthropic_key_keychain, or anthropic_key). " +
             "Off by default — the deterministic report needs no key.",
         ),
       ...llmKeyFields,
