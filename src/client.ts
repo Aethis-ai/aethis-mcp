@@ -682,6 +682,11 @@ export class AethisClient {
     // 2. Poll until done
     const deadline = Date.now() + this.pollTimeoutMs;
     let rulesetId: string | undefined;
+    // Authoring-safeguard fields on the TERMINAL status response (epic
+    // aethis-workspace#1575, aethis-mcp#92). The test-run below does not carry
+    // them, so dropping them here would hide source questions from the tool
+    // output. Only present keys are kept (older engines omit them).
+    const terminal: Record<string, unknown> = {};
 
     let lastDetail = "";
 
@@ -706,6 +711,12 @@ export class AethisClient {
 
         if (jobStatus === "success") {
           rulesetId = (status.latest_ruleset_id ?? jobData.result_ruleset_id) as string | undefined;
+          for (const key of TERMINAL_STATUS_FIELDS) {
+            if (status[key] !== undefined) terminal[key] = status[key];
+          }
+          for (const key of TERMINAL_JOB_FIELDS) {
+            if (jobData[key] !== undefined) terminal[key] = jobData[key];
+          }
           break;
         }
         if (jobStatus === "failed") {
@@ -738,9 +749,18 @@ export class AethisClient {
     // 3. Run tests
     const testResult = await this.runTests(projectId) as Record<string, unknown>;
 
-    return {
-      ruleset_id: rulesetId,
-      ...testResult,
-    };
+    // The test-run response wins where it carries a value; a terminal status
+    // field fills in whatever the test-run omits or returns as null.
+    const merged: Record<string, unknown> = { ruleset_id: rulesetId, ...terminal, ...testResult };
+    for (const [key, value] of Object.entries(terminal)) {
+      if (merged[key] === undefined || merged[key] === null) merged[key] = value;
+    }
+    return merged;
   }
 }
+
+/** Top-level fields of the terminal `/status` response that `generateAndTest()`
+ * preserves for rendering (aethis-mcp#92). */
+const TERMINAL_STATUS_FIELDS = ["source_questions", "review_hint"] as const;
+/** Fields of the terminal status response's `job` that it preserves. */
+const TERMINAL_JOB_FIELDS = ["source_question_count", "source_question_turns"] as const;

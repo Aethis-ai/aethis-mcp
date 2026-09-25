@@ -68,6 +68,23 @@ function taintedClient(overrides: Record<string, unknown> = {}): AethisClient {
     missing_fields: ["f1", "f2"],
     graph_overlay: { note: FT },
   };
+  const sourceQuestion = {
+    id: FT,
+    clauses: [{ citation_key: FT, quote: FT }],
+    kind: FT,
+    readings: [FT, FT],
+    provisional_reading: FT,
+    affected_criteria: [FT],
+    inherited_from: FT,
+  };
+  const sourceCheck = {
+    status: "warnings",
+    warnings: [
+      { kind: "mismatch", citation_key: FT, source_id: FT, stamped_digest: FT, cited_digest: FT },
+      { kind: "unverifiable", citation_key: FT, source_id: FT },
+      { kind: FT },
+    ],
+  };
   const testRun = {
     ruleset_id: "b_1",
     total: 1,
@@ -76,6 +93,9 @@ function taintedClient(overrides: Record<string, unknown> = {}): AethisClient {
     errors: 0,
     results: [{ name: "tc1", expected: "eligible", actual: "eligible", passed: true }],
     review_hint: { message: FT, check_id: "grounding", actionable_via: "aethis_add_guidance" },
+    // Authoring safeguards (aethis-mcp#92): question text is untrusted.
+    source_questions: [sourceQuestion],
+    source_question_count: 1,
   };
   const defaults: Record<string, unknown> = {
     hasApiKey: true,
@@ -98,7 +118,7 @@ function taintedClient(overrides: Record<string, unknown> = {}): AethisClient {
     getRulebookGraph: vi.fn().mockResolvedValue({ rulebook_id: "rb_1", slug: "aethis/x", name: FT, graph: { nodes: [{ label: FT }] }, mermaid: FT }),
     listProjects: vi.fn().mockResolvedValue([{ project_id: "p1", name: FT, domain: FT }]),
     listRulesets: vi.fn().mockResolvedValue([{ ruleset_id: "b1", name: FT, description: FT }]),
-    getStatus: vi.fn().mockResolvedValue({ generation_contract_version: 1, project_status: "generating", job: { job_id: "j_1", status: "running", progress_detail: FT } }),
+    getStatus: vi.fn().mockResolvedValue({ generation_contract_version: 1, project_status: "generating", job: { job_id: "j_1", status: "running", progress_detail: FT }, source_questions: [sourceQuestion] }),
     cancelGeneration: vi.fn().mockResolvedValue({ project_id: "p1", job: { job_id: "j1", status: "cancelled", error_message: FT } }),
     discoverRulesets: vi.fn().mockResolvedValue([{ slug: "s", ruleset_id: "b1", name: FT, description: FT }]),
     listRulebooks: vi.fn().mockResolvedValue([{ rulebook_id: "rb1", name: FT, description: FT, domain: FT }]),
@@ -138,7 +158,7 @@ function taintedClient(overrides: Record<string, unknown> = {}): AethisClient {
     setFieldSpec: vi.fn().mockResolvedValue({}),
     generateAndTest: vi.fn().mockResolvedValue(testRun),
     runTests: vi.fn().mockResolvedValue(testRun),
-    publish: vi.fn().mockResolvedValue({ ruleset_id: "b1", version: "1", deprecated_rulesets: [], review_hint: { message: FT } }),
+    publish: vi.fn().mockResolvedValue({ ruleset_id: "b1", version: "1", deprecated_rulesets: [], review_hint: { message: FT }, source_check: sourceCheck, source_questions: [sourceQuestion] }),
     reviewProject: vi.fn().mockResolvedValue({ project_id: "p1", rubric_version: "1", score: 80, checks: [{ id: "c1", group: "grounding", status: "fail", evidence: FT }], strengths: [FT], next_skill: { message: FT, actionable_via: "x" }, coaching: FT, data_completeness: "ok" }),
   };
   return { ...defaults, ...overrides } as unknown as AethisClient;

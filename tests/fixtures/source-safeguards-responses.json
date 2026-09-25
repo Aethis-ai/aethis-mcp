@@ -1,0 +1,134 @@
+{
+  "status_terminal": {
+    "generation_contract_version": 1,
+    "telemetry_availability": "current",
+    "retry_readiness": "ready",
+    "worker_lifecycle": "terminal",
+    "project_status": "ready",
+    "job": {
+      "job_id": "j_sq1",
+      "status": "success",
+      "progress_percent": 100,
+      "result_ruleset_id": "spacecraft-crew-certification:20260925-a1b2c3d4",
+      "source_question_count": 1,
+      "source_question_turns": 0
+    },
+    "latest_ruleset_id": "spacecraft-crew-certification:20260925-a1b2c3d4",
+    "test_results": null,
+    "source_questions": [
+      {
+        "id": "sq_3c1e9a0b7d2f",
+        "clauses": [
+          {
+            "citation_key": "src_7f3a9c#item_000004",
+            "quote": "An applicant who has logged at least 1,000 flight hours is exempt from the flight-readiness assessment"
+          },
+          {
+            "citation_key": "src_7f3a9c#item_000004",
+            "quote": "unless the applicant qualifies under subsection (3)"
+          }
+        ],
+        "kind": "conflict",
+        "readings": [
+          "The hours exemption applies at any age.",
+          "It applies only under subsection (3)."
+        ],
+        "provisional_reading": "The hours exemption applies only under subsection (3).",
+        "affected_criteria": [
+          "flight_readiness_exempt_1000hrs"
+        ],
+        "inherited_from": null
+      },
+      {
+        "id": "sq_9e8d7c6b5a41",
+        "clauses": [
+          {
+            "citation_key": "src_7f3a9c#item_000002",
+            "quote": "a medical certificate issued within the preceding period"
+          }
+        ],
+        "kind": "ambiguity",
+        "readings": [
+          "Twelve months.",
+          "The period set by the licensing authority."
+        ],
+        "provisional_reading": "Twelve months.",
+        "affected_criteria": [],
+        "inherited_from": "spacecraft-crew-certification:20260913-bee69257"
+      }
+    ]
+  },
+  "publish": {
+    "message": "Ruleset published successfully",
+    "ruleset_id": "spacecraft-crew-certification:20260925-a1b2c3d4",
+    "project_id": "proj_sq_fixture",
+    "version": 6,
+    "deprecated_rulesets": [
+      "spacecraft-crew-certification:20260913-bee69257"
+    ],
+    "slug": null,
+    "source_check": {
+      "status": "warnings",
+      "warnings": [
+        {
+          "kind": "mismatch",
+          "citation_key": "src_7f3a9c#item_000004",
+          "source_id": "src_7f3a9c",
+          "stamped_digest": "sha256:303eed8e00000000000000000000000000000000000000000000000000000000",
+          "cited_digest": "sha256:71a9714411111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "kind": "unverifiable",
+          "citation_key": "src_1b2c3d#item_000001",
+          "source_id": "src_1b2c3d"
+        },
+        {
+          "kind": "no_authoring_inputs_recorded"
+        }
+      ]
+    },
+    "source_questions": [
+      {
+        "id": "sq_3c1e9a0b7d2f",
+        "clauses": [
+          {
+            "citation_key": "src_7f3a9c#item_000004",
+            "quote": "An applicant who has logged at least 1,000 flight hours is exempt from the flight-readiness assessment"
+          },
+          {
+            "citation_key": "src_7f3a9c#item_000004",
+            "quote": "unless the applicant qualifies under subsection (3)"
+          }
+        ],
+        "kind": "conflict",
+        "readings": [
+          "The hours exemption applies at any age.",
+          "It applies only under subsection (3)."
+        ],
+        "provisional_reading": "The hours exemption applies only under subsection (3).",
+        "affected_criteria": [
+          "flight_readiness_exempt_1000hrs"
+        ],
+        "inherited_from": null
+      },
+      {
+        "id": "sq_9e8d7c6b5a41",
+        "clauses": [
+          {
+            "citation_key": "src_7f3a9c#item_000002",
+            "quote": "a medical certificate issued within the preceding period"
+          }
+        ],
+        "kind": "ambiguity",
+        "readings": [
+          "Twelve months.",
+          "The period set by the licensing authority."
+        ],
+        "provisional_reading": "Twelve months.",
+        "affected_criteria": [],
+        "inherited_from": "spacecraft-crew-certification:20260913-bee69257"
+      }
+    ],
+    "review_hint": null
+  }
+}

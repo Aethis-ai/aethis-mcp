@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.0 (2026-09-25)
+
+**Authoring safeguards are now visible in tool output.** Both are warn-only and never block a generation or a publish.
+
+- `aethis_generate_and_test` and `aethis_refine` render the **source questions** authoring raised: places where the source text conflicts with itself or can be read more than one way. Each question shows the quoted clauses with their citation keys, the candidate readings, and the provisional reading the ruleset encodes. `aethis_publish` renders them too.
+- `aethis_publish` renders the **source check**: a warning when a cited document is not the text the ruleset was built from (`mismatch`), when a digest is unavailable (`unverifiable`), or when the ruleset predates input recording (`no_authoring_inputs_recorded`).
+- Fix: the generate-and-test path kept only the ruleset id and test result from the final generation status, so fields carried there (source questions and the run's question counts) never reached the tool output. They are now preserved.
+- All question and check text comes from uploaded sources and model output, so it is returned inside the `<api_response>` untrusted-content fence.
+
 ## 0.19.0 (2026-09-24)
 
 **Security: provider credentials leave the process only when the user configured them for Aethis.** Upgrade recommended.
