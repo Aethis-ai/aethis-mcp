@@ -463,10 +463,10 @@ describe("aethis_next_question", () => {
     });
     const h = createToolHandlers(client);
     const t = text(await h.aethis_next_question({ ruleset_id: "b_1", field_values: {} }));
-    // Notes block present and labelled by metadata.type.
+    // Notes block present; metadata.type is payload data, so it travels only
+    // in the fence label, never as bare text.
     expect(t).toContain("Notes:");
-    expect(t).toContain("[why]");
-    expect(t).toContain("[legal_background]");
+    expect(t).not.toContain("[why]");
     // Each note's text is fenced as untrusted API content, so a prompt
     // injection inside a note cannot reach the model as an instruction.
     expect(t).toContain('<api_response label="note_why">');

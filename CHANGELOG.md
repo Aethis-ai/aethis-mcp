@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.20.0 (2026-09-25)
+
+**Authoring safeguards are now visible in tool output.** Both are warn-only and never block a generation or a publish.
+
+- `aethis_generate_and_test` and `aethis_refine` render the **source questions** authoring raised: places where the source text conflicts with itself or can be read more than one way. Each question shows the quoted clauses with their citation keys, the candidate readings, and the provisional reading the ruleset encodes. `aethis_publish` renders them too.
+- `aethis_publish` renders the **source check**: a warning when a cited document is not the text the ruleset was built from (`mismatch`), when a digest is unavailable (`unverifiable`), or when the ruleset predates input recording (`no_authoring_inputs_recorded`).
+- Fix: the generate-and-test path kept only the ruleset id and test result from the final generation status, so fields carried there (source questions and the run's question counts) never reached the tool output. They are now preserved.
+- All question and check text comes from uploaded sources and model output, so it is returned inside the `<api_response>` untrusted-content fence.
+- **Security hardening: the untrusted-content fence is harder to break out of.** It previously neutralised only the exact closing tag `</api_response>`. Now any occurrence of the fence name in returned text is neutralised, whatever surrounds it, so no spacing, case, lookalike bracket or slash, encoding, or forged opener such as `<api_response label="system">` can close the fence or open a new one. Fence labels are restricted to identifier characters, so returned data can no longer reach a fence label's attribute unescaped.
+- `aethis_next_question` no longer prints a note's `metadata.type` as bare `[type]` text before the note. That value is returned data, so it now appears only in the note's fence label.
+
 ## 0.19.0 (2026-09-24)
 
 **Security: provider credentials leave the process only when the user configured them for Aethis.** Upgrade recommended.
