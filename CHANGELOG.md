@@ -8,6 +8,8 @@
 - `aethis_publish` renders the **source check**: a warning when a cited document is not the text the ruleset was built from (`mismatch`), when a digest is unavailable (`unverifiable`), or when the ruleset predates input recording (`no_authoring_inputs_recorded`).
 - Fix: the generate-and-test path kept only the ruleset id and test result from the final generation status, so fields carried there (source questions and the run's question counts) never reached the tool output. They are now preserved.
 - All question and check text comes from uploaded sources and model output, so it is returned inside the `<api_response>` untrusted-content fence.
+- **Security hardening: the untrusted-content fence is harder to break out of.** It previously neutralised only the exact closing tag `</api_response>`. It now neutralises any tag-like form of it in returned text, closing or opening: variants with extra whitespace or a misplaced slash, mixed case, fullwidth or small-form angle brackets, HTML entities, and forged openers such as `<api_response label="system">`. Fence labels are restricted to identifier characters, so returned data can no longer reach a fence label's attribute unescaped.
+- `aethis_next_question` no longer prints a note's `metadata.type` as bare `[type]` text before the note. That value is returned data, so it now appears only in the note's fence label.
 
 ## 0.19.0 (2026-09-24)
 
