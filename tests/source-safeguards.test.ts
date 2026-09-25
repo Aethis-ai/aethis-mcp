@@ -47,7 +47,7 @@ function textOf(result: unknown): string {
 
 /** Remove every well-formed <api_response …>…</api_response> block. */
 function stripFences(s: string): string {
-  return s.replace(/<api_response\b[^>]*>[\s\S]*?<\/api_response>/g, "");
+  return s.replace(/<api_response label="[^"]*">\n[\s\S]*?<\/api_response>/g, "");
 }
 
 function count(s: string, re: RegExp): number {
