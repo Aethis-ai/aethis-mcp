@@ -2021,6 +2021,17 @@ export function toolAnnotations(name: string): {
   };
 }
 
+// Zod records discard this key even when it is an own JSON property. Reject
+// it while validating keys, before parsing can silently change caller inputs.
+function transportKey(schema: z.ZodString): z.ZodEffects<z.ZodString> {
+  return schema.refine((key) => key !== "__proto__", {
+    message: "Unsupported object key '__proto__': the MCP parser would discard it.",
+  });
+}
+
+const jsonObjectKey = transportKey(z.string());
+const reviewBindingKey = transportKey(z.string().min(1).max(300));
+
 export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   server.tool(
     "aethis_schema",
@@ -2036,7 +2047,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       ruleset_id: z.string().optional().describe("The ID or slug of a single published ruleset. Mutually exclusive with rulebook_id."),
       rulebook_id: z.string().optional().describe("The ID or slug of a composed rulebook (e.g. `aethis/uk-fsm`). Mutually exclusive with ruleset_id. Requires an API key — anonymous callers get HTTP 401."),
-      field_values: z.record(z.string(), z.unknown()).describe("Input field values (see aethis_schema for required fields)"),
+      field_values: z.record(jsonObjectKey, z.unknown()).describe("Input field values (see aethis_schema for required fields)"),
       include_trace: z.boolean().optional().describe("Include the full evaluation trace showing how each rule was evaluated"),
       include_explanation: z.boolean().optional().describe("Include human-readable rule explanations with source citations"),
       include_graph_overlay: z.boolean().optional().describe("Stamp this decision's per-criterion outcome (satisfied/not_satisfied/pending) onto the ruleset-map graph and return it as graph_overlay — the same {nodes, edges, sections, stats} shape as aethis_graph, letting a caller render a 'you are here' map for these specific inputs. Off by default; the response is byte-identical to a call without the flag."),
@@ -2050,7 +2061,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Get the optimal next question for a conversational eligibility check. Call with empty field_values for the first question, then add answers and call again until decision is reached. When the ruleset author attached notes to a question (e.g. why it is asked, or legal background), they are surfaced under a Notes block.",
     {
       ruleset_id: z.string().describe("The ID of the published rule ruleset"),
-      field_values: z.record(z.string(), z.unknown()).describe("Answers collected so far (empty dict for first question)"),
+      field_values: z.record(jsonObjectKey, z.unknown()).describe("Answers collected so far (empty dict for first question)"),
     },
     toolAnnotations("aethis_next_question"),
     (args) => handlers.aethis_next_question(args),
@@ -2080,7 +2091,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Diagnose why a ruleset produced an unexpected outcome for specific test inputs. Use during rule authoring when a test fails — returns the diagnosis, criteria with DSL metadata (waivable, review_required), and a targeted hint for fixing the rule.",
     {
       ruleset_id: z.string().describe("The ID of the rule ruleset to diagnose"),
-      field_values: z.record(z.string(), z.unknown()).describe("The test input values that produced the unexpected outcome"),
+      field_values: z.record(jsonObjectKey, z.unknown()).describe("The test input values that produced the unexpected outcome"),
       expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("The outcome you expected from this input"),
       test_name: z.string().optional().describe("Name of the failing test case (included in the diagnosis for context)"),
     },
@@ -2208,7 +2219,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       section_id: z.string().describe("Unique section identifier (e.g., 'flight_readiness')"),
       source_text: z.string().describe("The source legislation, policy, or specification text"),
       test_cases: z.array(z.object({
-        name: z.string().min(1), field_values: z.record(z.string(), z.unknown()),
+        name: z.string().min(1), field_values: z.record(jsonObjectKey, z.unknown()),
         expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]),
         expectations: z.object({
           pending_reviews: z.object({ resolution_fields: z.array(z.string().min(1).max(300)).max(500).optional(), unmapped_count: z.number().int().min(0).max(500) }).strict().optional(),
@@ -2216,7 +2227,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         }).strict().optional(),
       }).strict()).min(1).max(500).describe("Test cases with optional strict acceptance expectations."),
       contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
-      expected_review_bindings: z.record(z.string().min(1).max(300), z.record(z.string().min(1).max(300), z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
+      expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
       domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
     },
     toolAnnotations("aethis_create_ruleset"),
@@ -2230,7 +2241,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
       project_id: z.string().describe("Existing project ID whose complete test suite will be replaced"),
       test_cases: z.array(z.object({
         name: z.string().min(1).describe("Stable reviewed test-case name"),
-        field_values: z.record(z.string(), z.unknown()).describe("Input values using discovered field names"),
+        field_values: z.record(jsonObjectKey, z.unknown()).describe("Input values using discovered field names"),
         expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("Reviewed expected eligibility outcome"),
         expectations: z.object({
           pending_reviews: z.object({ resolution_fields: z.array(z.string().min(1).max(300)).max(500).optional(), unmapped_count: z.number().int().min(0).max(500) }).strict().optional(),
@@ -2238,7 +2249,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         }).strict().optional(),
       }).strict()).min(1).max(500).describe("The complete authoritative reviewed suite (1-500 cases); this replaces existing tests"),
       contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
-      expected_review_bindings: z.record(z.string().min(1).max(300), z.record(z.string().min(1).max(300), z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
+      expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
     },
     toolAnnotations("aethis_set_tests"),
     (args) => handlers.aethis_set_tests(args),
@@ -2431,7 +2442,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         notes: z.array(z.object({
           note_text: z.string().describe("Note text for this field"),
           source: z.string().optional().describe("Optional source label for this note"),
-          metadata: z.record(z.unknown()).optional().describe("Optional JSON metadata for this note"),
+          metadata: z.record(jsonObjectKey, z.unknown()).optional().describe("Optional JSON metadata for this note"),
         }).strict()).optional().describe("Ordered field notes. Omit to leave existing notes unchanged; pass [] to clear them."),
       })).min(1).describe("The fields the SME expects to be discovered for this project"),
     },

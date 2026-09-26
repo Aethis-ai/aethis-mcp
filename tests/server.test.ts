@@ -1166,6 +1166,43 @@ describe("aethis_set_tests", () => {
     );
   });
 
+  it("rejects record keys that the SDK parser would silently discard", () => {
+    type Schema = { safeParse: (value: unknown) => { success: boolean; data?: unknown } };
+    const captured: Record<string, Record<string, Schema>> = {};
+    const fakeServer = {
+      tool: (name: string, _description: string, ...rest: unknown[]) => {
+        const shape = rest.find((arg) => !!arg && typeof arg === "object"
+          && ("test_cases" in arg || "field_values" in arg));
+        if (shape) captured[name] = shape as Record<string, Schema>;
+      },
+      prompt: () => {},
+    } as unknown as Parameters<typeof registerTools>[0];
+    const client = mockClient();
+    registerTools(fakeServer, createToolHandlers(client));
+    const lossy = JSON.parse('{"__proto__":false,"ok":true}');
+    const lossyCatalogue = JSON.parse('{"__proto__":{"approved":true},"review.x":{"approved":true}}');
+    const preserved = JSON.parse('{"constructor":false,"toString":true}');
+    for (const name of ["aethis_create_ruleset", "aethis_set_tests"]) {
+      expect(captured[name].test_cases.safeParse([{
+        name: "own-key", field_values: lossy, expected_outcome: "eligible",
+      }]).success).toBe(false);
+      expect(captured[name].expected_review_bindings.safeParse(lossyCatalogue).success).toBe(false);
+      expect(captured[name].expected_review_bindings.safeParse({ "review.x": lossy }).success).toBe(false);
+      const safe = captured[name].expected_review_bindings.safeParse({ "review.x": preserved });
+      expect(safe.success).toBe(true);
+      expect(safe.data).toEqual({ "review.x": preserved });
+    }
+    // The same lossy parser shape exists on the decision/feedback tools.
+    const inputSchemas = Object.values(captured).filter((shape) => shape.field_values);
+    expect(inputSchemas.length).toBe(3);
+    for (const shape of inputSchemas) {
+      expect(shape.field_values.safeParse(lossy).success).toBe(false);
+      expect(shape.field_values.safeParse(preserved).data).toEqual(preserved);
+    }
+    expect(client.createProject).not.toHaveBeenCalled();
+    expect(client.replaceTests).not.toHaveBeenCalled();
+  });
+
   it("emits tool schemas that accept empty assertions and enforce v1 maxima", () => {
     const captured: Record<string, { safeParse: (value: unknown) => { success: boolean } }> = {};
     const fakeServer = {

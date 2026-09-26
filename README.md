@@ -264,9 +264,10 @@ binding catalogue is generic authoring metadata: omit it when no binding
 assertion is needed, or pass `{}` to assert that no review bindings exist.
 The server must confirm the complete stored contract before generation begins.
 `aethis_create_ruleset` creates a project; it does not append or replace tests
-on an existing project. Use the CLI or the project-test API for a later
-contract replacement, so a legacy update cannot accidentally discard stored
-assertions.
+on an existing project. Use `aethis_set_tests` with the complete version-1
+contract for a later replacement, then generate or refine that same project.
+Legacy updates cannot discard stored assertions. Object keys named `__proto__`
+are rejected in field-value and binding maps rather than silently discarded.
 
 If generation polling times out, call `aethis_generation_status({ project_id })`
 before retrying: use its `telemetry_availability`, server-authoritative
