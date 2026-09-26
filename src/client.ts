@@ -621,16 +621,11 @@ export class AethisClient {
   }
 
   /**
-   * Replace a project's complete test suite. The OpenAPI check is deliberately
-   * performed before the mutation: older engines append tests and would create
-   * a second suite. The replacement POST itself is sent exactly once because a
-   * retry after a lost response may allocate fresh test identities.
+   * Refuse replacement before mutation unless the target advertises the exact
+   * capability the caller needs. Composite tools call this before creating a
+   * project so an old engine cannot leave a partial project behind.
    */
-  async replaceTests(
-    projectId: string,
-    testCases: unknown[],
-    contract?: { contract_version: 1; expected_review_bindings?: Record<string, Record<string, boolean | null>> },
-  ): Promise<unknown> {
+  async preflightTestReplacement(requireAcceptanceContract = false): Promise<void> {
     let openApi: unknown;
     try {
       openApi = await this.request("GET", "/openapi.json");
@@ -649,9 +644,22 @@ export class AethisClient {
         "Test-suite replacement is unavailable: the target OpenAPI document does not expose a readable replace capability that accepts true. No tests were changed.",
       );
     }
-    if (contract && (!properties || !("contract_version" in properties) || !("expected_review_bindings" in properties))) {
+    if (requireAcceptanceContract && (!properties || !("contract_version" in properties) || !("expected_review_bindings" in properties))) {
       throw new AethisAPIError(400, "Acceptance-contract replacement is unavailable: the target OpenAPI document does not expose the complete v1 envelope. No tests were changed.");
     }
+  }
+
+  /**
+   * Replace a project's complete test suite. The replacement POST itself is
+   * sent exactly once because a retry after a lost response may allocate fresh
+   * test identities.
+   */
+  async replaceTests(
+    projectId: string,
+    testCases: unknown[],
+    contract?: { contract_version: 1; expected_review_bindings?: Record<string, Record<string, boolean | null>> },
+  ): Promise<unknown> {
+    await this.preflightTestReplacement(contract !== undefined);
     const body: Record<string, unknown> = { test_cases: testCases, replace: true };
     if (contract) {
       body.contract_version = 1;

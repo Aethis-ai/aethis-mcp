@@ -49,6 +49,7 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     getProject: vi.fn().mockResolvedValue({}),
     uploadSourceText: vi.fn().mockResolvedValue({ uploaded: 1 }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
+    preflightTestReplacement: vi.fn().mockResolvedValue(undefined),
     replaceTests: vi.fn().mockResolvedValue({ added: 1, replaced: 0 }),
     addGuidance: vi.fn().mockResolvedValue({ hint_id: "h_1" }),
     addDomainGuidance: vi.fn().mockResolvedValue({ hint_id: "h_d1" }),
@@ -1020,6 +1021,10 @@ describe("aethis_create_ruleset", () => {
     const result = await h.aethis_create_ruleset({
       name: "test", section_id: "s", source_text: "Law.", test_cases: cases, contract_version: 1,
     });
+    expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(true);
+    expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]).toBeLessThan(
+      (client.createProject as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    );
     expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc", cases, validation.contract);
     expect((client.getProject as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc");
     expect(text(result)).toContain("Rule ruleset created successfully");
@@ -1035,8 +1040,39 @@ describe("aethis_create_ruleset", () => {
     const boolResult = await h.aethis_create_ruleset({
       ...base, test_cases: [{ name: "c", field_values: {}, expected_outcome: "undetermined", expectations: { pending_reviews: { resolution_fields: ["x"], unmapped_count: false } } }],
     });
-    expect(text(boolResult)).toContain("non-negative integer");
+    expect(text(boolResult)).toContain("unmapped_count from 0 to 500");
   });
+
+  it("refuses an unsupported contract before creating a project or uploading source", async () => {
+    const client = mockClient({
+      preflightTestReplacement: vi.fn().mockRejectedValue(new AethisAPIError(400, "v1 unsupported")),
+    });
+    const result = await createToolHandlers(client).aethis_create_ruleset({
+      name: "test", section_id: "s", source_text: "Law.", contract_version: 1,
+      test_cases: [{ name: "c", field_values: {}, expected_outcome: "eligible" }],
+    });
+    expect(result.isError).toBe(true);
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.uploadSourceText as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it.each([9007199254740992, Number.NaN])(
+    "rejects noncanonical value %s before preflight or project creation",
+    async (unsafe) => {
+      const client = mockClient();
+      const result = await createToolHandlers(client).aethis_create_ruleset({
+        name: "test", section_id: "s", source_text: "Law.", contract_version: 1,
+        test_cases: [{
+          name: "unsafe", field_values: { nested: { unsafe } }, expected_outcome: "eligible",
+        }],
+      });
+      expect(result.isError).toBe(true);
+      expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect((client.uploadSourceText as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects unknown acceptance keys before creating a project", async () => {
     const client = mockClient();
@@ -1085,7 +1121,7 @@ describe("aethis_set_tests", () => {
     expect(result.isError).not.toBe(true);
   });
 
-  it.each([[[]], [Array.from({ length: 101 }, (_, i) => ({ name: `c${i}`, field_values: {}, expected_outcome: "eligible" }))]])(
+  it.each([[[]], [Array.from({ length: 501 }, (_, i) => ({ name: `c${i}`, field_values: {}, expected_outcome: "eligible" }))]])(
     "rejects incomplete or oversized suites before mutation",
     async (test_cases) => {
       const client = mockClient();
@@ -1094,6 +1130,123 @@ describe("aethis_set_tests", () => {
       expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
     },
   );
+
+  it("preserves explicit empty review and useful-unknown assertions", async () => {
+    const cases = [{
+      name: "terminal", field_values: {}, expected_outcome: "eligible",
+      expectations: {
+        pending_reviews: { resolution_fields: [], unmapped_count: 0 },
+        useful_unknown_fields: [],
+      },
+    }];
+    const validation = validateAcceptanceContract(cases, 1, {});
+    expect(validation.error).toBeUndefined();
+    expect(validation.contract?.test_cases[0].expectations).toEqual(cases[0].expectations);
+    const omittedResolutionFields = validateAcceptanceContract([{
+      name: "terminal-default", field_values: {}, expected_outcome: "eligible",
+      expectations: { pending_reviews: { unmapped_count: 0 } },
+    }], 1, {});
+    expect(omittedResolutionFields.contract?.test_cases[0].expectations?.pending_reviews).toEqual({
+      resolution_fields: [], unmapped_count: 0,
+    });
+    const client = mockClient({
+      getProject: vi.fn().mockResolvedValue({
+        authoring_acceptance_contract_version: 1,
+        expected_review_bindings: {},
+        authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract!),
+      }),
+    });
+    const result = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing", test_cases: cases, contract_version: 1,
+      expected_review_bindings: {},
+    });
+    expect(result.isError).not.toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+      "p_existing", cases, validation.contract,
+    );
+  });
+
+  it("emits tool schemas that accept empty assertions and enforce v1 maxima", () => {
+    const captured: Record<string, { safeParse: (value: unknown) => { success: boolean } }> = {};
+    const fakeServer = {
+      tool: (name: string, _description: string, ...rest: unknown[]) => {
+        if (name !== "aethis_create_ruleset" && name !== "aethis_set_tests") return;
+        const shape = rest.find((arg) =>
+          !!arg && typeof arg === "object" && "test_cases" in (arg as object),
+        ) as { test_cases?: { safeParse: (value: unknown) => { success: boolean } } } | undefined;
+        if (shape?.test_cases) captured[name] = shape.test_cases;
+      },
+      prompt: () => {},
+    } as unknown as Parameters<typeof registerTools>[0];
+    registerTools(fakeServer, createToolHandlers(mockClient()));
+    const valid = [{
+      name: "terminal", field_values: {}, expected_outcome: "eligible",
+      expectations: {
+        pending_reviews: { resolution_fields: [], unmapped_count: 0 },
+        useful_unknown_fields: [],
+      },
+    }];
+    for (const schema of Object.values(captured)) {
+      expect(schema.safeParse(valid).success).toBe(true);
+      expect(schema.safeParse(Array.from({ length: 501 }, (_, i) => ({
+        name: `c${i}`, field_values: {}, expected_outcome: "eligible",
+      }))).success).toBe(false);
+      expect(schema.safeParse([{
+        ...valid[0],
+        expectations: { pending_reviews: { resolution_fields: [], unmapped_count: 501 } },
+      }]).success).toBe(false);
+    }
+    expect(Object.keys(captured).sort()).toEqual(["aethis_create_ruleset", "aethis_set_tests"]);
+  });
+
+  it.each([9007199254740992, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects noncanonical nested number %s before replacement",
+    async (unsafe) => {
+      const client = mockClient();
+      const result = await createToolHandlers(client).aethis_set_tests({
+        project_id: "p_existing", contract_version: 1,
+        test_cases: [{
+          name: "unsafe", field_values: { nested: [{ unsafe }] }, expected_outcome: "eligible",
+        }],
+      });
+      expect(result.isError).toBe(true);
+      expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect((client.getProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["toString", "constructor", "__proto__"])(
+    "does not treat inherited property %s as a declared review field",
+    (field) => {
+      const validation = validateAcceptanceContract([{
+        name: "pending", field_values: {}, expected_outcome: "undetermined",
+        expectations: { pending_reviews: { resolution_fields: [field], unmapped_count: 0 } },
+      }], 1, { declared: { yes: true } });
+      expect(validation.error).toContain("absent from expected_review_bindings");
+    },
+  );
+
+  it("enforces v1 identifier, array, and count bounds", () => {
+    const overlong = "x".repeat(301);
+    const base = (pending_reviews: Record<string, unknown>, useful_unknown_fields?: string[]) =>
+      validateAcceptanceContract([{
+        name: "bounded", field_values: {}, expected_outcome: "undetermined",
+        expectations: { pending_reviews, ...(useful_unknown_fields ? { useful_unknown_fields } : {}) },
+      }], 1);
+    expect(base({ resolution_fields: [overlong], unmapped_count: 0 }).error).toBeDefined();
+    expect(base({ resolution_fields: Array.from({ length: 501 }, (_, i) => `f${i}`), unmapped_count: 0 }).error).toBeDefined();
+    expect(base({ resolution_fields: [], unmapped_count: 501 }).error).toBeDefined();
+    expect(base({ resolution_fields: [], unmapped_count: 0 }, Array.from({ length: 501 }, (_, i) => `u${i}`)).error).toBeDefined();
+  });
+
+  it("keeps canonically distinct raw Unicode identities distinct", () => {
+    const make = (field: string) => validateAcceptanceContract([{
+      name: "unicode", field_values: { [field]: true }, expected_outcome: "eligible",
+    }], 1).contract!;
+    expect(acceptanceContractDigest(make("caf\u00e9"))).not.toBe(
+      acceptanceContractDigest(make("cafe\u0301")),
+    );
+  });
 
   it("rejects an invalid project ID or case shape before mutation", async () => {
     const client = mockClient();

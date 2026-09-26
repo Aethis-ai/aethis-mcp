@@ -611,8 +611,34 @@ async function requireAuth(client: AethisClient): Promise<ToolResult | null> {
 
 export type ToolHandlers = ReturnType<typeof createToolHandlers>;
 
-function nonEmptyStrings(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim() !== "") && new Set(value).size === value.length;
+function boundedUniqueStrings(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.length <= 500
+    && value.every((item) => typeof item === "string" && item.trim() !== "" && item.length <= 300)
+    && new Set(value).size === value.length;
+}
+
+function canonicalJsonDomainError(value: unknown, path = "field_values", seen = new Set<object>()): string | null {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return `${path} contains a non-finite number.`;
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      return `${path} contains an integer outside the RFC 8785 safe domain.`;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return `${path} contains a value outside the JSON domain.`;
+  if (seen.has(value)) return `${path} contains a circular value outside the JSON domain.`;
+  seen.add(value);
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value as Record<string, unknown>);
+  for (const [key, item] of entries) {
+    const error = canonicalJsonDomainError(item, `${path}.${key}`, seen);
+    if (error) return error;
+  }
+  seen.delete(value);
+  return null;
 }
 
 export function validateAcceptanceContract(
@@ -621,13 +647,14 @@ export function validateAcceptanceContract(
   const advanced = contractVersion !== undefined || expectedReviewBindings !== undefined || testCases.some((tc) => "expectations" in tc);
   if (!advanced) return {};
   if (contractVersion !== 1 || typeof contractVersion !== "number") return { error: "Error: Acceptance assertions require contract_version: 1." };
+  if (testCases.length < 1 || testCases.length > 500) return { error: "Error: Acceptance test_cases must contain 1 to 500 cases." };
   let bindings: ReviewBindings | undefined;
   if (expectedReviewBindings !== undefined) {
     if (expectedReviewBindings === null || typeof expectedReviewBindings !== "object" || Array.isArray(expectedReviewBindings)) return { error: "Error: expected_review_bindings must be an object; null is not valid." };
     bindings = expectedReviewBindings as ReviewBindings;
     for (const [field, tokens] of Object.entries(bindings)) {
-      if (!field.trim() || !tokens || typeof tokens !== "object" || Array.isArray(tokens) || Object.keys(tokens).length === 0) return { error: "Error: Each expected_review_bindings entry needs a non-empty field id and token object." };
-      if (Object.entries(tokens).some(([token, strict]) => !token.trim() || (strict !== null && typeof strict !== "boolean"))) return { error: "Error: Review-binding tokens must be non-empty strings mapped to true, false, or null." };
+      if (!field.trim() || field.length > 300 || !tokens || typeof tokens !== "object" || Array.isArray(tokens) || Object.keys(tokens).length === 0) return { error: "Error: Each expected_review_bindings entry needs a non-empty field id of at most 300 characters and a token object." };
+      if (Object.entries(tokens).some(([token, strict]) => !token.trim() || token.length > 300 || (strict !== null && typeof strict !== "boolean"))) return { error: "Error: Review-binding tokens must be non-empty strings of at most 300 characters mapped to true, false, or null." };
     }
   }
   const cases: AcceptanceTestCase[] = [];
@@ -638,16 +665,36 @@ export function validateAcceptanceContract(
     if (Object.keys(tc).some((key) => !allowed.has(key)) || typeof tc.name !== "string" || !tc.name.trim() || names.has(tc.name)) return { error: `Error: Acceptance test case ${i + 1} has unknown keys or a non-unique non-empty name.` };
     names.add(tc.name);
     if (!tc.field_values || typeof tc.field_values !== "object" || Array.isArray(tc.field_values)) return { error: `Error: Acceptance test case ${i + 1} field_values must be an object.` };
+    const domainError = canonicalJsonDomainError(tc.field_values, `Acceptance test case ${i + 1} field_values`);
+    if (domainError) return { error: `Error: ${domainError}` };
     if (!["eligible", "not_eligible", "undetermined"].includes(tc.expected_outcome as string)) return { error: `Error: Acceptance test case ${i + 1} has an invalid expected_outcome.` };
     let expectations: AcceptanceExpectations | undefined;
     if ("expectations" in tc) {
       const value = tc.expectations;
       if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0 || Object.keys(value).some((key) => key !== "pending_reviews" && key !== "useful_unknown_fields")) return { error: `Error: Acceptance test case ${i + 1} expectations must be a non-empty object with supported keys.` };
-      expectations = value as AcceptanceExpectations;
-      const pending = expectations.pending_reviews;
-      if (pending !== undefined && (!pending || typeof pending !== "object" || Object.keys(pending).length !== 2 || !nonEmptyStrings(pending.resolution_fields) || !Number.isInteger(pending.unmapped_count) || pending.unmapped_count < 0)) return { error: `Error: Acceptance test case ${i + 1} pending_reviews requires unique non-empty resolution_fields and a non-negative integer unmapped_count.` };
-      if (bindings && pending?.resolution_fields.some((field) => !(field in bindings))) return { error: `Error: Acceptance test case ${i + 1} references a resolution field absent from expected_review_bindings.` };
-      if (expectations.useful_unknown_fields !== undefined && !nonEmptyStrings(expectations.useful_unknown_fields)) return { error: `Error: Acceptance test case ${i + 1} useful_unknown_fields must be unique non-empty strings.` };
+      const rawExpectations = value as AcceptanceExpectations & { pending_reviews?: { resolution_fields?: string[]; unmapped_count: number } };
+      const pending = rawExpectations.pending_reviews;
+      if (pending !== undefined && (
+        !pending
+        || typeof pending !== "object"
+        || Object.keys(pending).some((key) => key !== "resolution_fields" && key !== "unmapped_count")
+        || !("unmapped_count" in pending)
+        || !boundedUniqueStrings(pending.resolution_fields ?? [])
+        || !Number.isInteger(pending.unmapped_count)
+        || pending.unmapped_count < 0
+        || pending.unmapped_count > 500
+      )) return { error: `Error: Acceptance test case ${i + 1} pending_reviews requires up to 500 unique non-empty resolution_fields of at most 300 characters and an unmapped_count from 0 to 500.` };
+      const normalisedPending = pending === undefined
+        ? undefined
+        : { resolution_fields: pending.resolution_fields ?? [], unmapped_count: pending.unmapped_count };
+      if (bindings && normalisedPending?.resolution_fields.some((field) => !Object.hasOwn(bindings, field))) return { error: `Error: Acceptance test case ${i + 1} references a resolution field absent from expected_review_bindings.` };
+      if (rawExpectations.useful_unknown_fields !== undefined && !boundedUniqueStrings(rawExpectations.useful_unknown_fields)) return { error: `Error: Acceptance test case ${i + 1} useful_unknown_fields must contain up to 500 unique non-empty strings of at most 300 characters.` };
+      expectations = {
+        ...(normalisedPending ? { pending_reviews: normalisedPending } : {}),
+        ...(rawExpectations.useful_unknown_fields !== undefined
+          ? { useful_unknown_fields: rawExpectations.useful_unknown_fields }
+          : {}),
+      };
     }
     cases.push({ name: tc.name, field_values: tc.field_values as Record<string, unknown>, expected_outcome: tc.expected_outcome as AcceptanceTestCase["expected_outcome"], ...(expectations ? { expectations } : {}) });
   }
@@ -655,11 +702,16 @@ export function validateAcceptanceContract(
 }
 
 export function acceptanceContractDigest(contract: AcceptanceContract): string {
-  const canonical = canonicalize({
-    version: 1,
-    expected_review_bindings: contract.expected_review_bindings ?? null,
-    test_cases: contract.test_cases.map((tc) => ({ name: tc.name, inputs: tc.field_values, expect: { outcome: tc.expected_outcome, ...(tc.expectations ?? {}) } })),
-  });
+  let canonical: string | undefined;
+  try {
+    canonical = canonicalize({
+      version: 1,
+      expected_review_bindings: contract.expected_review_bindings ?? null,
+      test_cases: contract.test_cases.map((tc) => ({ name: tc.name, inputs: tc.field_values, expect: { outcome: tc.expected_outcome, ...(tc.expectations ?? {}) } })),
+    });
+  } catch {
+    throw new Error("Acceptance contract is outside the RFC 8785 canonical JSON domain.");
+  }
   if (!canonical) throw new Error("Unable to canonicalize acceptance contract.");
   return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
 }
@@ -669,8 +721,8 @@ export function createToolHandlers(client: AethisClient) {
   const VALID_OUTCOMES = new Set(["eligible", "not_eligible", "undetermined"]);
 
   function validateReplacementTestCases(testCases: Array<Record<string, unknown>>): string | null {
-    if (testCases.length < 1 || testCases.length > 100) {
-      return "Error: test_cases must contain a complete suite of 1 to 100 cases.";
+    if (testCases.length < 1 || testCases.length > 500) {
+      return "Error: test_cases must contain a complete suite of 1 to 500 cases.";
     }
     for (let i = 0; i < testCases.length; i++) {
       const tc = testCases[i];
@@ -1112,6 +1164,14 @@ export function createToolHandlers(client: AethisClient) {
       }
       const acceptance = validateAcceptanceContract(args.test_cases, args.contract_version, args.expected_review_bindings);
       if (acceptance.error) return err(acceptance.error);
+      let expectedDigest: string | undefined;
+      if (acceptance.contract) {
+        try {
+          expectedDigest = acceptanceContractDigest(acceptance.contract);
+        } catch (error) {
+          return err(`Error: ${(error as Error).message}`);
+        }
+      }
       for (let i = 0; i < args.test_cases.length; i++) {
         const tc = args.test_cases[i];
         const keys = new Set(Object.keys(tc));
@@ -1125,6 +1185,7 @@ export function createToolHandlers(client: AethisClient) {
       }
 
       try {
+        if (acceptance.contract) await client.preflightTestReplacement(true);
         const project = await client.createProject(args.name, args.section_id, args.domain ?? "") as Record<string, unknown>;
         const projectId = project.project_id as string;
         const filename = `${args.section_id}.md`;
@@ -1135,7 +1196,7 @@ export function createToolHandlers(client: AethisClient) {
           if (
             readback.authoring_acceptance_contract_version !== 1
             || canonicalize(readback.expected_review_bindings) !== canonicalize(acceptance.contract.expected_review_bindings ?? null)
-            || readback.authoring_acceptance_contract_digest !== acceptanceContractDigest(acceptance.contract)
+            || readback.authoring_acceptance_contract_digest !== expectedDigest
           ) return err("The engine did not return the exact acceptance-contract v1 readback; generation was not started.");
         } else await client.addTests(projectId, args.test_cases);
 
@@ -1165,6 +1226,14 @@ export function createToolHandlers(client: AethisClient) {
       if (casesErr) return err(casesErr);
       const acceptance = validateAcceptanceContract(args.test_cases, args.contract_version, args.expected_review_bindings);
       if (acceptance.error) return err(acceptance.error);
+      let expectedDigest: string | undefined;
+      if (acceptance.contract) {
+        try {
+          expectedDigest = acceptanceContractDigest(acceptance.contract);
+        } catch (error) {
+          return err(`Error: ${(error as Error).message}`);
+        }
+      }
       try {
         const result = acceptance.contract
           ? await client.replaceTests(args.project_id, args.test_cases, acceptance.contract) as Record<string, unknown>
@@ -1174,7 +1243,7 @@ export function createToolHandlers(client: AethisClient) {
           if (
             readback.authoring_acceptance_contract_version !== 1
             || canonicalize(readback.expected_review_bindings) !== canonicalize(acceptance.contract.expected_review_bindings ?? null)
-            || readback.authoring_acceptance_contract_digest !== acceptanceContractDigest(acceptance.contract)
+            || readback.authoring_acceptance_contract_digest !== expectedDigest
           ) return err("The engine did not return the exact acceptance-contract v1 readback; generation was not started.");
         }
         const added = typeof result.added === "number" ? result.added : "unknown";
@@ -2118,12 +2187,12 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         name: z.string().min(1), field_values: z.record(z.string(), z.unknown()),
         expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]),
         expectations: z.object({
-          pending_reviews: z.object({ resolution_fields: z.array(z.string().min(1)).min(1), unmapped_count: z.number().int().nonnegative() }).strict().optional(),
-          useful_unknown_fields: z.array(z.string().min(1)).min(1).optional(),
+          pending_reviews: z.object({ resolution_fields: z.array(z.string().min(1).max(300)).max(500).optional(), unmapped_count: z.number().int().min(0).max(500) }).strict().optional(),
+          useful_unknown_fields: z.array(z.string().min(1).max(300)).max(500).optional(),
         }).strict().optional(),
-      }).strict()).min(1).describe("Test cases with optional strict acceptance expectations."),
+      }).strict()).min(1).max(500).describe("Test cases with optional strict acceptance expectations."),
       contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
-      expected_review_bindings: z.record(z.string().min(1), z.record(z.string().min(1), z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
+      expected_review_bindings: z.record(z.string().min(1).max(300), z.record(z.string().min(1).max(300), z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
       domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
     },
     toolAnnotations("aethis_create_ruleset"),
@@ -2140,12 +2209,12 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         field_values: z.record(z.string(), z.unknown()).describe("Input values using discovered field names"),
         expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("Reviewed expected eligibility outcome"),
         expectations: z.object({
-          pending_reviews: z.object({ resolution_fields: z.array(z.string().min(1)).min(1), unmapped_count: z.number().int().nonnegative() }).strict().optional(),
-          useful_unknown_fields: z.array(z.string().min(1)).min(1).optional(),
+          pending_reviews: z.object({ resolution_fields: z.array(z.string().min(1).max(300)).max(500).optional(), unmapped_count: z.number().int().min(0).max(500) }).strict().optional(),
+          useful_unknown_fields: z.array(z.string().min(1).max(300)).max(500).optional(),
         }).strict().optional(),
-      }).strict()).min(1).max(100).describe("The complete authoritative reviewed suite (1-100 cases); this replaces existing tests"),
+      }).strict()).min(1).max(500).describe("The complete authoritative reviewed suite (1-500 cases); this replaces existing tests"),
       contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
-      expected_review_bindings: z.record(z.string().min(1), z.record(z.string().min(1), z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
+      expected_review_bindings: z.record(z.string().min(1).max(300), z.record(z.string().min(1).max(300), z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
     },
     toolAnnotations("aethis_set_tests"),
     (args) => handlers.aethis_set_tests(args),
@@ -2442,7 +2511,7 @@ Now that you have the correct field vocabulary, write the full test suite:
 - Use "undetermined" when fields are absent and caseworker discretion applies
 - Use "undetermined" (NOT "not_eligible") for advisory restrictions that aren't statutory bars
 
-Replace the existing project's tests with the full reviewed suite by calling aethis_set_tests with its project_id and complete test_cases list. Do not create another project. This destructive replacement accepts 1-100 cases; if its outcome is interrupted, inspect the project before approving another replacement.
+Replace the existing project's tests with the full reviewed suite by calling aethis_set_tests with its project_id and complete test_cases list. Do not create another project. This destructive replacement accepts 1-500 cases; if its outcome is interrupted, inspect the project before approving another replacement.
 
 ## Step 5 — Seed domain guidance (recommended)
 If domain-level guidance exists (e.g., cross-section principles), import it before generating:
