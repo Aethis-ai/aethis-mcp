@@ -59,6 +59,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "canonicalize": "^2.1.0",
     "yaml": "^2.9.1",
     "zod": "3.25.76"
   },

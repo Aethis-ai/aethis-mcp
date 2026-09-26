@@ -522,6 +522,8 @@
       "title": "Replace complete test suite",
       "description": "Replace the complete reviewed test suite for an existing project after field discovery. Requires 1 to 100 cases and replaces prior tests without creating a project or changing its sources, fields, or guidance. This is destructive. The target API must advertise replacement support before any write. If the response is interrupted, inspect the project before approving another replacement.",
       "input_fields": [
+        "contract_version",
+        "expected_review_bindings",
         "project_id",
         "test_cases"
       ],

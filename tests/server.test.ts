@@ -1020,7 +1020,7 @@ describe("aethis_create_ruleset", () => {
     const result = await h.aethis_create_ruleset({
       name: "test", section_id: "s", source_text: "Law.", test_cases: cases, contract_version: 1,
     });
-    expect((client.addTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc", cases, { contractVersion: 1 });
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc", cases, validation.contract);
     expect((client.getProject as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc");
     expect(text(result)).toContain("Rule ruleset created successfully");
   });
@@ -1063,6 +1063,26 @@ describe("aethis_set_tests", () => {
     expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
     expect(text(result)).toContain("Added: 2");
     expect(text(result)).toContain("Replaced: 3");
+  });
+
+  it("verifies v1 contract readback after replacing an existing suite", async () => {
+    const cases = [{
+      name: "pending", field_values: { clearance: "unknown" }, expected_outcome: "undetermined",
+      expectations: { pending_reviews: { resolution_fields: ["clearance"], unmapped_count: 0 } },
+    }];
+    const validation = validateAcceptanceContract(cases, 1);
+    if (!validation.contract) throw new Error("fixture should be valid");
+    const client = mockClient({
+      getProject: vi.fn().mockResolvedValue({
+        authoring_acceptance_contract_version: 1,
+        expected_review_bindings: null,
+        authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract),
+      }),
+    });
+    const result = await createToolHandlers(client).aethis_set_tests({ project_id: "p_existing", test_cases: cases, contract_version: 1 });
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("p_existing", cases, validation.contract);
+    expect((client.getProject as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("p_existing");
+    expect(result.isError).not.toBe(true);
   });
 
   it.each([[[]], [Array.from({ length: 101 }, (_, i) => ({ name: `c${i}`, field_values: {}, expected_outcome: "eligible" }))]])(

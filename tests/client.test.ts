@@ -429,6 +429,21 @@ describe("AethisClient API methods", () => {
     expect(JSON.parse(fetchSpy.mock.calls[1][1].body)).toEqual({ test_cases: cases, replace: true });
   });
 
+  it("replaceTests() sends the complete v1 envelope only after confirming it is supported", async () => {
+    const cases = [{ name: "pending", field_values: {}, expected_outcome: "undetermined" }];
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({
+        components: { schemas: { AddTestCaseRequest: { properties: {
+          replace: { type: "boolean" }, contract_version: { type: "integer" }, expected_review_bindings: { type: "object" },
+        } } } },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ added: 1, replaced: 2 }));
+    await client.replaceTests("p_1", cases, { contract_version: 1, expected_review_bindings: {} });
+    expect(JSON.parse(fetchSpy.mock.calls[1][1].body)).toEqual({
+      test_cases: cases, replace: true, contract_version: 1, expected_review_bindings: {},
+    });
+  });
+
   it.each([
     [undefined, "absent"],
     [false, "false schema"],

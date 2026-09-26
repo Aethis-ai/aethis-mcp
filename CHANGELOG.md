@@ -2,6 +2,20 @@
 
 ## 0.21.0 (2026-09-29)
 
+- Fail closed on misspelled top-level acceptance arguments to
+  `aethis_create_ruleset` and `aethis_set_tests` instead of letting the MCP
+  parser discard them before the handler sees them.
+- Match the engine's Unicode identifier bounds, accept explicit null test-case
+  expectations as no assertion, and upload the same normalized v1 cases used
+  for the acceptance digest.
+- Reject `__proto__` keys in JSON record maps before the MCP schema parser can
+  silently discard them, including binding catalogues and field values.
+- **feat: preserve structured authoring acceptance contracts.**
+  `aethis_create_ruleset` and `aethis_set_tests` accept the generic
+  version-1 contract: per-case review/useful-unknown expectations plus an
+  optional review-binding catalogue. Both use the atomic test replacement
+  path and require the engine's contract version, catalogue, and canonical
+  digest to read back before reporting the project ready for generation.
 - **feat: transport authoritative field notes.** `aethis_set_field_spec` now
   accepts ordered per-field notes with optional source labels and JSON metadata.
   Omitting notes leaves existing note guidance unchanged; an empty list clears

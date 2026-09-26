@@ -626,29 +626,42 @@ export class AethisClient {
    * a second suite. The replacement POST itself is sent exactly once because a
    * retry after a lost response may allocate fresh test identities.
    */
-  async replaceTests(projectId: string, testCases: unknown[]): Promise<unknown> {
+  async replaceTests(
+    projectId: string,
+    testCases: unknown[],
+    contract?: { contract_version: 1; expected_review_bindings?: Record<string, Record<string, boolean | null>> },
+  ): Promise<unknown> {
     let openApi: unknown;
     try {
       openApi = await this.request("GET", "/openapi.json");
     } catch {
       throw new AethisAPIError(400, "Test-suite replacement is unavailable: the target OpenAPI document could not be read. No tests were changed.");
     }
-    const replace = (
+    const properties = (
       openApi as {
         components?: { schemas?: { AddTestCaseRequest?: { properties?: Record<string, unknown> } } };
       }
-    ).components?.schemas?.AddTestCaseRequest?.properties?.replace;
+    ).components?.schemas?.AddTestCaseRequest?.properties;
+    const replace = properties?.replace;
     if (!this.supportsReplacementTrue(replace)) {
       throw new AethisAPIError(
         400,
         "Test-suite replacement is unavailable: the target OpenAPI document does not expose a readable replace capability that accepts true. No tests were changed.",
       );
     }
+    if (contract && (!properties || !("contract_version" in properties) || !("expected_review_bindings" in properties))) {
+      throw new AethisAPIError(400, "Acceptance-contract replacement is unavailable: the target OpenAPI document does not expose the complete v1 envelope. No tests were changed.");
+    }
+    const body: Record<string, unknown> = { test_cases: testCases, replace: true };
+    if (contract) {
+      body.contract_version = 1;
+      if (contract.expected_review_bindings !== undefined) body.expected_review_bindings = contract.expected_review_bindings;
+    }
     try {
       return await this.request(
         "POST",
         `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`,
-        { test_cases: testCases, replace: true },
+        body,
         undefined,
         false,
       );
