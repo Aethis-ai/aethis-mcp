@@ -111,7 +111,9 @@
       "title": "Create ruleset (TDD)",
       "description": "Create a new rule ruleset with source text and test cases (TDD). Test cases are required. After creation, call aethis_generate_and_test.",
       "input_fields": [
+        "contract_version",
         "domain",
+        "expected_review_bindings",
         "name",
         "section_id",
         "source_text",

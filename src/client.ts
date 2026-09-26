@@ -568,9 +568,25 @@ export class AethisClient {
     );
   }
 
-  async addTests(projectId: string, testCases: unknown[]): Promise<unknown> {
+  async getProject(projectId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}`);
+  }
+
+  async addTests(
+    projectId: string,
+    testCases: unknown[],
+    contract?: { contractVersion: 1; expectedReviewBindings?: Record<string, Record<string, boolean | null>> },
+  ): Promise<unknown> {
+    const body: Record<string, unknown> = { test_cases: testCases };
+    if (contract) {
+      body.replace = true;
+      body.contract_version = contract.contractVersion;
+      if (contract.expectedReviewBindings !== undefined) {
+        body.expected_review_bindings = contract.expectedReviewBindings;
+      }
+    }
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`, {
-      test_cases: testCases,
+      ...body,
     });
   }
 

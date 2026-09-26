@@ -250,12 +250,23 @@ aethis_validate_fields({ project_id, expected_fields })
 ```
 aethis_create_ruleset({
   name, section_id, domain?, source_text,
-  test_cases: [{ name, field_values, expected_outcome }, ...]
+  test_cases: [{ name, field_values, expected_outcome, expectations? }, ...],
+  contract_version?: 1,
+  expected_review_bindings?: { field_id: { token: true | false | null } }
 })
 aethis_generate_and_test({ project_id })
 aethis_refine({ project_id, feedback })          // iterate until tests pass
 aethis_publish({ project_id })                   // refuses if tests fail; returns ruleset_id on success
 ```
+
+When a test carries `expectations`, set `contract_version: 1`. The optional
+binding catalogue is generic authoring metadata: omit it when no binding
+assertion is needed, or pass `{}` to assert that no review bindings exist.
+The server must confirm the complete stored contract before generation begins.
+`aethis_create_ruleset` creates a project; it does not append or replace tests
+on an existing project. Use the CLI or the project-test API for a later
+contract replacement, so a legacy update cannot accidentally discard stored
+assertions.
 
 If generation polling times out, call `aethis_generation_status({ project_id })`
 before retrying: use its `telemetry_availability`, server-authoritative

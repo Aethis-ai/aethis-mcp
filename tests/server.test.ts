@@ -15,6 +15,8 @@ import {
   formatReviewReport,
   AUTHOR_PROMPT,
   decidePromptText,
+  acceptanceContractDigest,
+  validateAcceptanceContract,
   registerTools,
   UNTRUSTED_PREFACE,
   type ToolHandlers,
@@ -44,6 +46,7 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     archiveProject: vi.fn().mockResolvedValue({ message: "Archived" }),
     archiveRuleset: vi.fn().mockResolvedValue({ message: "Archived" }),
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_abc" }),
+    getProject: vi.fn().mockResolvedValue({}),
     uploadSourceText: vi.fn().mockResolvedValue({ uploaded: 1 }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
     replaceTests: vi.fn().mockResolvedValue({ added: 1, replaced: 0 }),
@@ -996,6 +999,54 @@ describe("aethis_create_ruleset", () => {
     expect(t).toContain("proj_abc");
     expect(t).toContain("2 test case");
     expect(t).toContain("aethis_generate_and_test");
+  });
+
+  it("atomically stores and verifies an acceptance-contract v1 before returning", async () => {
+    const client = mockClient();
+    const h = createToolHandlers(client);
+    const cases = [{
+      name: "review pending",
+      field_values: { clearance: "unknown" },
+      expected_outcome: "undetermined",
+      expectations: { pending_reviews: { resolution_fields: ["clearance"], unmapped_count: 0 } },
+    }];
+    const validation = validateAcceptanceContract(cases, 1);
+    if (!validation.contract) throw new Error("fixture should be valid");
+    (client.getProject as ReturnType<typeof vi.fn>).mockResolvedValue({
+      authoring_acceptance_contract_version: 1,
+      expected_review_bindings: null,
+      authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract),
+    });
+    const result = await h.aethis_create_ruleset({
+      name: "test", section_id: "s", source_text: "Law.", test_cases: cases, contract_version: 1,
+    });
+    expect((client.addTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc", cases, { contractVersion: 1 });
+    expect((client.getProject as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc");
+    expect(text(result)).toContain("Rule ruleset created successfully");
+  });
+
+  it("rejects null catalogues and boolean unmapped counts locally", async () => {
+    const h = createToolHandlers(mockClient());
+    const base = { name: "test", section_id: "s", source_text: "Law.", contract_version: 1 as const };
+    const nullResult = await h.aethis_create_ruleset({
+      ...base, test_cases: [{ name: "c", field_values: {}, expected_outcome: "eligible" }], expected_review_bindings: null as unknown as Record<string, Record<string, boolean | null>>,
+    });
+    expect(text(nullResult)).toContain("null is not valid");
+    const boolResult = await h.aethis_create_ruleset({
+      ...base, test_cases: [{ name: "c", field_values: {}, expected_outcome: "undetermined", expectations: { pending_reviews: { resolution_fields: ["x"], unmapped_count: false } } }],
+    });
+    expect(text(boolResult)).toContain("non-negative integer");
+  });
+
+  it("rejects unknown acceptance keys before creating a project", async () => {
+    const client = mockClient();
+    const h = createToolHandlers(client);
+    const result = await h.aethis_create_ruleset({
+      name: "test", section_id: "s", source_text: "Law.", contract_version: 1,
+      test_cases: [{ name: "c", field_values: {}, expected_outcome: "eligible", unexpected: true }],
+    });
+    expect(text(result)).toContain("unknown keys");
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 });
 
