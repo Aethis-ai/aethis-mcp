@@ -67,6 +67,12 @@ function captureRegisteredTools(): Record<string, Record<string, ReturnType<type
       }
       shapes[name] = shape;
     },
+    registerTool: (
+      name: string,
+      config: { inputSchema?: { shape?: ZodShape } },
+    ) => {
+      shapes[name] = config.inputSchema?.shape ?? {};
+    },
     prompt: () => {},
   } as unknown as Parameters<typeof registerTools>[0];
   registerTools(fakeServer, handlers);

@@ -6,6 +6,9 @@
  * and output structure — without starting a real MCP transport.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AethisAPIError, type AethisClient } from "../src/client.js";
 
 import {
@@ -96,6 +99,25 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
 /** Helper to get text content from tool result */
 function text(result: { content: Array<{ type: string; text?: string }> }): string {
   return result.content[0]?.text ?? "";
+}
+
+async function callToolThroughSdk(
+  clientImpl: AethisClient,
+  name: string,
+  args: Record<string, unknown>,
+) {
+  const server = new McpServer({ name: "aethis-mcp-test", version: "0" });
+  registerTools(server, createToolHandlers(clientImpl));
+  const client = new McpClient({ name: "aethis-mcp-test-client", version: "0" }, { capabilities: {} });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    return await client.callTool({ name, arguments: args });
+  } finally {
+    await client.close();
+    await server.close();
+  }
 }
 
 /**
@@ -1092,6 +1114,65 @@ describe("aethis_set_tests", () => {
     { name: "ineligible", field_values: { "applicant.age": 10 }, expected_outcome: "not_eligible" },
   ];
 
+  it.each([
+    ["aethis_set_tests", {
+      project_id: "p_existing",
+      test_cases: completeSuite,
+      contract_version: 1,
+      expected_review_binding: { "review.clearance": { approved: true } },
+    }],
+    ["aethis_create_ruleset", {
+      name: "strict",
+      section_id: "strict",
+      source_text: "Source.",
+      test_cases: completeSuite,
+      contract_version: 1,
+      expectedReviewBindings: { "review.clearance": { approved: true } },
+    }],
+  ])("rejects unknown top-level arguments at the real SDK boundary for %s", async (tool, args) => {
+    const client = mockClient();
+    const result = await callToolThroughSdk(client, tool, args);
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("Input validation error");
+    expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["useful unknown", {
+      expectations: { useful_unknown_fields: ["\u0085"] },
+    }],
+    ["binding token", {
+      expectations: { useful_unknown_fields: ["valid"] },
+      expected_review_bindings: { review: { "\u0085": true } },
+    }],
+  ])("rejects a NEL-only %s before create_ruleset mutation", async (_case, extra) => {
+    const client = mockClient();
+    const testCase = {
+      name: "invalid-id",
+      field_values: {},
+      expected_outcome: "eligible",
+      ...("expectations" in extra ? { expectations: extra.expectations } : {}),
+    };
+    const result = await callToolThroughSdk(client, "aethis_create_ruleset", {
+      name: "strict",
+      section_id: "strict",
+      source_text: "Source.",
+      contract_version: 1,
+      test_cases: [testCase],
+      ...("expected_review_bindings" in extra
+        ? { expected_review_bindings: extra.expected_review_bindings }
+        : {}),
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("Input validation error");
+    expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.uploadSourceText as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
   it("replaces a supplied project's complete suite without creating it", async () => {
     const client = mockClient({ replaceTests: vi.fn().mockResolvedValue({ added: 2, replaced: 3 }) });
     const result = await createToolHandlers(client).aethis_set_tests({ project_id: "p_existing", test_cases: completeSuite });
@@ -1166,6 +1247,77 @@ describe("aethis_set_tests", () => {
     );
   });
 
+  it("sends the same normalized cases that the v1 digest covers", async () => {
+    const rawCases = [{
+      name: "defaulted-fields",
+      field_values: {},
+      expected_outcome: "undetermined",
+      expectations: { pending_reviews: { unmapped_count: 0 } },
+    }];
+    const validation = validateAcceptanceContract(rawCases, 1, {});
+    if (!validation.contract) throw new Error("fixture should be valid");
+    const client = mockClient({
+      getProject: vi.fn().mockResolvedValue({
+        authoring_acceptance_contract_version: 1,
+        expected_review_bindings: {},
+        authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract),
+      }),
+    });
+
+    const result = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing",
+      test_cases: rawCases,
+      contract_version: 1,
+      expected_review_bindings: {},
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+      "p_existing",
+      validation.contract.test_cases,
+      validation.contract,
+    );
+    expect(validation.contract.test_cases[0].expectations?.pending_reviews?.resolution_fields).toEqual([]);
+  });
+
+  it("treats explicit null expectations as absence", () => {
+    const cases = [{
+      name: "no-assertion",
+      field_values: {},
+      expected_outcome: "eligible",
+      expectations: null,
+    }];
+    const legacy = validateAcceptanceContract(cases);
+    expect(legacy).toEqual({});
+    const v1 = validateAcceptanceContract(cases, 1);
+    expect(v1.error).toBeUndefined();
+    expect(v1.contract?.test_cases[0]).toEqual({
+      name: "no-assertion",
+      field_values: {},
+      expected_outcome: "eligible",
+    });
+  });
+
+  it("matches core identifier whitespace and Unicode code-point bounds", () => {
+    const valid = ["\ufeff", "🚀".repeat(300)];
+    for (const identifier of valid) {
+      expect(validateAcceptanceContract([{
+        name: "valid-id",
+        field_values: {},
+        expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: [identifier] },
+      }], 1).error).toBeUndefined();
+    }
+    for (const identifier of ["\u0085", "🚀".repeat(301)]) {
+      expect(validateAcceptanceContract([{
+        name: "invalid-id",
+        field_values: {},
+        expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: [identifier] },
+      }], 1).error).toContain("useful_unknown_fields");
+    }
+  });
+
   it("rejects record keys that the SDK parser would silently discard", () => {
     type Schema = { safeParse: (value: unknown) => { success: boolean; data?: unknown } };
     const captured: Record<string, Record<string, Schema>> = {};
@@ -1174,6 +1326,12 @@ describe("aethis_set_tests", () => {
         const shape = rest.find((arg) => !!arg && typeof arg === "object"
           && ("test_cases" in arg || "field_values" in arg));
         if (shape) captured[name] = shape as Record<string, Schema>;
+      },
+      registerTool: (
+        name: string,
+        config: { inputSchema?: { shape?: Record<string, Schema> } },
+      ) => {
+        if (config.inputSchema?.shape) captured[name] = config.inputSchema.shape;
       },
       prompt: () => {},
     } as unknown as Parameters<typeof registerTools>[0];
@@ -1213,6 +1371,14 @@ describe("aethis_set_tests", () => {
         ) as { test_cases?: { safeParse: (value: unknown) => { success: boolean } } } | undefined;
         if (shape?.test_cases) captured[name] = shape.test_cases;
       },
+      registerTool: (
+        name: string,
+        config: { inputSchema?: { shape?: Record<string, { safeParse: (value: unknown) => { success: boolean } }> } },
+      ) => {
+        if (name !== "aethis_create_ruleset" && name !== "aethis_set_tests") return;
+        const schema = config.inputSchema?.shape?.test_cases;
+        if (schema) captured[name] = schema;
+      },
       prompt: () => {},
     } as unknown as Parameters<typeof registerTools>[0];
     registerTools(fakeServer, createToolHandlers(mockClient()));
@@ -1225,6 +1391,21 @@ describe("aethis_set_tests", () => {
     }];
     for (const schema of Object.values(captured)) {
       expect(schema.safeParse(valid).success).toBe(true);
+      expect(schema.safeParse([{
+        name: "explicit-null", field_values: {}, expected_outcome: "eligible", expectations: null,
+      }]).success).toBe(true);
+      expect(schema.safeParse([{
+        name: "unicode-limit", field_values: {}, expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: ["🚀".repeat(300), "\ufeff"] },
+      }]).success).toBe(true);
+      expect(schema.safeParse([{
+        name: "unicode-over-limit", field_values: {}, expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: ["🚀".repeat(301)] },
+      }]).success).toBe(false);
+      expect(schema.safeParse([{
+        name: "unicode-whitespace", field_values: {}, expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: ["\u0085"] },
+      }]).success).toBe(false);
       expect(schema.safeParse(Array.from({ length: 501 }, (_, i) => ({
         name: `c${i}`, field_values: {}, expected_outcome: "eligible",
       }))).success).toBe(false);
@@ -1953,6 +2134,7 @@ describe("aethis_set_field_spec", () => {
         ) as { expected_fields?: typeof expectedFieldsSchema } | undefined;
         expectedFieldsSchema = fieldSpecShape?.expected_fields;
       },
+      registerTool: () => {},
       prompt: () => {},
     } as unknown as Parameters<typeof registerTools>[0];
     registerTools(fakeServer, createToolHandlers(mockClient()));
@@ -2059,6 +2241,9 @@ describe("A3 aethis_source tool visibility", () => {
     const registered: string[] = [];
     const fakeServer = {
       tool: (name: string, ..._args: unknown[]) => {
+        registered.push(name);
+      },
+      registerTool: (name: string) => {
         registered.push(name);
       },
       prompt: () => {},
