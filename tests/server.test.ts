@@ -1215,6 +1215,47 @@ describe("aethis_set_tests", () => {
     },
   );
 
+  it("rejects explicit null resolution_fields before replacement", async () => {
+    const client = mockClient();
+    const result = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing", contract_version: 1,
+      test_cases: [{
+        name: "null fields", field_values: {}, expected_outcome: "undetermined",
+        expectations: {
+          pending_reviews: { resolution_fields: null, unmapped_count: 0 },
+        },
+      }],
+    });
+    expect(result.isError).toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["name", { name: "bad\ud800", field_values: {}, expected_outcome: "eligible" }],
+    ["value", { name: "bad value", field_values: { fact: "bad\ud800" }, expected_outcome: "eligible" }],
+    ["key", { name: "bad key", field_values: { ["bad\ud800"]: true }, expected_outcome: "eligible" }],
+  ])("rejects malformed Unicode in a test-case %s before replacement", async (_location, testCase) => {
+    const client = mockClient();
+    const result = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing", contract_version: 1, test_cases: [testCase],
+    });
+    expect(result.isError).toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.getProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("preserves valid astral Unicode without normalization", () => {
+    const astral = "\ud83d\ude80";
+    const validation = validateAcceptanceContract([{
+      name: `launch ${astral}`,
+      field_values: { [`mission.${astral}`]: `ready ${astral}` },
+      expected_outcome: "eligible",
+    }], 1);
+    expect(validation.error).toBeUndefined();
+    expect(validation.contract?.test_cases[0].name).toBe(`launch ${astral}`);
+    expect(() => acceptanceContractDigest(validation.contract!)).not.toThrow();
+  });
+
   it.each(["toString", "constructor", "__proto__"])(
     "does not treat inherited property %s as a declared review field",
     (field) => {

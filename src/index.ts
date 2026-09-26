@@ -618,8 +618,23 @@ function boundedUniqueStrings(value: unknown): value is string[] {
     && new Set(value).size === value.length;
 }
 
-function canonicalJsonDomainError(value: unknown, path = "field_values", seen = new Set<object>()): string | null {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return null;
+function hasWellFormedUnicode(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xD800 && unit <= 0xDBFF) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xDC00 && next <= 0xDFFF)) return false;
+      index++;
+    } else if (unit >= 0xDC00 && unit <= 0xDFFF) return false;
+  }
+  return true;
+}
+
+function canonicalJsonDomainError(value: unknown, path = "contract", seen = new Set<object>()): string | null {
+  if (value === null || typeof value === "boolean") return null;
+  if (typeof value === "string") {
+    return hasWellFormedUnicode(value) ? null : `${path} contains malformed Unicode.`;
+  }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return `${path} contains a non-finite number.`;
     if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
@@ -634,6 +649,7 @@ function canonicalJsonDomainError(value: unknown, path = "field_values", seen = 
     ? value.map((item, index) => [String(index), item] as const)
     : Object.entries(value as Record<string, unknown>);
   for (const [key, item] of entries) {
+    if (!hasWellFormedUnicode(key)) return `${path} contains a malformed Unicode object key.`;
     const error = canonicalJsonDomainError(item, `${path}.${key}`, seen);
     if (error) return error;
   }
@@ -665,8 +681,6 @@ export function validateAcceptanceContract(
     if (Object.keys(tc).some((key) => !allowed.has(key)) || typeof tc.name !== "string" || !tc.name.trim() || names.has(tc.name)) return { error: `Error: Acceptance test case ${i + 1} has unknown keys or a non-unique non-empty name.` };
     names.add(tc.name);
     if (!tc.field_values || typeof tc.field_values !== "object" || Array.isArray(tc.field_values)) return { error: `Error: Acceptance test case ${i + 1} field_values must be an object.` };
-    const domainError = canonicalJsonDomainError(tc.field_values, `Acceptance test case ${i + 1} field_values`);
-    if (domainError) return { error: `Error: ${domainError}` };
     if (!["eligible", "not_eligible", "undetermined"].includes(tc.expected_outcome as string)) return { error: `Error: Acceptance test case ${i + 1} has an invalid expected_outcome.` };
     let expectations: AcceptanceExpectations | undefined;
     if ("expectations" in tc) {
@@ -679,7 +693,7 @@ export function validateAcceptanceContract(
         || typeof pending !== "object"
         || Object.keys(pending).some((key) => key !== "resolution_fields" && key !== "unmapped_count")
         || !("unmapped_count" in pending)
-        || !boundedUniqueStrings(pending.resolution_fields ?? [])
+        || (pending.resolution_fields !== undefined && !boundedUniqueStrings(pending.resolution_fields))
         || !Number.isInteger(pending.unmapped_count)
         || pending.unmapped_count < 0
         || pending.unmapped_count > 500
@@ -698,7 +712,14 @@ export function validateAcceptanceContract(
     }
     cases.push({ name: tc.name, field_values: tc.field_values as Record<string, unknown>, expected_outcome: tc.expected_outcome as AcceptanceTestCase["expected_outcome"], ...(expectations ? { expectations } : {}) });
   }
-  return { contract: { contract_version: 1, test_cases: cases, ...(bindings !== undefined ? { expected_review_bindings: bindings } : {}) } };
+  const contract: AcceptanceContract = {
+    contract_version: 1,
+    test_cases: cases,
+    ...(bindings !== undefined ? { expected_review_bindings: bindings } : {}),
+  };
+  const domainError = canonicalJsonDomainError(contract, "Acceptance contract");
+  if (domainError) return { error: `Error: ${domainError}` };
+  return { contract };
 }
 
 export function acceptanceContractDigest(contract: AcceptanceContract): string {
