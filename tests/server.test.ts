@@ -1280,6 +1280,42 @@ describe("aethis_set_tests", () => {
     expect(base({ resolution_fields: [], unmapped_count: 0 }, Array.from({ length: 501 }, (_, i) => `u${i}`)).error).toBeDefined();
   });
 
+  it("keeps the legacy 100-case limit while allowing larger atomic v1 suites", async () => {
+    const cases = Array.from({ length: 104 }, (_, i) => ({
+      name: `case-${i}`, field_values: {}, expected_outcome: "eligible",
+    }));
+    expect(validateAcceptanceContract(cases).error).toContain("100");
+    expect(validateAcceptanceContract(cases, 1).error).toBeUndefined();
+    const client = mockClient();
+    const handlers = createToolHandlers(client);
+    expect((await handlers.aethis_set_tests({ project_id: "existing", test_cases: cases })).isError).toBe(true);
+    expect((await handlers.aethis_create_ruleset({
+      name: "Large suite", section_id: "large", source_text: "source", test_cases: cases,
+    })).isError).toBe(true);
+    expect(client.replaceTests).not.toHaveBeenCalled();
+    expect(client.createProject).not.toHaveBeenCalled();
+  });
+
+  it("matches the independent cross-language contract wire digest", () => {
+    const validated = validateAcceptanceContract([{
+      name: "pending-review",
+      field_values: { "case.fact": "value" },
+      expected_outcome: "undetermined",
+      expectations: {
+        pending_reviews: { resolution_fields: ["review.clearance"], unmapped_count: 0 },
+        useful_unknown_fields: ["case.evidence_date"],
+      },
+    }], 1, {
+      "review.clearance": { approved: true, declined: false, awaiting_evidence: null },
+    });
+    expect(validated.error).toBeUndefined();
+    // Fixed protocol fixture shared with the Python client and engine; do not
+    // derive the expected value from this implementation or a mocked readback.
+    expect(acceptanceContractDigest(validated.contract!)).toBe(
+      "sha256:eb0436a6575f0fa34a162f70672982a6ece61003fb627cb63c7dfcf7f02f8535",
+    );
+  });
+
   it("keeps canonically distinct raw Unicode identities distinct", () => {
     const make = (field: string) => validateAcceptanceContract([{
       name: "unicode", field_values: { [field]: true }, expected_outcome: "eligible",

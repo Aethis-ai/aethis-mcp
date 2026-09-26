@@ -661,7 +661,10 @@ export function validateAcceptanceContract(
   testCases: Array<Record<string, unknown>>, contractVersion?: unknown, expectedReviewBindings?: unknown,
 ): { contract?: AcceptanceContract; error?: string } {
   const advanced = contractVersion !== undefined || expectedReviewBindings !== undefined || testCases.some((tc) => "expectations" in tc);
-  if (!advanced) return {};
+  if (!advanced) {
+    if (testCases.length > 100) return { error: "Error: Legacy test uploads allow at most 100 cases; use contract_version: 1 for up to 500." };
+    return {};
+  }
   if (contractVersion !== 1 || typeof contractVersion !== "number") return { error: "Error: Acceptance assertions require contract_version: 1." };
   if (testCases.length < 1 || testCases.length > 500) return { error: "Error: Acceptance test_cases must contain 1 to 500 cases." };
   let bindings: ReviewBindings | undefined;
@@ -2222,7 +2225,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
 
   server.tool(
     "aethis_set_tests",
-    "Replace the complete reviewed test suite for an existing project after field discovery. Requires 1 to 100 cases and replaces prior tests without creating a project or changing its sources, fields, or guidance. This is destructive. The target API must advertise replacement support before any write. If the response is interrupted, inspect the project before approving another replacement.",
+    "Replace the complete reviewed test suite for an existing project after field discovery. Requires 1 to 100 legacy cases, or up to 500 with contract_version: 1, and replaces prior tests without creating a project or changing its sources, fields, or guidance. This is destructive. The target API must advertise replacement support before any write. If the response is interrupted, inspect the project before approving another replacement.",
     {
       project_id: z.string().describe("Existing project ID whose complete test suite will be replaced"),
       test_cases: z.array(z.object({
