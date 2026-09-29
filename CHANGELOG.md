@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.21.0 (2026-09-29)
+## 0.22.0 (2026-09-29)
 
 - Fail closed on misspelled top-level acceptance arguments to
   `aethis_create_ruleset` and `aethis_set_tests` instead of letting the MCP
@@ -16,6 +16,9 @@
   optional review-binding catalogue. Both use the atomic test replacement
   path and require the engine's contract version, catalogue, and canonical
   digest to read back before reporting the project ready for generation.
+
+## 0.21.0 (2026-09-29)
+
 - **feat: transport authoritative field notes.** `aethis_set_field_spec` now
   accepts ordered per-field notes with optional source labels and JSON metadata.
   Omitting notes leaves existing note guidance unchanged; an empty list clears
