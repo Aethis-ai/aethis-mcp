@@ -88,6 +88,9 @@ function capturedAnnotations(): Record<string, Record<string, unknown>> {
       const ann = rest.find(isAnnotations);
       if (ann) annotations[name] = ann;
     },
+    registerTool: (name: string, config: { annotations?: Record<string, unknown> }) => {
+      if (config.annotations) annotations[name] = config.annotations;
+    },
     prompt: () => {},
   } as unknown as Parameters<typeof registerTools>[0];
   registerTools(fakeServer, handlers);

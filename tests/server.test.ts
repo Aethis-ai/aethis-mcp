@@ -6,6 +6,9 @@
  * and output structure — without starting a real MCP transport.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AethisAPIError, type AethisClient } from "../src/client.js";
 
 import {
@@ -15,6 +18,8 @@ import {
   formatReviewReport,
   AUTHOR_PROMPT,
   decidePromptText,
+  acceptanceContractDigest,
+  validateAcceptanceContract,
   registerTools,
   UNTRUSTED_PREFACE,
   type ToolHandlers,
@@ -44,8 +49,10 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     archiveProject: vi.fn().mockResolvedValue({ message: "Archived" }),
     archiveRuleset: vi.fn().mockResolvedValue({ message: "Archived" }),
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_abc" }),
+    getProject: vi.fn().mockResolvedValue({}),
     uploadSourceText: vi.fn().mockResolvedValue({ uploaded: 1 }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
+    preflightTestReplacement: vi.fn().mockResolvedValue(undefined),
     replaceTests: vi.fn().mockResolvedValue({ added: 1, replaced: 0 }),
     addGuidance: vi.fn().mockResolvedValue({ hint_id: "h_1" }),
     addDomainGuidance: vi.fn().mockResolvedValue({ hint_id: "h_d1" }),
@@ -92,6 +99,25 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
 /** Helper to get text content from tool result */
 function text(result: { content: Array<{ type: string; text?: string }> }): string {
   return result.content[0]?.text ?? "";
+}
+
+async function callToolThroughSdk(
+  clientImpl: AethisClient,
+  name: string,
+  args: Record<string, unknown>,
+) {
+  const server = new McpServer({ name: "aethis-mcp-test", version: "0" });
+  registerTools(server, createToolHandlers(clientImpl));
+  const client = new McpClient({ name: "aethis-mcp-test-client", version: "0" }, { capabilities: {} });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    return await client.callTool({ name, arguments: args });
+  } finally {
+    await client.close();
+    await server.close();
+  }
 }
 
 /**
@@ -997,6 +1023,89 @@ describe("aethis_create_ruleset", () => {
     expect(t).toContain("2 test case");
     expect(t).toContain("aethis_generate_and_test");
   });
+
+  it("atomically stores and verifies an acceptance-contract v1 before returning", async () => {
+    const client = mockClient();
+    const h = createToolHandlers(client);
+    const cases = [{
+      name: "review pending",
+      field_values: { clearance: "unknown" },
+      expected_outcome: "undetermined",
+      expectations: { pending_reviews: { resolution_fields: ["clearance"], unmapped_count: 0 } },
+    }];
+    const validation = validateAcceptanceContract(cases, 1);
+    if (!validation.contract) throw new Error("fixture should be valid");
+    (client.getProject as ReturnType<typeof vi.fn>).mockResolvedValue({
+      authoring_acceptance_contract_version: 1,
+      expected_review_bindings: null,
+      authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract),
+    });
+    const result = await h.aethis_create_ruleset({
+      name: "test", section_id: "s", source_text: "Law.", test_cases: cases, contract_version: 1,
+    });
+    expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(true);
+    expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]).toBeLessThan(
+      (client.createProject as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    );
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc", cases, validation.contract);
+    expect((client.getProject as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("proj_abc");
+    expect(text(result)).toContain("Rule ruleset created successfully");
+  });
+
+  it("rejects null catalogues and boolean unmapped counts locally", async () => {
+    const h = createToolHandlers(mockClient());
+    const base = { name: "test", section_id: "s", source_text: "Law.", contract_version: 1 as const };
+    const nullResult = await h.aethis_create_ruleset({
+      ...base, test_cases: [{ name: "c", field_values: {}, expected_outcome: "eligible" }], expected_review_bindings: null as unknown as Record<string, Record<string, boolean | null>>,
+    });
+    expect(text(nullResult)).toContain("null is not valid");
+    const boolResult = await h.aethis_create_ruleset({
+      ...base, test_cases: [{ name: "c", field_values: {}, expected_outcome: "undetermined", expectations: { pending_reviews: { resolution_fields: ["x"], unmapped_count: false } } }],
+    });
+    expect(text(boolResult)).toContain("unmapped_count from 0 to 500");
+  });
+
+  it("refuses an unsupported contract before creating a project or uploading source", async () => {
+    const client = mockClient({
+      preflightTestReplacement: vi.fn().mockRejectedValue(new AethisAPIError(400, "v1 unsupported")),
+    });
+    const result = await createToolHandlers(client).aethis_create_ruleset({
+      name: "test", section_id: "s", source_text: "Law.", contract_version: 1,
+      test_cases: [{ name: "c", field_values: {}, expected_outcome: "eligible" }],
+    });
+    expect(result.isError).toBe(true);
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.uploadSourceText as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it.each([9007199254740992, Number.NaN])(
+    "rejects noncanonical value %s before preflight or project creation",
+    async (unsafe) => {
+      const client = mockClient();
+      const result = await createToolHandlers(client).aethis_create_ruleset({
+        name: "test", section_id: "s", source_text: "Law.", contract_version: 1,
+        test_cases: [{
+          name: "unsafe", field_values: { nested: { unsafe } }, expected_outcome: "eligible",
+        }],
+      });
+      expect(result.isError).toBe(true);
+      expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect((client.uploadSourceText as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects unknown acceptance keys before creating a project", async () => {
+    const client = mockClient();
+    const h = createToolHandlers(client);
+    const result = await h.aethis_create_ruleset({
+      name: "test", section_id: "s", source_text: "Law.", contract_version: 1,
+      test_cases: [{ name: "c", field_values: {}, expected_outcome: "eligible", unexpected: true }],
+    });
+    expect(text(result)).toContain("unknown keys");
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
 });
 
 describe("aethis_set_tests", () => {
@@ -1004,6 +1113,65 @@ describe("aethis_set_tests", () => {
     { name: "eligible", field_values: { "applicant.age": 30 }, expected_outcome: "eligible" },
     { name: "ineligible", field_values: { "applicant.age": 10 }, expected_outcome: "not_eligible" },
   ];
+
+  it.each([
+    ["aethis_set_tests", {
+      project_id: "p_existing",
+      test_cases: completeSuite,
+      contract_version: 1,
+      expected_review_binding: { "review.clearance": { approved: true } },
+    }],
+    ["aethis_create_ruleset", {
+      name: "strict",
+      section_id: "strict",
+      source_text: "Source.",
+      test_cases: completeSuite,
+      contract_version: 1,
+      expectedReviewBindings: { "review.clearance": { approved: true } },
+    }],
+  ])("rejects unknown top-level arguments at the real SDK boundary for %s", async (tool, args) => {
+    const client = mockClient();
+    const result = await callToolThroughSdk(client, tool, args);
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("Input validation error");
+    expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["useful unknown", {
+      expectations: { useful_unknown_fields: ["\u0085"] },
+    }],
+    ["binding token", {
+      expectations: { useful_unknown_fields: ["valid"] },
+      expected_review_bindings: { review: { "\u0085": true } },
+    }],
+  ])("rejects a NEL-only %s before create_ruleset mutation", async (_case, extra) => {
+    const client = mockClient();
+    const testCase = {
+      name: "invalid-id",
+      field_values: {},
+      expected_outcome: "eligible",
+      ...("expectations" in extra ? { expectations: extra.expectations } : {}),
+    };
+    const result = await callToolThroughSdk(client, "aethis_create_ruleset", {
+      name: "strict",
+      section_id: "strict",
+      source_text: "Source.",
+      contract_version: 1,
+      test_cases: [testCase],
+      ...("expected_review_bindings" in extra
+        ? { expected_review_bindings: extra.expected_review_bindings }
+        : {}),
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("Input validation error");
+    expect((client.preflightTestReplacement as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.createProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.uploadSourceText as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
 
   it("replaces a supplied project's complete suite without creating it", async () => {
     const client = mockClient({ replaceTests: vi.fn().mockResolvedValue({ added: 2, replaced: 3 }) });
@@ -1014,7 +1182,27 @@ describe("aethis_set_tests", () => {
     expect(text(result)).toContain("Replaced: 3");
   });
 
-  it.each([[[]], [Array.from({ length: 101 }, (_, i) => ({ name: `c${i}`, field_values: {}, expected_outcome: "eligible" }))]])(
+  it("verifies v1 contract readback after replacing an existing suite", async () => {
+    const cases = [{
+      name: "pending", field_values: { clearance: "unknown" }, expected_outcome: "undetermined",
+      expectations: { pending_reviews: { resolution_fields: ["clearance"], unmapped_count: 0 } },
+    }];
+    const validation = validateAcceptanceContract(cases, 1);
+    if (!validation.contract) throw new Error("fixture should be valid");
+    const client = mockClient({
+      getProject: vi.fn().mockResolvedValue({
+        authoring_acceptance_contract_version: 1,
+        expected_review_bindings: null,
+        authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract),
+      }),
+    });
+    const result = await createToolHandlers(client).aethis_set_tests({ project_id: "p_existing", test_cases: cases, contract_version: 1 });
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("p_existing", cases, validation.contract);
+    expect((client.getProject as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("p_existing");
+    expect(result.isError).not.toBe(true);
+  });
+
+  it.each([[[]], [Array.from({ length: 501 }, (_, i) => ({ name: `c${i}`, field_values: {}, expected_outcome: "eligible" }))]])(
     "rejects incomplete or oversized suites before mutation",
     async (test_cases) => {
       const client = mockClient();
@@ -1023,6 +1211,337 @@ describe("aethis_set_tests", () => {
       expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
     },
   );
+
+  it("preserves explicit empty review and useful-unknown assertions", async () => {
+    const cases = [{
+      name: "terminal", field_values: {}, expected_outcome: "eligible",
+      expectations: {
+        pending_reviews: { resolution_fields: [], unmapped_count: 0 },
+        useful_unknown_fields: [],
+      },
+    }];
+    const validation = validateAcceptanceContract(cases, 1, {});
+    expect(validation.error).toBeUndefined();
+    expect(validation.contract?.test_cases[0].expectations).toEqual(cases[0].expectations);
+    const omittedResolutionFields = validateAcceptanceContract([{
+      name: "terminal-default", field_values: {}, expected_outcome: "eligible",
+      expectations: { pending_reviews: { unmapped_count: 0 } },
+    }], 1, {});
+    expect(omittedResolutionFields.contract?.test_cases[0].expectations?.pending_reviews).toEqual({
+      resolution_fields: [], unmapped_count: 0,
+    });
+    const client = mockClient({
+      getProject: vi.fn().mockResolvedValue({
+        authoring_acceptance_contract_version: 1,
+        expected_review_bindings: {},
+        authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract!),
+      }),
+    });
+    const result = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing", test_cases: cases, contract_version: 1,
+      expected_review_bindings: {},
+    });
+    expect(result.isError).not.toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+      "p_existing", cases, validation.contract,
+    );
+  });
+
+  it("sends the same normalized cases that the v1 digest covers", async () => {
+    const rawCases = [{
+      name: "defaulted-fields",
+      field_values: {},
+      expected_outcome: "undetermined",
+      expectations: { pending_reviews: { unmapped_count: 0 } },
+    }];
+    const validation = validateAcceptanceContract(rawCases, 1, {});
+    if (!validation.contract) throw new Error("fixture should be valid");
+    const client = mockClient({
+      getProject: vi.fn().mockResolvedValue({
+        authoring_acceptance_contract_version: 1,
+        expected_review_bindings: {},
+        authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract),
+      }),
+    });
+
+    const result = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing",
+      test_cases: rawCases,
+      contract_version: 1,
+      expected_review_bindings: {},
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+      "p_existing",
+      validation.contract.test_cases,
+      validation.contract,
+    );
+    expect(validation.contract.test_cases[0].expectations?.pending_reviews?.resolution_fields).toEqual([]);
+  });
+
+  it("treats explicit null expectations as absence", () => {
+    const cases = [{
+      name: "no-assertion",
+      field_values: {},
+      expected_outcome: "eligible",
+      expectations: null,
+    }];
+    const legacy = validateAcceptanceContract(cases);
+    expect(legacy).toEqual({});
+    const v1 = validateAcceptanceContract(cases, 1);
+    expect(v1.error).toBeUndefined();
+    expect(v1.contract?.test_cases[0]).toEqual({
+      name: "no-assertion",
+      field_values: {},
+      expected_outcome: "eligible",
+    });
+  });
+
+  it("matches core identifier whitespace and Unicode code-point bounds", () => {
+    const valid = ["\ufeff", "🚀".repeat(300)];
+    for (const identifier of valid) {
+      expect(validateAcceptanceContract([{
+        name: "valid-id",
+        field_values: {},
+        expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: [identifier] },
+      }], 1).error).toBeUndefined();
+    }
+    for (const identifier of ["\u0085", "🚀".repeat(301)]) {
+      expect(validateAcceptanceContract([{
+        name: "invalid-id",
+        field_values: {},
+        expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: [identifier] },
+      }], 1).error).toContain("useful_unknown_fields");
+    }
+  });
+
+  it("rejects record keys that the SDK parser would silently discard", () => {
+    type Schema = { safeParse: (value: unknown) => { success: boolean; data?: unknown } };
+    const captured: Record<string, Record<string, Schema>> = {};
+    const fakeServer = {
+      tool: (name: string, _description: string, ...rest: unknown[]) => {
+        const shape = rest.find((arg) => !!arg && typeof arg === "object"
+          && ("test_cases" in arg || "field_values" in arg));
+        if (shape) captured[name] = shape as Record<string, Schema>;
+      },
+      registerTool: (
+        name: string,
+        config: { inputSchema?: { shape?: Record<string, Schema> } },
+      ) => {
+        if (config.inputSchema?.shape) captured[name] = config.inputSchema.shape;
+      },
+      prompt: () => {},
+    } as unknown as Parameters<typeof registerTools>[0];
+    const client = mockClient();
+    registerTools(fakeServer, createToolHandlers(client));
+    const lossy = JSON.parse('{"__proto__":false,"ok":true}');
+    const lossyCatalogue = JSON.parse('{"__proto__":{"approved":true},"review.x":{"approved":true}}');
+    const preserved = JSON.parse('{"constructor":false,"toString":true}');
+    for (const name of ["aethis_create_ruleset", "aethis_set_tests"]) {
+      expect(captured[name].test_cases.safeParse([{
+        name: "own-key", field_values: lossy, expected_outcome: "eligible",
+      }]).success).toBe(false);
+      expect(captured[name].expected_review_bindings.safeParse(lossyCatalogue).success).toBe(false);
+      expect(captured[name].expected_review_bindings.safeParse({ "review.x": lossy }).success).toBe(false);
+      const safe = captured[name].expected_review_bindings.safeParse({ "review.x": preserved });
+      expect(safe.success).toBe(true);
+      expect(safe.data).toEqual({ "review.x": preserved });
+    }
+    // The same lossy parser shape exists on the decision/feedback tools.
+    const inputSchemas = Object.values(captured).filter((shape) => shape.field_values);
+    expect(inputSchemas.length).toBe(3);
+    for (const shape of inputSchemas) {
+      expect(shape.field_values.safeParse(lossy).success).toBe(false);
+      expect(shape.field_values.safeParse(preserved).data).toEqual(preserved);
+    }
+    expect(client.createProject).not.toHaveBeenCalled();
+    expect(client.replaceTests).not.toHaveBeenCalled();
+  });
+
+  it("emits tool schemas that accept empty assertions and enforce v1 maxima", () => {
+    const captured: Record<string, { safeParse: (value: unknown) => { success: boolean } }> = {};
+    const fakeServer = {
+      tool: (name: string, _description: string, ...rest: unknown[]) => {
+        if (name !== "aethis_create_ruleset" && name !== "aethis_set_tests") return;
+        const shape = rest.find((arg) =>
+          !!arg && typeof arg === "object" && "test_cases" in (arg as object),
+        ) as { test_cases?: { safeParse: (value: unknown) => { success: boolean } } } | undefined;
+        if (shape?.test_cases) captured[name] = shape.test_cases;
+      },
+      registerTool: (
+        name: string,
+        config: { inputSchema?: { shape?: Record<string, { safeParse: (value: unknown) => { success: boolean } }> } },
+      ) => {
+        if (name !== "aethis_create_ruleset" && name !== "aethis_set_tests") return;
+        const schema = config.inputSchema?.shape?.test_cases;
+        if (schema) captured[name] = schema;
+      },
+      prompt: () => {},
+    } as unknown as Parameters<typeof registerTools>[0];
+    registerTools(fakeServer, createToolHandlers(mockClient()));
+    const valid = [{
+      name: "terminal", field_values: {}, expected_outcome: "eligible",
+      expectations: {
+        pending_reviews: { resolution_fields: [], unmapped_count: 0 },
+        useful_unknown_fields: [],
+      },
+    }];
+    for (const schema of Object.values(captured)) {
+      expect(schema.safeParse(valid).success).toBe(true);
+      expect(schema.safeParse([{
+        name: "explicit-null", field_values: {}, expected_outcome: "eligible", expectations: null,
+      }]).success).toBe(true);
+      expect(schema.safeParse([{
+        name: "unicode-limit", field_values: {}, expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: ["🚀".repeat(300), "\ufeff"] },
+      }]).success).toBe(true);
+      expect(schema.safeParse([{
+        name: "unicode-over-limit", field_values: {}, expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: ["🚀".repeat(301)] },
+      }]).success).toBe(false);
+      expect(schema.safeParse([{
+        name: "unicode-whitespace", field_values: {}, expected_outcome: "eligible",
+        expectations: { useful_unknown_fields: ["\u0085"] },
+      }]).success).toBe(false);
+      expect(schema.safeParse(Array.from({ length: 501 }, (_, i) => ({
+        name: `c${i}`, field_values: {}, expected_outcome: "eligible",
+      }))).success).toBe(false);
+      expect(schema.safeParse([{
+        ...valid[0],
+        expectations: { pending_reviews: { resolution_fields: [], unmapped_count: 501 } },
+      }]).success).toBe(false);
+    }
+    expect(Object.keys(captured).sort()).toEqual(["aethis_create_ruleset", "aethis_set_tests"]);
+  });
+
+  it.each([9007199254740992, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects noncanonical nested number %s before replacement",
+    async (unsafe) => {
+      const client = mockClient();
+      const result = await createToolHandlers(client).aethis_set_tests({
+        project_id: "p_existing", contract_version: 1,
+        test_cases: [{
+          name: "unsafe", field_values: { nested: [{ unsafe }] }, expected_outcome: "eligible",
+        }],
+      });
+      expect(result.isError).toBe(true);
+      expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect((client.getProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects explicit null resolution_fields before replacement", async () => {
+    const client = mockClient();
+    const result = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing", contract_version: 1,
+      test_cases: [{
+        name: "null fields", field_values: {}, expected_outcome: "undetermined",
+        expectations: {
+          pending_reviews: { resolution_fields: null, unmapped_count: 0 },
+        },
+      }],
+    });
+    expect(result.isError).toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["name", { name: "bad\ud800", field_values: {}, expected_outcome: "eligible" }],
+    ["value", { name: "bad value", field_values: { fact: "bad\ud800" }, expected_outcome: "eligible" }],
+    ["key", { name: "bad key", field_values: { ["bad\ud800"]: true }, expected_outcome: "eligible" }],
+  ])("rejects malformed Unicode in a test-case %s before replacement", async (_location, testCase) => {
+    const client = mockClient();
+    const result = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing", contract_version: 1, test_cases: [testCase],
+    });
+    expect(result.isError).toBe(true);
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((client.getProject as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("preserves valid astral Unicode without normalization", () => {
+    const astral = "\ud83d\ude80";
+    const validation = validateAcceptanceContract([{
+      name: `launch ${astral}`,
+      field_values: { [`mission.${astral}`]: `ready ${astral}` },
+      expected_outcome: "eligible",
+    }], 1);
+    expect(validation.error).toBeUndefined();
+    expect(validation.contract?.test_cases[0].name).toBe(`launch ${astral}`);
+    expect(() => acceptanceContractDigest(validation.contract!)).not.toThrow();
+  });
+
+  it.each(["toString", "constructor", "__proto__"])(
+    "does not treat inherited property %s as a declared review field",
+    (field) => {
+      const validation = validateAcceptanceContract([{
+        name: "pending", field_values: {}, expected_outcome: "undetermined",
+        expectations: { pending_reviews: { resolution_fields: [field], unmapped_count: 0 } },
+      }], 1, { declared: { yes: true } });
+      expect(validation.error).toContain("absent from expected_review_bindings");
+    },
+  );
+
+  it("enforces v1 identifier, array, and count bounds", () => {
+    const overlong = "x".repeat(301);
+    const base = (pending_reviews: Record<string, unknown>, useful_unknown_fields?: string[]) =>
+      validateAcceptanceContract([{
+        name: "bounded", field_values: {}, expected_outcome: "undetermined",
+        expectations: { pending_reviews, ...(useful_unknown_fields ? { useful_unknown_fields } : {}) },
+      }], 1);
+    expect(base({ resolution_fields: [overlong], unmapped_count: 0 }).error).toBeDefined();
+    expect(base({ resolution_fields: Array.from({ length: 501 }, (_, i) => `f${i}`), unmapped_count: 0 }).error).toBeDefined();
+    expect(base({ resolution_fields: [], unmapped_count: 501 }).error).toBeDefined();
+    expect(base({ resolution_fields: [], unmapped_count: 0 }, Array.from({ length: 501 }, (_, i) => `u${i}`)).error).toBeDefined();
+  });
+
+  it("keeps the legacy 100-case limit while allowing larger atomic v1 suites", async () => {
+    const cases = Array.from({ length: 104 }, (_, i) => ({
+      name: `case-${i}`, field_values: {}, expected_outcome: "eligible",
+    }));
+    expect(validateAcceptanceContract(cases).error).toContain("100");
+    expect(validateAcceptanceContract(cases, 1).error).toBeUndefined();
+    const client = mockClient();
+    const handlers = createToolHandlers(client);
+    expect((await handlers.aethis_set_tests({ project_id: "existing", test_cases: cases })).isError).toBe(true);
+    expect((await handlers.aethis_create_ruleset({
+      name: "Large suite", section_id: "large", source_text: "source", test_cases: cases,
+    })).isError).toBe(true);
+    expect(client.replaceTests).not.toHaveBeenCalled();
+    expect(client.createProject).not.toHaveBeenCalled();
+  });
+
+  it("matches the independent cross-language contract wire digest", () => {
+    const validated = validateAcceptanceContract([{
+      name: "pending-review",
+      field_values: { "case.fact": "value" },
+      expected_outcome: "undetermined",
+      expectations: {
+        pending_reviews: { resolution_fields: ["review.clearance"], unmapped_count: 0 },
+        useful_unknown_fields: ["case.evidence_date"],
+      },
+    }], 1, {
+      "review.clearance": { approved: true, declined: false, awaiting_evidence: null },
+    });
+    expect(validated.error).toBeUndefined();
+    // Fixed protocol fixture shared with the Python client and engine; do not
+    // derive the expected value from this implementation or a mocked readback.
+    expect(acceptanceContractDigest(validated.contract!)).toBe(
+      "sha256:eb0436a6575f0fa34a162f70672982a6ece61003fb627cb63c7dfcf7f02f8535",
+    );
+  });
+
+  it("keeps canonically distinct raw Unicode identities distinct", () => {
+    const make = (field: string) => validateAcceptanceContract([{
+      name: "unicode", field_values: { [field]: true }, expected_outcome: "eligible",
+    }], 1).contract!;
+    expect(acceptanceContractDigest(make("caf\u00e9"))).not.toBe(
+      acceptanceContractDigest(make("cafe\u0301")),
+    );
+  });
 
   it("rejects an invalid project ID or case shape before mutation", async () => {
     const client = mockClient();
@@ -1615,6 +2134,7 @@ describe("aethis_set_field_spec", () => {
         ) as { expected_fields?: typeof expectedFieldsSchema } | undefined;
         expectedFieldsSchema = fieldSpecShape?.expected_fields;
       },
+      registerTool: () => {},
       prompt: () => {},
     } as unknown as Parameters<typeof registerTools>[0];
     registerTools(fakeServer, createToolHandlers(mockClient()));
@@ -1721,6 +2241,9 @@ describe("A3 aethis_source tool visibility", () => {
     const registered: string[] = [];
     const fakeServer = {
       tool: (name: string, ..._args: unknown[]) => {
+        registered.push(name);
+      },
+      registerTool: (name: string) => {
         registered.push(name);
       },
       prompt: () => {},

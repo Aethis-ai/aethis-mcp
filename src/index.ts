@@ -5,6 +5,7 @@
  */
 
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -17,6 +18,7 @@ import { runStartupUpdateCheck } from "./version-check.js";
 
 const require = createRequire(import.meta.url);
 const { version: PKG_VERSION } = require("../package.json") as { version: string };
+const canonicalize = require("canonicalize") as (input: unknown) => string | undefined;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +57,23 @@ interface TestRunResult {
   source_question_count?: number | null;
   source_question_turns?: number | null;
 }
+
+type AcceptanceExpectations = {
+  pending_reviews?: { resolution_fields: string[]; unmapped_count: number };
+  useful_unknown_fields?: string[];
+};
+type AcceptanceTestCase = {
+  name: string;
+  field_values: Record<string, unknown>;
+  expected_outcome: "eligible" | "not_eligible" | "undetermined";
+  expectations?: AcceptanceExpectations;
+};
+type ReviewBindings = Record<string, Record<string, boolean | null>>;
+export type AcceptanceContract = {
+  contract_version: 1;
+  test_cases: AcceptanceTestCase[];
+  expected_review_bindings?: ReviewBindings;
+};
 
 // -- Authoring safeguards --
 // Mirror the engine's `SourceQuestion` and `SourceCheck` response models.
@@ -592,13 +611,155 @@ async function requireAuth(client: AethisClient): Promise<ToolResult | null> {
 
 export type ToolHandlers = ReturnType<typeof createToolHandlers>;
 
+function boundedUniqueStrings(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.length <= 500
+    && value.every((item) => typeof item === "string" && isCoreNonEmptyId(item))
+    && new Set(value).size === value.length;
+}
+
+/** Match core's published NonEmptyId: 1-300 Unicode code points and at least
+ * one character outside Unicode's White_Space property. ECMAScript trim is a
+ * different set: it misses NEL (U+0085) and removes FEFF, while core does the
+ * opposite for both. */
+function isCoreNonEmptyId(value: string): boolean {
+  const codePoints = [...value];
+  return codePoints.length >= 1
+    && codePoints.length <= 300
+    && codePoints.some((character) => !/^\p{White_Space}$/u.test(character));
+}
+
+function hasWellFormedUnicode(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xD800 && unit <= 0xDBFF) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xDC00 && next <= 0xDFFF)) return false;
+      index++;
+    } else if (unit >= 0xDC00 && unit <= 0xDFFF) return false;
+  }
+  return true;
+}
+
+function canonicalJsonDomainError(value: unknown, path = "contract", seen = new Set<object>()): string | null {
+  if (value === null || typeof value === "boolean") return null;
+  if (typeof value === "string") {
+    return hasWellFormedUnicode(value) ? null : `${path} contains malformed Unicode.`;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return `${path} contains a non-finite number.`;
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      return `${path} contains an integer outside the RFC 8785 safe domain.`;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return `${path} contains a value outside the JSON domain.`;
+  if (seen.has(value)) return `${path} contains a circular value outside the JSON domain.`;
+  seen.add(value);
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value as Record<string, unknown>);
+  for (const [key, item] of entries) {
+    if (!hasWellFormedUnicode(key)) return `${path} contains a malformed Unicode object key.`;
+    const error = canonicalJsonDomainError(item, `${path}.${key}`, seen);
+    if (error) return error;
+  }
+  seen.delete(value);
+  return null;
+}
+
+export function validateAcceptanceContract(
+  testCases: Array<Record<string, unknown>>, contractVersion?: unknown, expectedReviewBindings?: unknown,
+): { contract?: AcceptanceContract; error?: string } {
+  const advanced = contractVersion !== undefined
+    || expectedReviewBindings !== undefined
+    || testCases.some((tc) => tc.expectations !== undefined && tc.expectations !== null);
+  if (!advanced) {
+    if (testCases.length > 100) return { error: "Error: Legacy test uploads allow at most 100 cases; use contract_version: 1 for up to 500." };
+    return {};
+  }
+  if (contractVersion !== 1 || typeof contractVersion !== "number") return { error: "Error: Acceptance assertions require contract_version: 1." };
+  if (testCases.length < 1 || testCases.length > 500) return { error: "Error: Acceptance test_cases must contain 1 to 500 cases." };
+  let bindings: ReviewBindings | undefined;
+  if (expectedReviewBindings !== undefined) {
+    if (expectedReviewBindings === null || typeof expectedReviewBindings !== "object" || Array.isArray(expectedReviewBindings)) return { error: "Error: expected_review_bindings must be an object; null is not valid." };
+    bindings = expectedReviewBindings as ReviewBindings;
+    for (const [field, tokens] of Object.entries(bindings)) {
+      if (!isCoreNonEmptyId(field) || !tokens || typeof tokens !== "object" || Array.isArray(tokens) || Object.keys(tokens).length === 0) return { error: "Error: Each expected_review_bindings entry needs a non-empty field id of at most 300 Unicode code points and a token object." };
+      if (Object.entries(tokens).some(([token, strict]) => !isCoreNonEmptyId(token) || (strict !== null && typeof strict !== "boolean"))) return { error: "Error: Review-binding tokens must be non-empty strings of at most 300 Unicode code points mapped to true, false, or null." };
+    }
+  }
+  const cases: AcceptanceTestCase[] = [];
+  const names = new Set<string>();
+  for (let i = 0; i < testCases.length; i++) {
+    const tc = testCases[i];
+    const allowed = new Set(["name", "field_values", "expected_outcome", "expectations"]);
+    if (Object.keys(tc).some((key) => !allowed.has(key)) || typeof tc.name !== "string" || !tc.name.trim() || names.has(tc.name)) return { error: `Error: Acceptance test case ${i + 1} has unknown keys or a non-unique non-empty name.` };
+    names.add(tc.name);
+    if (!tc.field_values || typeof tc.field_values !== "object" || Array.isArray(tc.field_values)) return { error: `Error: Acceptance test case ${i + 1} field_values must be an object.` };
+    if (!["eligible", "not_eligible", "undetermined"].includes(tc.expected_outcome as string)) return { error: `Error: Acceptance test case ${i + 1} has an invalid expected_outcome.` };
+    let expectations: AcceptanceExpectations | undefined;
+    if (tc.expectations !== undefined && tc.expectations !== null) {
+      const value = tc.expectations;
+      if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0 || Object.keys(value).some((key) => key !== "pending_reviews" && key !== "useful_unknown_fields")) return { error: `Error: Acceptance test case ${i + 1} expectations must be a non-empty object with supported keys.` };
+      const rawExpectations = value as AcceptanceExpectations & { pending_reviews?: { resolution_fields?: string[]; unmapped_count: number } };
+      const pending = rawExpectations.pending_reviews;
+      if (pending !== undefined && (
+        !pending
+        || typeof pending !== "object"
+        || Object.keys(pending).some((key) => key !== "resolution_fields" && key !== "unmapped_count")
+        || !("unmapped_count" in pending)
+        || (pending.resolution_fields !== undefined && !boundedUniqueStrings(pending.resolution_fields))
+        || !Number.isInteger(pending.unmapped_count)
+        || pending.unmapped_count < 0
+        || pending.unmapped_count > 500
+      )) return { error: `Error: Acceptance test case ${i + 1} pending_reviews requires up to 500 unique non-empty resolution_fields of at most 300 Unicode code points and an unmapped_count from 0 to 500.` };
+      const normalisedPending = pending === undefined
+        ? undefined
+        : { resolution_fields: pending.resolution_fields ?? [], unmapped_count: pending.unmapped_count };
+      if (bindings && normalisedPending?.resolution_fields.some((field) => !Object.hasOwn(bindings, field))) return { error: `Error: Acceptance test case ${i + 1} references a resolution field absent from expected_review_bindings.` };
+      if (rawExpectations.useful_unknown_fields !== undefined && !boundedUniqueStrings(rawExpectations.useful_unknown_fields)) return { error: `Error: Acceptance test case ${i + 1} useful_unknown_fields must contain up to 500 unique non-empty strings of at most 300 Unicode code points.` };
+      expectations = {
+        ...(normalisedPending ? { pending_reviews: normalisedPending } : {}),
+        ...(rawExpectations.useful_unknown_fields !== undefined
+          ? { useful_unknown_fields: rawExpectations.useful_unknown_fields }
+          : {}),
+      };
+    }
+    cases.push({ name: tc.name, field_values: tc.field_values as Record<string, unknown>, expected_outcome: tc.expected_outcome as AcceptanceTestCase["expected_outcome"], ...(expectations ? { expectations } : {}) });
+  }
+  const contract: AcceptanceContract = {
+    contract_version: 1,
+    test_cases: cases,
+    ...(bindings !== undefined ? { expected_review_bindings: bindings } : {}),
+  };
+  const domainError = canonicalJsonDomainError(contract, "Acceptance contract");
+  if (domainError) return { error: `Error: ${domainError}` };
+  return { contract };
+}
+
+export function acceptanceContractDigest(contract: AcceptanceContract): string {
+  let canonical: string | undefined;
+  try {
+    canonical = canonicalize({
+      version: 1,
+      expected_review_bindings: contract.expected_review_bindings ?? null,
+      test_cases: contract.test_cases.map((tc) => ({ name: tc.name, inputs: tc.field_values, expect: { outcome: tc.expected_outcome, ...(tc.expectations ?? {}) } })),
+    });
+  } catch {
+    throw new Error("Acceptance contract is outside the RFC 8785 canonical JSON domain.");
+  }
+  if (!canonical) throw new Error("Unable to canonicalize acceptance contract.");
+  return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
+}
+
 export function createToolHandlers(client: AethisClient) {
   const REQUIRED_TC_KEYS = new Set(["name", "field_values", "expected_outcome"]);
   const VALID_OUTCOMES = new Set(["eligible", "not_eligible", "undetermined"]);
 
   function validateReplacementTestCases(testCases: Array<Record<string, unknown>>): string | null {
-    if (testCases.length < 1 || testCases.length > 100) {
-      return "Error: test_cases must contain a complete suite of 1 to 100 cases.";
+    if (testCases.length < 1 || testCases.length > 500) {
+      return "Error: test_cases must contain a complete suite of 1 to 500 cases.";
     }
     for (let i = 0; i < testCases.length; i++) {
       const tc = testCases[i];
@@ -1030,11 +1191,23 @@ export function createToolHandlers(client: AethisClient) {
       source_text: string;
       test_cases: Array<Record<string, unknown>>;
       domain?: string;
+      contract_version?: 1;
+      expected_review_bindings?: ReviewBindings;
     }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       if (!args.test_cases.length) {
         return err("Error: At least 1 test case is required. Rules authoring is test-driven — define expected outcomes first.");
+      }
+      const acceptance = validateAcceptanceContract(args.test_cases, args.contract_version, args.expected_review_bindings);
+      if (acceptance.error) return err(acceptance.error);
+      let expectedDigest: string | undefined;
+      if (acceptance.contract) {
+        try {
+          expectedDigest = acceptanceContractDigest(acceptance.contract);
+        } catch (error) {
+          return err(`Error: ${(error as Error).message}`);
+        }
       }
       for (let i = 0; i < args.test_cases.length; i++) {
         const tc = args.test_cases[i];
@@ -1049,11 +1222,20 @@ export function createToolHandlers(client: AethisClient) {
       }
 
       try {
+        if (acceptance.contract) await client.preflightTestReplacement(true);
         const project = await client.createProject(args.name, args.section_id, args.domain ?? "") as Record<string, unknown>;
         const projectId = project.project_id as string;
         const filename = `${args.section_id}.md`;
         await client.uploadSourceText(projectId, filename, args.source_text);
-        await client.addTests(projectId, args.test_cases);
+        if (acceptance.contract) {
+          await client.replaceTests(projectId, acceptance.contract.test_cases, acceptance.contract);
+          const readback = await client.getProject(projectId) as Record<string, unknown>;
+          if (
+            readback.authoring_acceptance_contract_version !== 1
+            || canonicalize(readback.expected_review_bindings) !== canonicalize(acceptance.contract.expected_review_bindings ?? null)
+            || readback.authoring_acceptance_contract_digest !== expectedDigest
+          ) return err("The engine did not return the exact acceptance-contract v1 readback; generation was not started.");
+        } else await client.addTests(projectId, args.test_cases);
 
         return ok([
           "Rule ruleset created successfully.",
@@ -1070,6 +1252,8 @@ export function createToolHandlers(client: AethisClient) {
     async aethis_set_tests(args: {
       project_id: string;
       test_cases: Array<Record<string, unknown>>;
+      contract_version?: 1;
+      expected_review_bindings?: ReviewBindings;
     }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -1077,8 +1261,28 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       const casesErr = validateReplacementTestCases(args.test_cases);
       if (casesErr) return err(casesErr);
+      const acceptance = validateAcceptanceContract(args.test_cases, args.contract_version, args.expected_review_bindings);
+      if (acceptance.error) return err(acceptance.error);
+      let expectedDigest: string | undefined;
+      if (acceptance.contract) {
+        try {
+          expectedDigest = acceptanceContractDigest(acceptance.contract);
+        } catch (error) {
+          return err(`Error: ${(error as Error).message}`);
+        }
+      }
       try {
-        const result = await client.replaceTests(args.project_id, args.test_cases) as Record<string, unknown>;
+        const result = acceptance.contract
+          ? await client.replaceTests(args.project_id, acceptance.contract.test_cases, acceptance.contract) as Record<string, unknown>
+          : await client.replaceTests(args.project_id, args.test_cases) as Record<string, unknown>;
+        if (acceptance.contract) {
+          const readback = await client.getProject(args.project_id) as Record<string, unknown>;
+          if (
+            readback.authoring_acceptance_contract_version !== 1
+            || canonicalize(readback.expected_review_bindings) !== canonicalize(acceptance.contract.expected_review_bindings ?? null)
+            || readback.authoring_acceptance_contract_digest !== expectedDigest
+          ) return err("The engine did not return the exact acceptance-contract v1 readback; generation was not started.");
+        }
         const added = typeof result.added === "number" ? result.added : "unknown";
         const replaced = typeof result.replaced === "number" ? result.replaced : "unknown";
         return ok([
@@ -1830,6 +2034,50 @@ export function toolAnnotations(name: string): {
   };
 }
 
+// Zod records discard this key even when it is an own JSON property. Reject
+// it while validating keys, before parsing can silently change caller inputs.
+function transportKey<T extends z.ZodType<string>>(schema: T): z.ZodEffects<T> {
+  return schema.refine((key) => key !== "__proto__", {
+    message: "Unsupported object key '__proto__': the MCP parser would discard it.",
+  });
+}
+
+const jsonObjectKey = transportKey(z.string());
+const nonEmptyId = z.string().refine(isCoreNonEmptyId, {
+  message: "Must contain a non-whitespace character and be at most 300 Unicode code points.",
+});
+const reviewBindingKey = transportKey(nonEmptyId);
+const acceptanceExpectationsSchema = z.object({
+  pending_reviews: z.object({
+    resolution_fields: z.array(nonEmptyId).max(500).optional(),
+    unmapped_count: z.number().int().min(0).max(500),
+  }).strict().optional(),
+  useful_unknown_fields: z.array(nonEmptyId).max(500).optional(),
+}).strict().nullable().optional();
+const acceptanceTestCaseSchema = z.object({
+  name: z.string().min(1),
+  field_values: z.record(jsonObjectKey, z.unknown()),
+  expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]),
+  expectations: acceptanceExpectationsSchema,
+}).strict();
+
+const createRulesetInputSchema = z.object({
+  name: z.string().describe("Human-readable name for the rule ruleset"),
+  section_id: z.string().describe("Unique section identifier (e.g., 'flight_readiness')"),
+  source_text: z.string().describe("The source legislation, policy, or specification text"),
+  test_cases: z.array(acceptanceTestCaseSchema).min(1).max(500).describe("Test cases with optional strict acceptance expectations."),
+  contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
+  expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
+  domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
+}).strict();
+
+const setTestsInputSchema = z.object({
+  project_id: z.string().describe("Existing project ID whose complete test suite will be replaced"),
+  test_cases: z.array(acceptanceTestCaseSchema).min(1).max(500).describe("The complete authoritative reviewed suite (1-500 cases); this replaces existing tests"),
+  contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
+  expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
+}).strict();
+
 export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   server.tool(
     "aethis_schema",
@@ -1845,7 +2093,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       ruleset_id: z.string().optional().describe("The ID or slug of a single published ruleset. Mutually exclusive with rulebook_id."),
       rulebook_id: z.string().optional().describe("The ID or slug of a composed rulebook (e.g. `aethis/uk-fsm`). Mutually exclusive with ruleset_id. Requires an API key — anonymous callers get HTTP 401."),
-      field_values: z.record(z.string(), z.unknown()).describe("Input field values (see aethis_schema for required fields)"),
+      field_values: z.record(jsonObjectKey, z.unknown()).describe("Input field values (see aethis_schema for required fields)"),
       include_trace: z.boolean().optional().describe("Include the full evaluation trace showing how each rule was evaluated"),
       include_explanation: z.boolean().optional().describe("Include human-readable rule explanations with source citations"),
       include_graph_overlay: z.boolean().optional().describe("Stamp this decision's per-criterion outcome (satisfied/not_satisfied/pending) onto the ruleset-map graph and return it as graph_overlay — the same {nodes, edges, sections, stats} shape as aethis_graph, letting a caller render a 'you are here' map for these specific inputs. Off by default; the response is byte-identical to a call without the flag."),
@@ -1859,7 +2107,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Get the optimal next question for a conversational eligibility check. Call with empty field_values for the first question, then add answers and call again until decision is reached. When the ruleset author attached notes to a question (e.g. why it is asked, or legal background), they are surfaced under a Notes block.",
     {
       ruleset_id: z.string().describe("The ID of the published rule ruleset"),
-      field_values: z.record(z.string(), z.unknown()).describe("Answers collected so far (empty dict for first question)"),
+      field_values: z.record(jsonObjectKey, z.unknown()).describe("Answers collected so far (empty dict for first question)"),
     },
     toolAnnotations("aethis_next_question"),
     (args) => handlers.aethis_next_question(args),
@@ -1889,7 +2137,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Diagnose why a ruleset produced an unexpected outcome for specific test inputs. Use during rule authoring when a test fails — returns the diagnosis, criteria with DSL metadata (waivable, review_required), and a targeted hint for fixing the rule.",
     {
       ruleset_id: z.string().describe("The ID of the rule ruleset to diagnose"),
-      field_values: z.record(z.string(), z.unknown()).describe("The test input values that produced the unexpected outcome"),
+      field_values: z.record(jsonObjectKey, z.unknown()).describe("The test input values that produced the unexpected outcome"),
       expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("The outcome you expected from this input"),
       test_name: z.string().optional().describe("Name of the failing test case (included in the diagnosis for context)"),
     },
@@ -2009,32 +2257,23 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     (args) => handlers.aethis_archive_ruleset(args),
   );
 
-  server.tool(
+  server.registerTool(
     "aethis_create_ruleset",
-    "Create a new rule ruleset with source text and test cases (TDD). Test cases are required. After creation, call aethis_generate_and_test.",
     {
-      name: z.string().describe("Human-readable name for the rule ruleset"),
-      section_id: z.string().describe("Unique section identifier (e.g., 'flight_readiness')"),
-      source_text: z.string().describe("The source legislation, policy, or specification text"),
-      test_cases: z.array(z.record(z.string(), z.unknown())).describe("Test cases: [{name, field_values, expected_outcome}]. At least 1 required."),
-      domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
+      description: "Create a new rule ruleset with source text and test cases (TDD). Test cases are required. After creation, call aethis_generate_and_test.",
+      inputSchema: createRulesetInputSchema,
+      annotations: toolAnnotations("aethis_create_ruleset"),
     },
-    toolAnnotations("aethis_create_ruleset"),
     (args) => handlers.aethis_create_ruleset(args),
   );
 
-  server.tool(
+  server.registerTool(
     "aethis_set_tests",
-    "Replace the complete reviewed test suite for an existing project after field discovery. Requires 1 to 100 cases and replaces prior tests without creating a project or changing its sources, fields, or guidance. This is destructive. The target API must advertise replacement support before any write. If the response is interrupted, inspect the project before approving another replacement.",
     {
-      project_id: z.string().describe("Existing project ID whose complete test suite will be replaced"),
-      test_cases: z.array(z.object({
-        name: z.string().min(1).describe("Stable reviewed test-case name"),
-        field_values: z.record(z.string(), z.unknown()).describe("Input values using discovered field names"),
-        expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]).describe("Reviewed expected eligibility outcome"),
-      }).passthrough()).min(1).max(100).describe("The complete authoritative reviewed suite (1-100 cases); this replaces existing tests"),
+      description: "Replace the complete reviewed test suite for an existing project after field discovery. Requires 1 to 100 legacy cases, or up to 500 with contract_version: 1, and replaces prior tests without creating a project or changing its sources, fields, or guidance. This is destructive. The target API must advertise replacement support before any write. If the response is interrupted, inspect the project before approving another replacement.",
+      inputSchema: setTestsInputSchema,
+      annotations: toolAnnotations("aethis_set_tests"),
     },
-    toolAnnotations("aethis_set_tests"),
     (args) => handlers.aethis_set_tests(args),
   );
 
@@ -2225,7 +2464,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         notes: z.array(z.object({
           note_text: z.string().describe("Note text for this field"),
           source: z.string().optional().describe("Optional source label for this note"),
-          metadata: z.record(z.unknown()).optional().describe("Optional JSON metadata for this note"),
+          metadata: z.record(jsonObjectKey, z.unknown()).optional().describe("Optional JSON metadata for this note"),
         }).strict()).optional().describe("Ordered field notes. Omit to leave existing notes unchanged; pass [] to clear them."),
       })).min(1).describe("The fields the SME expects to be discovered for this project"),
     },
@@ -2329,7 +2568,7 @@ Now that you have the correct field vocabulary, write the full test suite:
 - Use "undetermined" when fields are absent and caseworker discretion applies
 - Use "undetermined" (NOT "not_eligible") for advisory restrictions that aren't statutory bars
 
-Replace the existing project's tests with the full reviewed suite by calling aethis_set_tests with its project_id and complete test_cases list. Do not create another project. This destructive replacement accepts 1-100 cases; if its outcome is interrupted, inspect the project before approving another replacement.
+Replace the existing project's tests with the full reviewed suite by calling aethis_set_tests with its project_id and complete test_cases list. Do not create another project. This destructive replacement accepts 1-500 cases; if its outcome is interrupted, inspect the project before approving another replacement.
 
 ## Step 5 — Seed domain guidance (recommended)
 If domain-level guidance exists (e.g., cross-section principles), import it before generating:
@@ -2460,7 +2699,8 @@ const { mcpName: MCP_NAME } = require("../package.json") as { mcpName: string };
 
 /**
  * Capture the registered MCP tool surface into a deterministic, serialisable
- * inventory. Uses a fake server to record each `server.tool()` registration.
+ * inventory. Uses a fake server to record both legacy `server.tool()` and
+ * strict-object `server.registerTool()` registrations.
  */
 export function buildToolInventory(): ToolInventory {
   const handlers = createToolHandlers({} as unknown as AethisClient);
@@ -2477,6 +2717,16 @@ export function buildToolInventory(): ToolInventory {
     tool: (name: string, description: string, ...rest: unknown[]) => {
       const schema = rest.find(isRawShape) as Record<string, unknown> | undefined;
       rows.push({ name, description, fields: schema ? Object.keys(schema).sort() : [] });
+    },
+    registerTool: (
+      name: string,
+      config: { description?: string; inputSchema?: { shape?: Record<string, unknown> } },
+    ) => {
+      rows.push({
+        name,
+        description: config.description ?? "",
+        fields: config.inputSchema?.shape ? Object.keys(config.inputSchema.shape).sort() : [],
+      });
     },
     prompt: () => {},
   } as unknown as McpServer;

@@ -257,7 +257,11 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
       {
         method: "POST",
         path: `${PUB}/projects/{project_id}/tests`,
-        body: { test_cases: "test_cases" },
+        body: {
+          test_cases: "test_cases",
+          contract_version: "contract_version",
+          expected_review_bindings: "expected_review_bindings",
+        },
       },
     ],
   },
@@ -457,7 +461,11 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
         method: "POST",
         path: `${PUB}/projects/{project_id}/tests`,
         pathParams: { project_id: "project_id" },
-        body: { test_cases: "test_cases" },
+        body: {
+          test_cases: "test_cases",
+          contract_version: "contract_version",
+          expected_review_bindings: "expected_review_bindings",
+        },
         bodyDefaults: ["replace"],
       },
     ],

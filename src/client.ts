@@ -568,9 +568,25 @@ export class AethisClient {
     );
   }
 
-  async addTests(projectId: string, testCases: unknown[]): Promise<unknown> {
+  async getProject(projectId: string): Promise<unknown> {
+    return this.request("GET", `/api/v1/public/projects/${encodeURIComponent(projectId)}`);
+  }
+
+  async addTests(
+    projectId: string,
+    testCases: unknown[],
+    contract?: { contractVersion: 1; expectedReviewBindings?: Record<string, Record<string, boolean | null>> },
+  ): Promise<unknown> {
+    const body: Record<string, unknown> = { test_cases: testCases };
+    if (contract) {
+      body.replace = true;
+      body.contract_version = contract.contractVersion;
+      if (contract.expectedReviewBindings !== undefined) {
+        body.expected_review_bindings = contract.expectedReviewBindings;
+      }
+    }
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`, {
-      test_cases: testCases,
+      ...body,
     });
   }
 
@@ -605,34 +621,55 @@ export class AethisClient {
   }
 
   /**
-   * Replace a project's complete test suite. The OpenAPI check is deliberately
-   * performed before the mutation: older engines append tests and would create
-   * a second suite. The replacement POST itself is sent exactly once because a
-   * retry after a lost response may allocate fresh test identities.
+   * Refuse replacement before mutation unless the target advertises the exact
+   * capability the caller needs. Composite tools call this before creating a
+   * project so an old engine cannot leave a partial project behind.
    */
-  async replaceTests(projectId: string, testCases: unknown[]): Promise<unknown> {
+  async preflightTestReplacement(requireAcceptanceContract = false): Promise<void> {
     let openApi: unknown;
     try {
       openApi = await this.request("GET", "/openapi.json");
     } catch {
       throw new AethisAPIError(400, "Test-suite replacement is unavailable: the target OpenAPI document could not be read. No tests were changed.");
     }
-    const replace = (
+    const properties = (
       openApi as {
         components?: { schemas?: { AddTestCaseRequest?: { properties?: Record<string, unknown> } } };
       }
-    ).components?.schemas?.AddTestCaseRequest?.properties?.replace;
+    ).components?.schemas?.AddTestCaseRequest?.properties;
+    const replace = properties?.replace;
     if (!this.supportsReplacementTrue(replace)) {
       throw new AethisAPIError(
         400,
         "Test-suite replacement is unavailable: the target OpenAPI document does not expose a readable replace capability that accepts true. No tests were changed.",
       );
     }
+    if (requireAcceptanceContract && (!properties || !("contract_version" in properties) || !("expected_review_bindings" in properties))) {
+      throw new AethisAPIError(400, "Acceptance-contract replacement is unavailable: the target OpenAPI document does not expose the complete v1 envelope. No tests were changed.");
+    }
+  }
+
+  /**
+   * Replace a project's complete test suite. The replacement POST itself is
+   * sent exactly once because a retry after a lost response may allocate fresh
+   * test identities.
+   */
+  async replaceTests(
+    projectId: string,
+    testCases: unknown[],
+    contract?: { contract_version: 1; expected_review_bindings?: Record<string, Record<string, boolean | null>> },
+  ): Promise<unknown> {
+    await this.preflightTestReplacement(contract !== undefined);
+    const body: Record<string, unknown> = { test_cases: testCases, replace: true };
+    if (contract) {
+      body.contract_version = 1;
+      if (contract.expected_review_bindings !== undefined) body.expected_review_bindings = contract.expected_review_bindings;
+    }
     try {
       return await this.request(
         "POST",
         `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`,
-        { test_cases: testCases, replace: true },
+        body,
         undefined,
         false,
       );
