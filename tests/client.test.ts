@@ -886,6 +886,36 @@ describe("AethisClient generateAndTest", () => {
     expect((error as AethisAPIError).data).toEqual(config);
   });
 
+  it("keeps the admission receipt when timeout precedes the first status", async () => {
+    const config = {model: "deepseek-flash", thinking_source: "request"};
+    const fetchSpy = vi.fn().mockResolvedValueOnce(jsonResponse({job_id: "j_1", authoring_config: config}));
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {fetchFn: fetchSpy, pollTimeoutMs: 0});
+    const error = await client.generateAndTest("p_1").catch((e: unknown) => e);
+    expect((error as AethisAPIError).data).toEqual(config);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the admitted receipt on a failed status fetch", async () => {
+    const config = {model: "deepseek-flash"};
+    const fetchSpy = vi.fn().mockResolvedValueOnce(jsonResponse({job_id: "j_1", authoring_config: config}))
+      .mockResolvedValueOnce(jsonResponse({detail: "status unavailable"}, 400));
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {fetchFn: fetchSpy});
+    const error = await client.generateAndTest("p_1").catch((e: unknown) => e);
+    expect((error as AethisAPIError).statusCode).toBe(400);
+    expect((error as AethisAPIError).data).toEqual(config);
+  });
+
+  it("ignores another job's receipt while waiting for the admitted job", async () => {
+    const config = {model: "deepseek-flash"};
+    const fetchSpy = vi.fn().mockResolvedValueOnce(jsonResponse({job_id: "j_1", authoring_config: config}))
+      .mockResolvedValueOnce(jsonResponse({job: {job_id: "old", status: "failed", authoring_config: {model: "wrong"}}}))
+      .mockResolvedValueOnce(jsonResponse({latest_ruleset_id: "rs_1", job: {job_id: "j_1", status: "success", authoring_config: config}}))
+      .mockResolvedValueOnce(jsonResponse({passed: 1, authoring_config: {model: "unrelated test receipt"}}));
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {fetchFn: fetchSpy, pollIntervalMs: 0});
+    const result = await client.generateAndTest("p_1") as Record<string, unknown>;
+    expect(result.authoring_config).toEqual(config);
+  });
+
   it("throws on timeout", async () => {
     const fetchSpy = vi.fn();
     const client = new AethisClient("ak_test", "https://api.aethis.ai", {

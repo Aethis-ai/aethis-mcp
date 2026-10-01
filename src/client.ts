@@ -790,14 +790,30 @@ export class AethisClient {
     const terminal: Record<string, unknown> = {};
 
     let lastDetail = "";
-    let authoringConfig: unknown;
+    let authoringConfig: unknown = job.authoring_config;
+    // Preserve the admitted receipt even if a status/test transport fails or
+    // the local polling deadline expires before the first status response.
+    const withReceipt = async <T>(operation: Promise<T>): Promise<T> => {
+      try { return await operation; } catch (error) {
+        if (error instanceof AethisAPIError) {
+          throw new AethisAPIError(error.statusCode, error.detail, error.reasonCode, error.action,
+            error.missingPermissions, authoringConfig);
+        }
+        throw new AethisAPIError(0, "Generation status or test request failed. Check aethis_generation_status before retrying.",
+          undefined, undefined, [], authoringConfig);
+      }
+    };
 
     while (Date.now() < deadline) {
-      const status = await this.getStatus(projectId) as Record<string, unknown>;
+      const status = await withReceipt(this.getStatus(projectId)) as Record<string, unknown>;
       const jobData = status.job as Record<string, unknown> | undefined;
 
       if (jobData) {
-        authoringConfig = (status.authoring_config ?? jobData.authoring_config ?? authoringConfig);
+        if (jobData.job_id !== undefined && jobData.job_id !== jobId) {
+          await this.sleep(this.pollIntervalMs);
+          continue;
+        }
+        authoringConfig = jobData.authoring_config ?? authoringConfig;
         const jobStatus = jobData.status as string;
 
         // Log progress changes to stderr so the MCP client can surface them.
@@ -851,7 +867,7 @@ export class AethisClient {
     }
 
     // 3. Run tests
-    const testResult = await this.runTests(projectId) as Record<string, unknown>;
+    const testResult = await withReceipt(this.runTests(projectId)) as Record<string, unknown>;
 
     // The test-run response wins where it carries a value; a terminal status
     // field fills in whatever the test-run omits or returns as null.
@@ -859,6 +875,7 @@ export class AethisClient {
     for (const [key, value] of Object.entries(terminal)) {
       if (merged[key] === undefined || merged[key] === null) merged[key] = value;
     }
+    if (authoringConfig !== undefined) merged.authoring_config = authoringConfig;
     return merged;
   }
 }

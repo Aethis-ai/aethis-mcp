@@ -1925,7 +1925,7 @@ const llmKeyFields = {
   openai_key: z
     .string()
     .optional()
-    .describe("Retired and refused: Aethis LLM tools use Anthropic models only."),
+    .describe("Retired and refused: OpenAI credentials are not accepted for authoring."),
 };
 
 // Provider selection is meaningful only to generation.  Do not spread these
