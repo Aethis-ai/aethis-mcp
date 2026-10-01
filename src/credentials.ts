@@ -350,7 +350,7 @@ function requireAnthropicShape(value: string): string {
 export async function resolveLlmKey(args: LlmKeyArgs): Promise<string> {
   if (args.openai_key?.trim()) {
     throw new LlmKeyNotPermittedError(
-      "openai_key is no longer accepted: Aethis LLM tools use Anthropic models only, and a key is never sent to " +
+      "openai_key is not accepted for authoring, and a key is never sent to " +
         `a different provider. ${SETUP_HINT}`,
     );
   }
