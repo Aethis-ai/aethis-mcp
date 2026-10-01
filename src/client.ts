@@ -20,6 +20,8 @@ export class AethisAPIError extends Error {
     public readonly reasonCode?: string,
     public readonly action?: string,
     public readonly missingPermissions: string[] = [],
+    /** Safe structured receipt supplied by an engine status response. */
+    public readonly data?: unknown,
   ) {
     detail = redactSecrets(detail);
     super(`HTTP ${statusCode}: ${detail}`);
@@ -37,6 +39,26 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "host.docker.i
 const DEFAULT_POLL_INTERVAL_MS = 3000;
 const DEFAULT_POLL_TIMEOUT_MS = 300_000; // 5 minutes
 const PROGRESS_DETAIL_MAX_CHARS = 120;
+// Match the engine's inexpensive syntax guard.  Count only meaningful digits
+// so harmless leading zeroes can still be canonicalised without accepting an
+// arbitrarily large integer string.
+const MAX_THINKING_DIGITS = 10;
+
+/** Validate syntax only; provider/model capability remains engine-owned. */
+export function normalizeThinking(thinking: string | null | undefined): string | null | undefined {
+  if (thinking === undefined || thinking === null) return thinking;
+  const value = thinking.trim();
+  if (value === "disabled" || value === "adaptive") return value;
+  const match = /^enabled:([0-9]+)$/.exec(value);
+  if (!match) {
+    throw new AethisAPIError(422, "invalid_thinking: use disabled, adaptive, or enabled:ASCII-decimal>=1024.");
+  }
+  const digits = match[1].replace(/^0+/, "") || "0";
+  if (digits.length > MAX_THINKING_DIGITS || BigInt(digits) < 1024n) {
+    throw new AethisAPIError(422, "invalid_thinking: use disabled, adaptive, or enabled:ASCII-decimal>=1024.");
+  }
+  return `enabled:${digits}`;
+}
 
 // Allowed shapes for rulebook references. These are the only inputs
 // getRulebookSchema() will send to the wire — anything else is rejected
@@ -138,6 +160,7 @@ export class AethisClient {
     body?: unknown,
     llmKey?: string,
     retry = true,
+    providerHeader: "X-Anthropic-Key" | "X-DeepSeek-Key" = "X-Anthropic-Key",
   ): Promise<unknown> {
     const url = `${this.baseUrl}${path}`;
     const maxRetries = retry ? MAX_RETRIES : 0;
@@ -151,7 +174,7 @@ export class AethisClient {
           headers: {
             "X-Aethis-Client": CLIENT_ID,
             ...(this.apiKey ? { "X-API-Key": this.apiKey } : {}),
-            ...(llmKey ? { "X-Anthropic-Key": llmKey } : {}),
+            ...(llmKey ? { [providerHeader]: llmKey } : {}),
             ...(body !== undefined && !(body instanceof FormData)
               ? { "Content-Type": "application/json" }
               : {}),
@@ -442,12 +465,24 @@ export class AethisClient {
     );
   }
 
-  async generate(projectId: string, llmKey?: string, mode?: "fresh" | "refine"): Promise<unknown> {
+  async generate(
+    projectId: string,
+    llmKey?: string,
+    mode?: "fresh" | "refine",
+    thinking?: string | null,
+    model?: "claude-sonnet-5" | "deepseek-flash",
+  ): Promise<unknown> {
     // mode="refine" seeds generation from the section's active ruleset and asks
     // for the minimal edit to fix failing tests (finding-driven incremental
     // re-authoring); omitting it / "fresh" authors from scratch.
-    const body = mode ? { mode } : undefined;
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, body, llmKey);
+    const body: Record<string, unknown> = {};
+    if (mode) body.mode = mode;
+    const normalizedThinking = normalizeThinking(thinking);
+    if (normalizedThinking !== undefined) body.thinking = normalizedThinking;
+    if (model !== undefined) body.model = model;
+    if (model !== undefined || thinking !== undefined) await this.preflightGenerationControls(model, thinking !== undefined);
+    const header = model === "deepseek-flash" ? "X-DeepSeek-Key" : "X-Anthropic-Key";
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, Object.keys(body).length ? body : undefined, llmKey, true, header);
   }
 
   async listRulesets(projectId: string): Promise<unknown> {
@@ -649,6 +684,20 @@ export class AethisClient {
     }
   }
 
+  /** Refuse explicit generation controls unless the target advertises them. */
+  async preflightGenerationControls(model?: "claude-sonnet-5" | "deepseek-flash", hasThinking = false): Promise<void> {
+    if (model === undefined && !hasThinking) return;
+    let openApi: unknown;
+    try { openApi = await this.request("GET", "/openapi.json"); } catch {
+      throw new AethisAPIError(400, "Generation controls are unavailable: the target OpenAPI document could not be read. No generation was started.");
+    }
+    const properties = (openApi as { components?: { schemas?: { GenerationModeRequest?: { properties?: Record<string, unknown> } } } })
+      .components?.schemas?.GenerationModeRequest?.properties;
+    if (!properties || (model !== undefined && !("model" in properties)) || (hasThinking && !("thinking" in properties))) {
+      throw new AethisAPIError(400, "Generation controls are unavailable: the target OpenAPI document does not expose the requested GenerationModeRequest field. No generation was started.");
+    }
+  }
+
   /**
    * Replace a project's complete test suite. The replacement POST itself is
    * sent exactly once because a retry after a lost response may allocate fresh
@@ -720,9 +769,15 @@ export class AethisClient {
    * Generate rules then poll until complete, then run tests.
    * Mirrors the CLI's generate --poll + test workflow.
    */
-  async generateAndTest(projectId: string, llmKey?: string, mode?: "fresh" | "refine"): Promise<unknown> {
+  async generateAndTest(
+    projectId: string,
+    llmKey?: string,
+    mode?: "fresh" | "refine",
+    thinking?: string | null,
+    model?: "claude-sonnet-5" | "deepseek-flash",
+  ): Promise<unknown> {
     // 1. Trigger generation (mode="refine" → seed-from-existing incremental edit)
-    const job = await this.generate(projectId, llmKey, mode) as Record<string, unknown>;
+    const job = await this.generate(projectId, llmKey, mode, thinking, model) as Record<string, unknown>;
     const jobId = job.job_id as string;
 
     // 2. Poll until done
@@ -735,12 +790,14 @@ export class AethisClient {
     const terminal: Record<string, unknown> = {};
 
     let lastDetail = "";
+    let authoringConfig: unknown;
 
     while (Date.now() < deadline) {
       const status = await this.getStatus(projectId) as Record<string, unknown>;
       const jobData = status.job as Record<string, unknown> | undefined;
 
       if (jobData) {
+        authoringConfig = (status.authoring_config ?? jobData.authoring_config ?? authoringConfig);
         const jobStatus = jobData.status as string;
 
         // Log progress changes to stderr so the MCP client can surface them.
@@ -777,7 +834,7 @@ export class AethisClient {
           } else {
             diagnostic = `Generation failed (job ${jobId}): ${errorMsg}`;
           }
-          throw new AethisAPIError(500, diagnostic);
+          throw new AethisAPIError(500, diagnostic, undefined, undefined, [], authoringConfig);
         }
       }
 
@@ -789,6 +846,7 @@ export class AethisClient {
         504,
         `Generation timed out after ${this.pollTimeoutMs / 1000}s. The job may still be running server-side. ` +
           "Check aethis_generation_status before retrying; cancel it with aethis_cancel_generation only if the caller wants to stop it.",
+        undefined, undefined, [], authoringConfig,
       );
     }
 
@@ -807,6 +865,6 @@ export class AethisClient {
 
 /** Top-level fields of the terminal `/status` response that `generateAndTest()`
  * preserves for rendering (aethis-mcp#92). */
-const TERMINAL_STATUS_FIELDS = ["source_questions", "review_hint"] as const;
+const TERMINAL_STATUS_FIELDS = ["source_questions", "review_hint", "authoring_config"] as const;
 /** Fields of the terminal status response's `job` that it preserves. */
-const TERMINAL_JOB_FIELDS = ["source_question_count", "source_question_turns"] as const;
+const TERMINAL_JOB_FIELDS = ["source_question_count", "source_question_turns", "authoring_config"] as const;

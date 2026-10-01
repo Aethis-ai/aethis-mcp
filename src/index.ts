@@ -10,9 +10,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { AethisClient, AethisAPIError, type AethisClientOptions } from "./client.js";
+import { AethisClient, AethisAPIError, normalizeThinking, type AethisClientOptions } from "./client.js";
 import { redactSecrets } from "./redact.js";
-import { resolveCredentials, resolveLlmKey } from "./credentials.js";
+import { resolveCredentials, resolveLlmKey, resolveGenerationCredential } from "./credentials.js";
 import type { LlmKeyArgs } from "./credentials.js";
 import { runStartupUpdateCheck } from "./version-check.js";
 
@@ -56,6 +56,17 @@ interface TestRunResult {
   source_questions?: SourceQuestion[] | null;
   source_question_count?: number | null;
   source_question_turns?: number | null;
+  authoring_config?: AuthoringConfig | null;
+}
+
+interface AuthoringConfig {
+  model?: string;
+  max_tokens?: number;
+  thinking_requested?: string | null;
+  thinking_source?: string;
+  thinking_sent?: Record<string, unknown> | null;
+  budget_semantics?: string;
+  warnings?: Array<{ code?: string; message?: string }>;
 }
 
 type AcceptanceExpectations = {
@@ -184,7 +195,8 @@ function validateId(value: string, label: string): string | null {
 // call time, after module init.
 function apiError(e: unknown): ToolResult {
   if (e instanceof AethisAPIError) {
-    return err(`${UNTRUSTED_PREFACE}\n\nError (HTTP ${e.statusCode}): ${fenceUntrusted("api_error", e.detail)}`);
+    const receipt = e.data === undefined ? "" : `\n\nAuthoring configuration receipt:\n${fenceData(e.data)}`;
+    return err(`${UNTRUSTED_PREFACE}\n\nError (HTTP ${e.statusCode}): ${fenceUntrusted("api_error", e.detail)}${receipt}`);
   }
   return err(`${UNTRUSTED_PREFACE}\n\nError: ${fenceUntrusted("error", (e as Error).message)}`);
 }
@@ -352,6 +364,13 @@ export function formatTestResults(
   // Source questions authoring raised (warn-only; server-produced).
   const questions = formatSourceQuestions(current.source_questions, current.source_question_count);
   if (questions) lines.push("", questions);
+
+  for (const warning of current.authoring_config?.warnings ?? []) {
+    if (warning.code && warning.message) {
+      lines.push("", "WARNING:", fenceUntrusted("authoring_warning", `${warning.code}: ${warning.message}`));
+    }
+  }
+  if (current.authoring_config) lines.push("", "Authoring configuration:", fenceData(current.authoring_config));
 
   return lines.join("\n");
 }
@@ -1733,14 +1752,16 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_generate_and_test(args: { project_id: string } & LlmKeyArgs): Promise<ToolResult> {
+    async aethis_generate_and_test(args: { project_id: string; thinking?: string | null; model?: "claude-sonnet-5" | "deepseek-flash" } & LlmKeyArgs): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        const llmKey = await resolveLlmKey(args);
-        const result = await client.generateAndTest(args.project_id, llmKey) as TestRunResult;
+        const thinking = normalizeThinking(args.thinking);
+        await client.preflightGenerationControls(args.model, args.thinking !== undefined);
+        const credential = await resolveGenerationCredential(args, args.model);
+        const result = await client.generateAndTest(args.project_id, credential.key, undefined, thinking, args.model) as TestRunResult;
         const prev = previousTestResults.get(args.project_id) ?? null;
         const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
         iterationCounts.set(args.project_id, iteration);
@@ -1749,20 +1770,22 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_refine(args: { project_id: string; feedback?: string } & LlmKeyArgs): Promise<ToolResult> {
+    async aethis_refine(args: { project_id: string; feedback?: string; thinking?: string | null; model?: "claude-sonnet-5" | "deepseek-flash" } & LlmKeyArgs): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
-        const llmKey = await resolveLlmKey(args);
+        const thinking = normalizeThinking(args.thinking);
+        await client.preflightGenerationControls(args.model, args.thinking !== undefined);
+        const credential = await resolveGenerationCredential(args, args.model);
         const feedback = args.feedback?.trim() ?? "";
         if (feedback) {
           await client.addGuidance(args.project_id, args.feedback!);
         }
         // Refine = seed from the section's active ruleset and make the MINIMAL
         // edit to fix failing tests, rather than re-authoring the whole section.
-        const result = await client.generateAndTest(args.project_id, llmKey, "refine") as TestRunResult;
+        const result = await client.generateAndTest(args.project_id, credential.key, "refine", thinking, args.model) as TestRunResult;
         const prev = previousTestResults.get(args.project_id) ?? null;
         const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
         iterationCounts.set(args.project_id, iteration);
@@ -1902,6 +1925,13 @@ const llmKeyFields = {
     .string()
     .optional()
     .describe("Retired and refused: Aethis LLM tools use Anthropic models only."),
+};
+
+// Provider selection is meaningful only to generation.  Do not spread these
+// fields into field/section discovery schemas, which always use Anthropic.
+const generationCredentialFields = {
+  ...llmKeyFields,
+  deepseek_key_env: z.string().optional().describe("Optional. For deepseek-flash only: must equal AETHIS_DEEPSEEK_KEY_ENV, or DEEPSEEK_API_KEY when no setting is configured."),
 };
 
 // Reusable zod field for Rulebook.robot_hints (aethis-core#220) — a
@@ -2477,7 +2507,9 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Usually takes 60-120 seconds; if polling times out, use aethis_generation_status before retrying, and aethis_cancel_generation only when the caller wants to stop the run.",
     {
       project_id: z.string().describe("The project ID"),
-      ...llmKeyFields,
+      model: z.enum(["claude-sonnet-5", "deepseek-flash"]).optional().describe("Optional authoring model"),
+      thinking: z.string().nullable().optional().describe("Per-generation thinking: disabled, adaptive, or enabled:N. Omit or null to inherit."),
+      ...generationCredentialFields,
     },
     toolAnnotations("aethis_generate_and_test"),
     (args) => handlers.aethis_generate_and_test(args),
@@ -2489,7 +2521,9 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     {
       project_id: z.string().describe("The project ID"),
       feedback: z.string().optional().describe("Optional correction or domain knowledge to add before regenerating"),
-      ...llmKeyFields,
+      model: z.enum(["claude-sonnet-5", "deepseek-flash"]).optional().describe("Optional authoring model"),
+      thinking: z.string().nullable().optional().describe("Per-generation thinking: disabled, adaptive, or enabled:N. Omit or null to inherit."),
+      ...generationCredentialFields,
     },
     toolAnnotations("aethis_refine"),
     (args) => handlers.aethis_refine(args),
