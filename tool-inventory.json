@@ -243,8 +243,11 @@
         "anthropic_key",
         "anthropic_key_env",
         "anthropic_key_keychain",
+        "deepseek_key_env",
+        "model",
         "openai_key",
-        "project_id"
+        "project_id",
+        "thinking"
       ],
       "annotations": {
         "title": "Generate and test rules",
@@ -398,9 +401,12 @@
         "anthropic_key",
         "anthropic_key_env",
         "anthropic_key_keychain",
+        "deepseek_key_env",
         "feedback",
+        "model",
         "openai_key",
-        "project_id"
+        "project_id",
+        "thinking"
       ],
       "annotations": {
         "title": "Refine ruleset",

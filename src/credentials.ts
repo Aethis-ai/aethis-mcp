@@ -289,7 +289,11 @@ export interface LlmKeyArgs {
   openai_key?: string;
   anthropic_key_env?: string;
   anthropic_key_keychain?: string;
+  deepseek_key_env?: string;
 }
+
+export type GenerationCredential = { provider: "anthropic" | "deepseek"; key: string };
+export const DEEPSEEK_KEY_ENV_SETTING = "AETHIS_DEEPSEEK_KEY_ENV";
 
 export class MissingLlmKeyError extends Error {
   constructor(message: string) {
@@ -346,7 +350,7 @@ function requireAnthropicShape(value: string): string {
 export async function resolveLlmKey(args: LlmKeyArgs): Promise<string> {
   if (args.openai_key?.trim()) {
     throw new LlmKeyNotPermittedError(
-      "openai_key is no longer accepted: Aethis LLM tools use Anthropic models only, and a key is never sent to " +
+      "openai_key is not accepted for authoring, and a key is never sent to " +
         `a different provider. ${SETUP_HINT}`,
     );
   }
@@ -372,6 +376,38 @@ export async function resolveLlmKey(args: LlmKeyArgs): Promise<string> {
   if (raw) return requireAnthropicShape(raw);
 
   throw new MissingLlmKeyError(`An Anthropic API key is required for this tool and none is configured. ${SETUP_HINT}`);
+}
+
+/** Resolve only the credential for the provider selected for generation. */
+export async function resolveGenerationCredential(
+  args: LlmKeyArgs,
+  model?: "claude-sonnet-5" | "deepseek-flash",
+): Promise<GenerationCredential> {
+  if (model !== "deepseek-flash") {
+    if (args.deepseek_key_env?.trim()) throw new LlmKeyNotPermittedError("A DeepSeek credential reference requires model=deepseek-flash.");
+    return { provider: "anthropic", key: await resolveLlmKey(args) };
+  }
+  // Do not delegate to resolveLlmKey: that resolver may inspect Anthropic
+  // configuration, which must never be read for a DeepSeek generation.
+  if (args.openai_key?.trim() || args.anthropic_key?.trim() || args.anthropic_key_env?.trim() || args.anthropic_key_keychain?.trim()) {
+    throw new LlmKeyNotPermittedError("Credentials for another provider cannot be used for DeepSeek generation.");
+  }
+  const configured = process.env[DEEPSEEK_KEY_ENV_SETTING]?.trim();
+  if (!configured) throw new MissingLlmKeyError(`A DeepSeek credential must be explicitly configured for Aethis using ${DEEPSEEK_KEY_ENV_SETTING}. Ambient provider keys are not read.`);
+  const requested = args.deepseek_key_env?.trim();
+  if (requested && requested !== configured) {
+    throw new LlmKeyNotPermittedError(`This server does not read environment variables named in a tool call. Configure ${DEEPSEEK_KEY_ENV_SETTING} and restart the MCP host.`);
+  }
+  // Unlike the legacy Anthropic escape hatch, DeepSeek credentials are
+  // environment-only: a model-controlled tool call must not choose or carry
+  // a raw provider secret.  Crucially this branch never invokes the Anthropic
+  // resolver or reads its configured environment variable.
+  const key = process.env[configured]?.trim();
+  if (!key) throw new MissingLlmKeyError(`A DeepSeek API key is required for this tool. Set ${configured} in this MCP server's environment and restart.`);
+  if (key.startsWith(ANTHROPIC_KEY_PREFIX)) {
+    throw new LlmKeyNotPermittedError("The supplied value is an Anthropic API key and was not sent to DeepSeek.");
+  }
+  return { provider: "deepseek", key };
 }
 
 /** Backwards-compatible key-only API; new clients must resolve the full pair. */
