@@ -365,8 +365,9 @@ export function formatTestResults(
   const questions = formatSourceQuestions(current.source_questions, current.source_question_count);
   if (questions) lines.push("", questions);
 
-  for (const warning of current.authoring_config?.warnings ?? []) {
-    if (warning.code && warning.message) {
+  const warnings = current.authoring_config?.warnings;
+  for (const warning of Array.isArray(warnings) ? warnings : []) {
+    if (warning && typeof warning.code === "string" && typeof warning.message === "string") {
       lines.push("", "WARNING:", fenceUntrusted("authoring_warning", `${warning.code}: ${warning.message}`));
     }
   }
@@ -1931,7 +1932,7 @@ const llmKeyFields = {
 // fields into field/section discovery schemas, which always use Anthropic.
 const generationCredentialFields = {
   ...llmKeyFields,
-  deepseek_key_env: z.string().optional().describe("Optional. For deepseek-flash only: must equal AETHIS_DEEPSEEK_KEY_ENV, or DEEPSEEK_API_KEY when no setting is configured."),
+  deepseek_key_env: z.string().optional().describe("Optional. For deepseek-flash only: must equal the variable explicitly configured in AETHIS_DEEPSEEK_KEY_ENV. Ambient provider keys are never read."),
 };
 
 // Reusable zod field for Rulebook.robot_hints (aethis-core#220) — a

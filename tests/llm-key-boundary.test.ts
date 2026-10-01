@@ -119,14 +119,27 @@ describe("generation provider credential separation", () => {
   const originalEnv = { ...process.env };
   afterEach(() => { process.env = { ...originalEnv }; });
 
+  it("never reads an ambient DeepSeek key without explicit Aethis configuration", async () => {
+    delete process.env.AETHIS_DEEPSEEK_KEY_ENV;
+    process.env.DEEPSEEK_API_KEY = "ambient-do-not-spend";
+    await expect(resolveGenerationCredential({}, "deepseek-flash")).rejects.toBeInstanceOf(MissingLlmKeyError);
+  });
+
+  it("rejects cross-provider references before resolving a credential", async () => {
+    await expect(resolveGenerationCredential({deepseek_key_env: "DEEPSEEK_API_KEY"})).rejects.toBeInstanceOf(LlmKeyNotPermittedError);
+    await expect(resolveGenerationCredential({openai_key: "do-not-echo"}, "deepseek-flash")).rejects.toBeInstanceOf(LlmKeyNotPermittedError);
+  });
+
   it("uses only the DeepSeek environment credential for deepseek-flash", async () => {
     process.env.AETHIS_ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY";
     process.env.ANTHROPIC_API_KEY = ANTHROPIC_KEY;
+    process.env.AETHIS_DEEPSEEK_KEY_ENV = "DEEPSEEK_API_KEY";
     process.env.DEEPSEEK_API_KEY = "deepseek-test-key";
     await expect(resolveGenerationCredential({}, "deepseek-flash")).resolves.toEqual({ provider: "deepseek", key: "deepseek-test-key" });
   });
 
   it("refuses an Anthropic-shaped DeepSeek value without exposing it", async () => {
+    process.env.AETHIS_DEEPSEEK_KEY_ENV = "DEEPSEEK_API_KEY";
     process.env.DEEPSEEK_API_KEY = ANTHROPIC_KEY;
     const error = await resolveGenerationCredential({}, "deepseek-flash").catch((e: Error) => e);
     expect(error).toBeInstanceOf(LlmKeyNotPermittedError);

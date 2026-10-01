@@ -1776,11 +1776,15 @@ describe("aethis_refine", () => {
     const client = mockClient({ generateAndTest: genTest });
     const h = createToolHandlers(client);
     const original = process.env.DEEPSEEK_API_KEY;
+    const originalSetting = process.env.AETHIS_DEEPSEEK_KEY_ENV;
+    process.env.AETHIS_DEEPSEEK_KEY_ENV = "DEEPSEEK_API_KEY";
     process.env.DEEPSEEK_API_KEY = "deepseek-test-key";
     try {
       await h.aethis_refine({ project_id: "p_1", feedback: "", thinking: "enabled:48000", model: "deepseek-flash" });
       expect(genTest).toHaveBeenCalledWith("p_1", "deepseek-test-key", "refine", "enabled:48000", "deepseek-flash");
     } finally {
+      if (originalSetting === undefined) delete process.env.AETHIS_DEEPSEEK_KEY_ENV;
+      else process.env.AETHIS_DEEPSEEK_KEY_ENV = originalSetting;
       if (original === undefined) delete process.env.DEEPSEEK_API_KEY;
       else process.env.DEEPSEEK_API_KEY = original;
     }

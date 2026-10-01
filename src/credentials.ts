@@ -384,14 +384,16 @@ export async function resolveGenerationCredential(
   model?: "claude-sonnet-5" | "deepseek-flash",
 ): Promise<GenerationCredential> {
   if (model !== "deepseek-flash") {
+    if (args.deepseek_key_env?.trim()) throw new LlmKeyNotPermittedError("A DeepSeek credential reference requires model=deepseek-flash.");
     return { provider: "anthropic", key: await resolveLlmKey(args) };
   }
   // Do not delegate to resolveLlmKey: that resolver may inspect Anthropic
   // configuration, which must never be read for a DeepSeek generation.
-  if (args.anthropic_key?.trim() || args.anthropic_key_env?.trim() || args.anthropic_key_keychain?.trim()) {
-    throw new LlmKeyNotPermittedError("Anthropic credentials cannot be used for DeepSeek generation.");
+  if (args.openai_key?.trim() || args.anthropic_key?.trim() || args.anthropic_key_env?.trim() || args.anthropic_key_keychain?.trim()) {
+    throw new LlmKeyNotPermittedError("Credentials for another provider cannot be used for DeepSeek generation.");
   }
-  const configured = process.env[DEEPSEEK_KEY_ENV_SETTING]?.trim() || "DEEPSEEK_API_KEY";
+  const configured = process.env[DEEPSEEK_KEY_ENV_SETTING]?.trim();
+  if (!configured) throw new MissingLlmKeyError(`A DeepSeek credential must be explicitly configured for Aethis using ${DEEPSEEK_KEY_ENV_SETTING}. Ambient provider keys are not read.`);
   const requested = args.deepseek_key_env?.trim();
   if (requested && requested !== configured) {
     throw new LlmKeyNotPermittedError(`This server does not read environment variables named in a tool call. Configure ${DEEPSEEK_KEY_ENV_SETTING} and restart the MCP host.`);
