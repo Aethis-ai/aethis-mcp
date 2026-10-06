@@ -53,6 +53,7 @@ function mockClient(overrides: Partial<Record<keyof AethisClient, unknown>> = {}
     uploadSourceText: vi.fn().mockResolvedValue({ uploaded: 1 }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
     preflightTestReplacement: vi.fn().mockResolvedValue(undefined),
+    preflightGenerationControls: vi.fn().mockResolvedValue(undefined),
     replaceTests: vi.fn().mockResolvedValue({ added: 1, replaced: 0 }),
     addGuidance: vi.fn().mockResolvedValue({ hint_id: "h_1" }),
     addDomainGuidance: vi.fn().mockResolvedValue({ hint_id: "h_d1" }),
@@ -114,6 +115,21 @@ async function callToolThroughSdk(
   await client.connect(clientTransport);
   try {
     return await client.callTool({ name, arguments: args });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+}
+
+async function listToolsThroughSdk(clientImpl: AethisClient) {
+  const server = new McpServer({ name: "aethis-mcp-test", version: "0" });
+  registerTools(server, createToolHandlers(clientImpl));
+  const client = new McpClient({ name: "aethis-mcp-test-client", version: "0" }, { capabilities: {} });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    return await client.listTools();
   } finally {
     await client.close();
     await server.close();
@@ -187,6 +203,19 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_validate_sections");
     // Internal (handler exists; not registered as an MCP tool — see A3 test below)
     expect(names).toContain("aethis_source");
+  });
+});
+
+describe("generation control tool schemas", () => {
+  it("publishes model/thinking only on generation and refine through the real MCP registry", async () => {
+    const { tools } = await listToolsThroughSdk(mockClient());
+    const fields = (name: string) => Object.keys(tools.find((tool) => tool.name === name)?.inputSchema.properties ?? {});
+    for (const name of ["aethis_generate_and_test", "aethis_refine"]) {
+      expect(fields(name)).toEqual(expect.arrayContaining(["model", "thinking", "deepseek_key_env"]));
+    }
+    for (const name of ["aethis_discover_fields", "aethis_refine_fields"]) {
+      for (const field of ["model", "thinking", "deepseek_key_env"]) expect(fields(name)).not.toContain(field);
+    }
   });
 });
 
@@ -1742,6 +1771,30 @@ describe("aethis_generate_and_test", () => {
 });
 
 describe("aethis_refine", () => {
+  it("forwards per-generation thinking and model", async () => {
+    const genTest = vi.fn().mockResolvedValue({ ruleset_id: "r_1", total: 1, passed: 1, results: [] });
+    const client = mockClient({ generateAndTest: genTest });
+    const h = createToolHandlers(client);
+    const original = process.env.DEEPSEEK_API_KEY;
+    const originalSetting = process.env.AETHIS_DEEPSEEK_KEY_ENV;
+    process.env.AETHIS_DEEPSEEK_KEY_ENV = "DEEPSEEK_API_KEY";
+    process.env.DEEPSEEK_API_KEY = "deepseek-test-key";
+    try {
+      await h.aethis_refine({ project_id: "p_1", feedback: "", thinking: "enabled:48000", model: "deepseek-flash" });
+      expect(genTest).toHaveBeenCalledWith("p_1", "deepseek-test-key", "refine", "enabled:48000", "deepseek-flash");
+    } finally {
+      if (originalSetting === undefined) delete process.env.AETHIS_DEEPSEEK_KEY_ENV;
+      else process.env.AETHIS_DEEPSEEK_KEY_ENV = originalSetting;
+      if (original === undefined) delete process.env.DEEPSEEK_API_KEY;
+      else process.env.DEEPSEEK_API_KEY = original;
+    }
+  });
+
+  it("renders the engine warning that DeepSeek ignores requested budgets", async () => {
+    const client = mockClient({ generateAndTest: vi.fn().mockResolvedValue({ ruleset_id: "r_1", total: 1, passed: 1, results: [], authoring_config: { warnings: [{ code: "thinking_budget_ignored", message: "budget does not bound reasoning" }] } }) });
+    const h = createToolHandlers(client);
+    expect(text(await h.aethis_generate_and_test({ project_id: "p_1", anthropic_key: "sk-ant-test" }))).toContain("thinking_budget_ignored");
+  });
   it("with feedback: adds guidance then generates", async () => {
     const client = mockClient();
     const h = createToolHandlers(client);

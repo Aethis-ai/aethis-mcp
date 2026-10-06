@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.1 (2026-10-01)
+
+- `aethis_generate_and_test` and `aethis_refine` accept optional per-run
+  `thinking` and `model` controls and forward them to generation. Omission and
+  explicit `null` retain engine inheritance. Returned `authoring_config`
+  warnings are rendered, including `thinking_budget_ignored`: a DeepSeek
+  `enabled:N` request does not claim that N bounds reasoning.
+
 ## 0.22.0 (2026-09-29)
 
 - Fail closed on misspelled top-level acceptance arguments to

@@ -373,6 +373,35 @@ describe("AethisClient API methods", () => {
     expect(JSON.parse(init.body)).toEqual({ mode: "refine" });
   });
 
+  it("generate() forwards thinking and model while preserving omission", async () => {
+    const openApi = { components: { schemas: { GenerationModeRequest: { properties: { model: {}, thinking: {} } } } } };
+    fetchSpy.mockResolvedValueOnce(jsonResponse(openApi)).mockResolvedValueOnce(jsonResponse({ job_id: "j_1" }));
+    await client.generate("p_1", "deepseek-secret", undefined, "enabled:48000", "deepseek-flash");
+    const [, init] = fetchSpy.mock.calls.at(-1)!;
+    expect(JSON.parse(init.body)).toEqual({ thinking: "enabled:48000", model: "deepseek-flash" });
+    expect(init.headers["X-DeepSeek-Key"]).toBe("deepseek-secret");
+    expect(init.headers["X-Anthropic-Key"]).toBeUndefined();
+    fetchSpy.mockResolvedValueOnce(jsonResponse(openApi)).mockResolvedValueOnce(jsonResponse({ job_id: "j_2" }));
+    await client.generate("p_1", undefined, undefined, null);
+    const [, nullInit] = fetchSpy.mock.calls.at(-1)!;
+    expect(JSON.parse(nullInit.body)).toEqual({ thinking: null });
+  });
+
+  it("fails closed before POST when generation controls are absent or OpenAPI cannot be read", async () => {
+    for (const [response, args] of [
+      [jsonResponse({ components: { schemas: { GenerationModeRequest: { properties: { model: {} } } } } }), [undefined, undefined, "disabled"]],
+      [jsonResponse({ components: { schemas: { GenerationModeRequest: { properties: { thinking: {} } } } } }), [undefined, undefined, undefined, "claude-sonnet-5"]],
+      [jsonResponse({ detail: "unavailable" }, 503), [undefined, undefined, "disabled"]],
+    ]) {
+      fetchSpy.mockReset().mockResolvedValueOnce(response);
+      await expect(client.generate("p_1", ...args as [string | undefined, "fresh" | "refine" | undefined, string | null | undefined, "claude-sonnet-5" | "deepseek-flash" | undefined])).rejects.toThrow(/Generation controls are unavailable/);
+      expect(fetchSpy.mock.calls).not.toEqual(expect.arrayContaining([
+        expect.arrayContaining(["https://api.aethis.ai/api/v1/public/projects/p_1/generate"]),
+      ]));
+      expect(fetchSpy.mock.calls.every(([url]) => url === "https://api.aethis.ai/openapi.json")).toBe(true);
+    }
+  });
+
   it("listRulesets() gets /api/v1/public/projects/:id/rulesets", async () => {
     await client.listRulesets("p_1");
     const [url, init] = fetchSpy.mock.calls[0];
@@ -842,6 +871,49 @@ describe("AethisClient generateAndTest", () => {
     }));
 
     await expect(client.generateAndTest("p_1")).rejects.toThrow(/Syntax error in source/);
+  });
+
+  it("retains the terminal authoring configuration on generation failure", async () => {
+    const fetchSpy = vi.fn();
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {
+      fetchFn: fetchSpy, retryDelayMs: 0, pollIntervalMs: 0,
+    });
+    const config = { model: "deepseek-flash", warnings: [{ code: "thinking_budget_ignored", message: "untrusted warning" }] };
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ job_id: "j_1" }));
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ job: { status: "failed", error_message: "provider rejected", authoring_config: config } }));
+    const error = await client.generateAndTest("p_1").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AethisAPIError);
+    expect((error as AethisAPIError).data).toEqual(config);
+  });
+
+  it("keeps the admission receipt when timeout precedes the first status", async () => {
+    const config = {model: "deepseek-flash", thinking_source: "request"};
+    const fetchSpy = vi.fn().mockResolvedValueOnce(jsonResponse({job_id: "j_1", authoring_config: config}));
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {fetchFn: fetchSpy, pollTimeoutMs: 0});
+    const error = await client.generateAndTest("p_1").catch((e: unknown) => e);
+    expect((error as AethisAPIError).data).toEqual(config);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the admitted receipt on a failed status fetch", async () => {
+    const config = {model: "deepseek-flash"};
+    const fetchSpy = vi.fn().mockResolvedValueOnce(jsonResponse({job_id: "j_1", authoring_config: config}))
+      .mockResolvedValueOnce(jsonResponse({detail: "status unavailable"}, 400));
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {fetchFn: fetchSpy});
+    const error = await client.generateAndTest("p_1").catch((e: unknown) => e);
+    expect((error as AethisAPIError).statusCode).toBe(400);
+    expect((error as AethisAPIError).data).toEqual(config);
+  });
+
+  it("ignores another job's receipt while waiting for the admitted job", async () => {
+    const config = {model: "deepseek-flash"};
+    const fetchSpy = vi.fn().mockResolvedValueOnce(jsonResponse({job_id: "j_1", authoring_config: config}))
+      .mockResolvedValueOnce(jsonResponse({job: {job_id: "old", status: "failed", authoring_config: {model: "wrong"}}}))
+      .mockResolvedValueOnce(jsonResponse({latest_ruleset_id: "rs_1", job: {job_id: "j_1", status: "success", authoring_config: config}}))
+      .mockResolvedValueOnce(jsonResponse({passed: 1, authoring_config: {model: "unrelated test receipt"}}));
+    const client = new AethisClient("ak_test", "https://api.aethis.ai", {fetchFn: fetchSpy, pollIntervalMs: 0});
+    const result = await client.generateAndTest("p_1") as Record<string, unknown>;
+    expect(result.authoring_config).toEqual(config);
   });
 
   it("throws on timeout", async () => {

@@ -68,6 +68,7 @@ const LLM_KEY_FIELDS = [
   "anthropic_key",
   "openai_key",
 ];
+const GENERATION_CREDENTIAL_FIELDS = [...LLM_KEY_FIELDS, "deepseek_key_env"];
 
 export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
   aethis_schema: {
@@ -411,7 +412,7 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
 
   // Triggers POST /generate (mode is handler-supplied) then polls status.
   aethis_generate_and_test: {
-    mcpOnly: LLM_KEY_FIELDS,
+    mcpOnly: GENERATION_CREDENTIAL_FIELDS,
     note: "Calls POST /generate (mode synthesized) then polls /status.",
     endpoints: [
       {
@@ -419,6 +420,7 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
         path: `${PUB}/projects/{project_id}/generate`,
         pathParams: { project_id: "project_id" },
         bodyDefaults: ["mode", "seed_ruleset_id"],
+        body: { thinking: "thinking", model: "model" },
       },
     ],
   },
@@ -426,7 +428,7 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
   // Composite: optionally adds guidance (feedback), then generate(mode=refine).
   aethis_refine: {
     composite: true,
-    mcpOnly: LLM_KEY_FIELDS,
+    mcpOnly: GENERATION_CREDENTIAL_FIELDS,
     note: "Optionally adds guidance (feedback) then POST /generate (mode=refine).",
     endpoints: [
       {
@@ -434,6 +436,7 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
         path: `${PUB}/projects/{project_id}/generate`,
         pathParams: { project_id: "project_id" },
         bodyDefaults: ["mode", "seed_ruleset_id"],
+        body: { thinking: "thinking", model: "model" },
       },
       {
         method: "POST",
