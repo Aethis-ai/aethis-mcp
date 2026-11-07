@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.22.3 (2026-11-07)
+
+- Forward optional exact-decimal `max_cost_usd` limits through field discovery,
+  generation and refinement. Reject invalid limits locally, and refuse targets
+  that do not advertise the requested control before writing refinement feedback.
+  Omitted limits retain existing request bodies. Native spend receipts remain visible
+  on success, failure and polling timeout. Paid authoring requests are sent once;
+  connection failures and retryable HTTP responses do not admit another budget.
+- Preserve optional field labels, questions (including explicit null), and
+  weights. Check the target's advertised metadata support before writing pins.
+- Exercise authoring transport through actual MCP stdio JSON-RPC and a local
+  HTTP server, including complete field pins and authoritative acceptance suites.
+
+## 0.22.2 (2026-11-07)
+
+- Field discovery and refinement retain collection items, computed declarations and elicitation owners in their output. Reviewed declarations can be passed explicitly to `aethis_set_field_spec`; discovery never replaces the caller's specification.
+
 ## 0.22.1 (2026-10-01)
 
 - `aethis_generate_and_test` and `aethis_refine` accept optional per-run

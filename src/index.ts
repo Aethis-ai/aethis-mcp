@@ -10,7 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { AethisClient, AethisAPIError, normalizeThinking, type AethisClientOptions } from "./client.js";
+import { AethisClient, AethisAPIError, normalizeThinking, normalizeMaxCostUsd, type AethisClientOptions } from "./client.js";
 import { redactSecrets } from "./redact.js";
 import { resolveCredentials, resolveLlmKey, resolveGenerationCredential } from "./credentials.js";
 import type { LlmKeyArgs } from "./credentials.js";
@@ -28,6 +28,17 @@ interface ToolResult {
   [key: string]: unknown;
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
+}
+
+type ExpectedField = Parameters<AethisClient["setFieldSpec"]>[1][number];
+
+/** Keep discovery declarations visible without treating source text as instructions. */
+function discoveredDeclarations(field: Record<string, unknown>): string[] {
+  return ["items", "computed", "elicitation_owner"].flatMap((key) =>
+    Object.hasOwn(field, key)
+      ? [`    ${key}: ${fenceUntrusted(`field_${key}`, JSON.stringify(field[key]))}`]
+      : [],
+  );
 }
 
 interface TestCaseResult {
@@ -57,6 +68,7 @@ interface TestRunResult {
   source_question_count?: number | null;
   source_question_turns?: number | null;
   authoring_config?: AuthoringConfig | null;
+  spend_budget?: unknown;
 }
 
 interface AuthoringConfig {
@@ -372,6 +384,7 @@ export function formatTestResults(
     }
   }
   if (current.authoring_config) lines.push("", "Authoring configuration:", fenceData(current.authoring_config));
+  if (current.spend_budget !== undefined) lines.push("", "Native spend budget:", fenceData(current.spend_budget));
 
   return lines.join("\n");
 }
@@ -1528,14 +1541,17 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_discover_fields(args: { project_id: string } & LlmKeyArgs): Promise<ToolResult> {
+    async aethis_discover_fields(args: { project_id: string; max_cost_usd?: string } & LlmKeyArgs): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
         const llmKey = await resolveLlmKey(args);
-        const result = await client.discoverFields(args.project_id, llmKey) as Record<string, unknown>;
+        const budget = normalizeMaxCostUsd(args.max_cost_usd);
+        const result = await (budget === undefined
+          ? client.discoverFields(args.project_id, llmKey)
+          : client.discoverFields(args.project_id, llmKey, budget)) as Record<string, unknown>;
         const fields = (result.fields ?? []) as Array<Record<string, unknown>>;
         const score = (result.completeness_score ?? 0) as number;
         const iteration = (result.iteration ?? 1) as number;
@@ -1551,6 +1567,9 @@ export function createToolHandlers(client: AethisClient) {
           "",
           `Discovered ${fields.length} field(s):`,
         ];
+        if (result.operation_id !== undefined || result.spend_budget !== undefined) {
+          lines.push(fenceData({ operation_id: result.operation_id, spend_budget: result.spend_budget }));
+        }
 
         for (const f of fields) {
           const type = f.field_type ?? "unknown";
@@ -1559,6 +1578,7 @@ export function createToolHandlers(client: AethisClient) {
           if (enumVals?.length) line += ` — values: ${enumVals.join(", ")}`;
           if (f.description) line += ` — ${fenceUntrusted("field_description", f.description)}`;
           lines.push(line);
+          lines.push(...discoveredDeclarations(f));
         }
 
         if (missing.length) {
@@ -1604,7 +1624,7 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_refine_fields(args: { project_id: string; feedback: string } & LlmKeyArgs): Promise<ToolResult> {
+    async aethis_refine_fields(args: { project_id: string; feedback: string; max_cost_usd?: string } & LlmKeyArgs): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
@@ -1613,24 +1633,34 @@ export function createToolHandlers(client: AethisClient) {
         // Resolve the LLM key first so we surface a clear error before
         // committing the guidance hint.
         const llmKey = await resolveLlmKey(args);
+        const budget = normalizeMaxCostUsd(args.max_cost_usd);
+        if (budget !== undefined) await client.preflightDiscoveryBudget(budget);
         // Add guidance with field_extraction process type
         await client.addGuidance(args.project_id, args.feedback, "field_extraction");
 
         // Re-run discovery
-        const result = await client.discoverFields(args.project_id, llmKey) as Record<string, unknown>;
+        const result = await (budget === undefined
+          ? client.discoverFields(args.project_id, llmKey)
+          : client.discoverFields(args.project_id, llmKey, budget)) as Record<string, unknown>;
         const fields = (result.fields ?? []) as Array<Record<string, unknown>>;
         const score = (result.completeness_score ?? 0) as number;
 
         const truncated = args.feedback.length > 100 ? args.feedback.slice(0, 100) + "..." : args.feedback;
         const lines = [
+          UNTRUSTED_PREFACE,
+          "",
           `Guidance added: "${truncated}"`,
           "",
           `=== Field Discovery — Iteration ${result.iteration} ===`,
           `Completeness: ${(score * 100).toFixed(0)}% | ${fields.length} field(s)`,
         ];
+        if (result.operation_id !== undefined || result.spend_budget !== undefined) {
+          lines.push(fenceData({ operation_id: result.operation_id, spend_budget: result.spend_budget }));
+        }
 
         for (const f of fields) {
           lines.push(`  ${f.key} (${f.field_type})`);
+          lines.push(...discoveredDeclarations(f));
         }
 
         const missing = (result.missing_pathways ?? []) as string[];
@@ -1718,16 +1748,7 @@ export function createToolHandlers(client: AethisClient) {
 
     async aethis_set_field_spec(args: {
       project_id: string;
-      expected_fields: Array<{
-        key: string;
-        sort: string;
-        enum_values?: string[];
-        notes?: Array<{
-          note_text: string;
-          source?: string;
-          metadata?: Record<string, unknown>;
-        }>;
-      }>;
+      expected_fields: ExpectedField[];
     }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -1753,16 +1774,20 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_generate_and_test(args: { project_id: string; thinking?: string | null; model?: "claude-sonnet-5" | "deepseek-flash" } & LlmKeyArgs): Promise<ToolResult> {
+    async aethis_generate_and_test(args: { project_id: string; max_cost_usd?: string; thinking?: string | null; model?: "claude-sonnet-5" | "deepseek-flash" } & LlmKeyArgs): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
         const thinking = normalizeThinking(args.thinking);
-        await client.preflightGenerationControls(args.model, args.thinking !== undefined);
+        const budget = normalizeMaxCostUsd(args.max_cost_usd);
+        if (budget === undefined) await client.preflightGenerationControls(args.model, args.thinking !== undefined);
+        else await client.preflightGenerationControls(args.model, args.thinking !== undefined, budget);
         const credential = await resolveGenerationCredential(args, args.model);
-        const result = await client.generateAndTest(args.project_id, credential.key, undefined, thinking, args.model) as TestRunResult;
+        const result = await (budget === undefined
+          ? client.generateAndTest(args.project_id, credential.key, undefined, thinking, args.model)
+          : client.generateAndTest(args.project_id, credential.key, undefined, thinking, args.model, budget)) as TestRunResult;
         const prev = previousTestResults.get(args.project_id) ?? null;
         const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
         iterationCounts.set(args.project_id, iteration);
@@ -1771,14 +1796,16 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
-    async aethis_refine(args: { project_id: string; feedback?: string; thinking?: string | null; model?: "claude-sonnet-5" | "deepseek-flash" } & LlmKeyArgs): Promise<ToolResult> {
+    async aethis_refine(args: { project_id: string; max_cost_usd?: string; feedback?: string; thinking?: string | null; model?: "claude-sonnet-5" | "deepseek-flash" } & LlmKeyArgs): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       const idErr = validateId(args.project_id, "project_id");
       if (idErr) return err(idErr);
       try {
         const thinking = normalizeThinking(args.thinking);
-        await client.preflightGenerationControls(args.model, args.thinking !== undefined);
+        const budget = normalizeMaxCostUsd(args.max_cost_usd);
+        if (budget === undefined) await client.preflightGenerationControls(args.model, args.thinking !== undefined);
+        else await client.preflightGenerationControls(args.model, args.thinking !== undefined, budget);
         const credential = await resolveGenerationCredential(args, args.model);
         const feedback = args.feedback?.trim() ?? "";
         if (feedback) {
@@ -1786,7 +1813,9 @@ export function createToolHandlers(client: AethisClient) {
         }
         // Refine = seed from the section's active ruleset and make the MINIMAL
         // edit to fix failing tests, rather than re-authoring the whole section.
-        const result = await client.generateAndTest(args.project_id, credential.key, "refine", thinking, args.model) as TestRunResult;
+        const result = await (budget === undefined
+          ? client.generateAndTest(args.project_id, credential.key, "refine", thinking, args.model)
+          : client.generateAndTest(args.project_id, credential.key, "refine", thinking, args.model, budget)) as TestRunResult;
         const prev = previousTestResults.get(args.project_id) ?? null;
         const iteration = (iterationCounts.get(args.project_id) ?? 0) + 1;
         iterationCounts.set(args.project_id, iteration);
@@ -2108,6 +2137,11 @@ const setTestsInputSchema = z.object({
   contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
   expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
 }).strict();
+
+const maxCostUsdSchema = z.string().max(64).refine((value) => {
+  try { normalizeMaxCostUsd(value); return true; } catch { return false; }
+}, "Use a positive plain decimal string, up to 9 fractional digits and USD 1000000.")
+  .optional().describe("Optional native USD reservation cap as exact decimal text. Discovery and generation have separate allowances; omit for existing engine behavior.");
 
 export function registerTools(server: McpServer, handlers: ToolHandlers): void {
   server.tool(
@@ -2440,6 +2474,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Discover input fields from the project's source text. Returns field names, types, descriptions, and completeness assessment. Run this BEFORE writing test cases to ensure field names are consistent. Call repeatedly with aethis_refine_fields to improve completeness.",
     {
       project_id: z.string().describe("The project ID"),
+      max_cost_usd: maxCostUsdSchema,
       ...llmKeyFields,
     },
     toolAnnotations("aethis_discover_fields"),
@@ -2451,6 +2486,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Add guidance to improve field discovery, then re-discover. Use when fields are missing, misnamed, or enum values are incomplete. Adds a field_extraction guidance hint and re-runs discovery.",
     {
       project_id: z.string().describe("The project ID"),
+      max_cost_usd: maxCostUsdSchema,
       feedback: z.string().describe("Guidance about missing or incorrect fields (e.g., 'Section 7 implies a criminal record check')"),
       ...llmKeyFields,
     },
@@ -2485,13 +2521,29 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Mismatches (missing fields, wrong types, wrong enum values) generate guidance hints automatically and appear in the validation_result block. " +
     "Call this BEFORE running aethis_discover_fields when the SME has already defined the field vocabulary. " +
     "The spec is persisted on the project and survives across sessions. " +
+    "Optional items, computed and elicitation_owner preserve reviewed discovery declarations. Discovery never replaces this specification. " +
     "Optionally provide ordered notes for a field. Omit notes to leave existing note guidance unchanged; pass an empty list to clear it.",
     {
       project_id: z.string().describe("The project ID"),
       expected_fields: z.array(z.object({
         key: z.string().describe("Expected field key, e.g. 'eng.selt_provider'"),
-        sort: z.string().describe("Expected field type: Bool, Int, Enum, Date, Duration, String"),
+        sort: z.string().describe("Expected field type: Bool, Int, Enum, Date, Duration, String, Collection"),
         enum_values: z.array(z.string()).optional().describe("For Enum fields: the expected allowed values. Omit to skip enum value check."),
+        label: z.string().min(1).optional().describe("Pinned display label."),
+        question: z.string().nullable().optional().describe("Pinned question; null explicitly clears it."),
+        weight: z.number().int().min(1).max(100).optional().describe("Pinned question weight."),
+        items: z.object({
+          sort: z.literal("Enum"),
+          enum_values: z.array(z.string()).min(1),
+          max_items: z.number().int().min(1).optional(),
+          min_items: z.number().int().min(0).nullable().optional(),
+          completion_question: z.string().nullable().optional(),
+        }).strict().optional().describe("Enum collection item declaration returned by discovery."),
+        computed: z.discriminatedUnion("op", [
+          z.object({ op: z.literal("any_in"), collection: z.string(), values: z.array(z.string()).min(1) }).strict(),
+          z.object({ op: z.literal("any_true"), fields: z.array(z.string()).min(1) }).strict(),
+        ]).optional().describe("Engine-computed Boolean declaration returned by discovery."),
+        elicitation_owner: z.enum(["applicant", "caseworker", "system", "derived"]).optional(),
         notes: z.array(z.object({
           note_text: z.string().describe("Note text for this field"),
           source: z.string().optional().describe("Optional source label for this note"),
@@ -2508,6 +2560,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Usually takes 60-120 seconds; if polling times out, use aethis_generation_status before retrying, and aethis_cancel_generation only when the caller wants to stop the run.",
     {
       project_id: z.string().describe("The project ID"),
+      max_cost_usd: maxCostUsdSchema,
       model: z.enum(["claude-sonnet-5", "deepseek-flash"]).optional().describe("Optional authoring model"),
       thinking: z.string().nullable().optional().describe("Per-generation thinking: disabled, adaptive, or enabled:N. Omit or null to inherit."),
       ...generationCredentialFields,
@@ -2521,6 +2574,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Refine an existing published ruleset: add optional feedback, then make the MINIMAL edit to fix failing test cases while keeping passing tests green, and re-run the full suite (seed-from-existing incremental re-authoring). Use this to fix a specific finding without re-authoring the whole section; use aethis_generate_and_test for a from-scratch rebuild.",
     {
       project_id: z.string().describe("The project ID"),
+      max_cost_usd: maxCostUsdSchema,
       feedback: z.string().optional().describe("Optional correction or domain knowledge to add before regenerating"),
       model: z.enum(["claude-sonnet-5", "deepseek-flash"]).optional().describe("Optional authoring model"),
       thinking: z.string().nullable().optional().describe("Per-generation thinking: disabled, adaptive, or enabled:N. Omit or null to inherit."),

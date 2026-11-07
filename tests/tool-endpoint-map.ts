@@ -364,6 +364,7 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
         method: "POST",
         path: `${PUB}/projects/{project_id}/fields/discover`,
         pathParams: { project_id: "project_id" },
+        body: { max_cost_usd: "max_cost_usd" },
       },
     ],
   },
@@ -378,6 +379,7 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
         method: "POST",
         path: `${PUB}/projects/{project_id}/fields/discover`,
         pathParams: { project_id: "project_id" },
+        body: { max_cost_usd: "max_cost_usd" },
       },
       {
         method: "POST",
@@ -420,7 +422,7 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
         path: `${PUB}/projects/{project_id}/generate`,
         pathParams: { project_id: "project_id" },
         bodyDefaults: ["mode", "seed_ruleset_id"],
-        body: { thinking: "thinking", model: "model" },
+        body: { thinking: "thinking", model: "model", max_cost_usd: "max_cost_usd" },
       },
     ],
   },
@@ -436,7 +438,7 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
         path: `${PUB}/projects/{project_id}/generate`,
         pathParams: { project_id: "project_id" },
         bodyDefaults: ["mode", "seed_ruleset_id"],
-        body: { thinking: "thinking", model: "model" },
+        body: { thinking: "thinking", model: "model", max_cost_usd: "max_cost_usd" },
       },
       {
         method: "POST",

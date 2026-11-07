@@ -155,6 +155,7 @@
         "anthropic_key",
         "anthropic_key_env",
         "anthropic_key_keychain",
+        "max_cost_usd",
         "openai_key",
         "project_id"
       ],
@@ -244,6 +245,7 @@
         "anthropic_key_env",
         "anthropic_key_keychain",
         "deepseek_key_env",
+        "max_cost_usd",
         "model",
         "openai_key",
         "project_id",
@@ -403,6 +405,7 @@
         "anthropic_key_keychain",
         "deepseek_key_env",
         "feedback",
+        "max_cost_usd",
         "model",
         "openai_key",
         "project_id",
@@ -425,6 +428,7 @@
         "anthropic_key_env",
         "anthropic_key_keychain",
         "feedback",
+        "max_cost_usd",
         "openai_key",
         "project_id"
       ],
@@ -510,7 +514,7 @@
     {
       "name": "aethis_set_field_spec",
       "title": "Set field spec",
-      "description": "Store the expected field specification for a project. Once set, every aethis_discover_fields call automatically validates discovered fields against this spec. Mismatches (missing fields, wrong types, wrong enum values) generate guidance hints automatically and appear in the validation_result block. Call this BEFORE running aethis_discover_fields when the SME has already defined the field vocabulary. The spec is persisted on the project and survives across sessions. Optionally provide ordered notes for a field. Omit notes to leave existing note guidance unchanged; pass an empty list to clear it.",
+      "description": "Store the expected field specification for a project. Once set, every aethis_discover_fields call automatically validates discovered fields against this spec. Mismatches (missing fields, wrong types, wrong enum values) generate guidance hints automatically and appear in the validation_result block. Call this BEFORE running aethis_discover_fields when the SME has already defined the field vocabulary. The spec is persisted on the project and survives across sessions. Optional items, computed and elicitation_owner preserve reviewed discovery declarations. Discovery never replaces this specification. Optionally provide ordered notes for a field. Omit notes to leave existing note guidance unchanged; pass an empty list to clear it.",
       "input_fields": [
         "expected_fields",
         "project_id"
