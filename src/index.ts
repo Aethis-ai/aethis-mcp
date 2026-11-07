@@ -1635,6 +1635,8 @@ export function createToolHandlers(client: AethisClient) {
 
         const truncated = args.feedback.length > 100 ? args.feedback.slice(0, 100) + "..." : args.feedback;
         const lines = [
+          UNTRUSTED_PREFACE,
+          "",
           `Guidance added: "${truncated}"`,
           "",
           `=== Field Discovery — Iteration ${result.iteration} ===`,
