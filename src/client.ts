@@ -504,8 +504,8 @@ export class AethisClient {
     if (model !== undefined) body.model = model;
     await this.preflightGenerationControls(model, thinking !== undefined, budget);
     const header = model === "deepseek-flash" ? "X-DeepSeek-Key" : "X-Anthropic-Key";
-    // An ambiguous capped admission must never allocate another native budget.
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, Object.keys(body).length ? body : undefined, llmKey, budget === undefined, header);
+    // An ambiguous paid admission must never allocate another native operation.
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, Object.keys(body).length ? body : undefined, llmKey, false, header);
   }
 
   async listRulesets(projectId: string): Promise<unknown> {
@@ -644,7 +644,7 @@ export class AethisClient {
       await this.preflightDiscoveryBudget(budget);
       body.max_cost_usd = budget;
     }
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, body, llmKey, budget === undefined);
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, body, llmKey, false);
   }
 
   async validateFields(

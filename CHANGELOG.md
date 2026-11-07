@@ -5,8 +5,8 @@
 - Forward optional exact-decimal `max_cost_usd` limits through field discovery,
   generation and refinement. Reject invalid limits locally, and refuse targets
   that do not advertise the requested control before writing refinement feedback.
-  Omitted limits retain existing behavior. Native spend receipts remain visible
-  on success, failure and polling timeout. Capped paid requests are sent once;
+  Omitted limits retain existing request bodies. Native spend receipts remain visible
+  on success, failure and polling timeout. Paid authoring requests are sent once;
   connection failures and retryable HTTP responses do not admit another budget.
 - Preserve optional field labels, questions (including explicit null), and
   weights. Check the target's advertised metadata support before writing pins.

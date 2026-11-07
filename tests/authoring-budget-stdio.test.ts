@@ -15,7 +15,7 @@ interface Request { method: string; path: string; body: unknown }
 const resources: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of resources.splice(0).reverse()) await close(); });
 
-async function fixture(options: { advertised?: boolean; unreadable?: boolean; fail?: boolean } = {}) {
+async function fixture(options: { advertised?: boolean; unreadable?: boolean; fail?: boolean; admissionFailure?: "connection" | "503" } = {}) {
   const requests: Request[] = [];
   let contractReadback: unknown = {};
   const server: Server = createServer(async (req, res) => {
@@ -25,6 +25,11 @@ async function fixture(options: { advertised?: boolean; unreadable?: boolean; fa
     const body = raw ? JSON.parse(raw) : undefined;
     const path = req.url!;
     requests.push({ method: req.method!, path, body });
+    if (req.method === "POST" && (path.endsWith("/generate") || path.endsWith("/fields/discover")) && options.admissionFailure) {
+      if (options.admissionFailure === "connection") res.destroy();
+      else { res.writeHead(503, { "content-type": "application/json" }); res.end(JSON.stringify({ detail: "simulated unavailable response after admission" })); }
+      return;
+    }
     res.setHeader("content-type", "application/json");
     let result: unknown = {};
     if (path === "/openapi.json") {
@@ -139,6 +144,17 @@ describe("native authoring budget through MCP stdio", () => {
         : client.discoverFields("p", undefined, "1");
       await expect(call).rejects.toThrow();
       expect(posts).toBe(1);
+    }
+  });
+
+  it.each(["aethis_generate_and_test", "aethis_refine", "aethis_discover_fields", "aethis_refine_fields"])("sends paid admission exactly once through stdio for %s", async (name) => {
+    for (const admissionFailure of ["connection", "503"] as const) {
+      for (const cap of [undefined, "1.250000000"]) {
+        const { client, requests } = await fixture({ admissionFailure });
+        const result = await client.callTool({ name, arguments: { project_id: "p", ...(name === "aethis_refine_fields" ? { feedback: "Reviewed correction" } : {}), ...(cap === undefined ? {} : { max_cost_usd: cap }) } });
+        expect(result.isError).toBe(true);
+        expect(requests.filter((r) => r.method === "POST" && (r.path.endsWith("/generate") || r.path.endsWith("/fields/discover")))).toHaveLength(1);
+      }
     }
   });
 
