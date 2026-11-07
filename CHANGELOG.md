@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.2 (2026-11-07)
+
+- Field discovery and refinement retain collection items, computed declarations and elicitation owners in their output. Reviewed declarations can be passed explicitly to `aethis_set_field_spec`; discovery never replaces the caller's specification.
+
 ## 0.22.1 (2026-10-01)
 
 - `aethis_generate_and_test` and `aethis_refine` accept optional per-run

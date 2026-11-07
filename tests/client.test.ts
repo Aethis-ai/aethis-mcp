@@ -162,6 +162,17 @@ describe("AethisClient requests", () => {
     });
   });
 
+  it("sends reviewed collection and computed declarations without adding absent metadata", async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({}));
+    const fields: Parameters<AethisClient["setFieldSpec"]>[1] = [
+      { key: "training", sort: "Collection", items: { sort: "Enum", enum_values: ["basic", "advanced"], min_items: 0, max_items: 2 } },
+      { key: "qualified", sort: "Bool", computed: { op: "any_in", collection: "training", values: ["advanced"] }, elicitation_owner: "derived" },
+      { key: "ordinary", sort: "Int" },
+    ];
+    await client.setFieldSpec("p_1", fields);
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body)).toEqual({ expected_fields: fields });
+  });
+
   it("returns empty object on 204 No Content", async () => {
     const resp = {
       ok: true,
