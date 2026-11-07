@@ -30,6 +30,17 @@ interface ToolResult {
   isError?: boolean;
 }
 
+type ExpectedField = Parameters<AethisClient["setFieldSpec"]>[1][number];
+
+/** Keep discovery declarations visible without treating source text as instructions. */
+function discoveredDeclarations(field: Record<string, unknown>): string[] {
+  return ["items", "computed", "elicitation_owner"].flatMap((key) =>
+    Object.hasOwn(field, key)
+      ? [`    ${key}: ${fenceUntrusted(`field_${key}`, JSON.stringify(field[key]))}`]
+      : [],
+  );
+}
+
 interface TestCaseResult {
   name?: string;
   tc_id?: string;
@@ -1559,6 +1570,7 @@ export function createToolHandlers(client: AethisClient) {
           if (enumVals?.length) line += ` — values: ${enumVals.join(", ")}`;
           if (f.description) line += ` — ${fenceUntrusted("field_description", f.description)}`;
           lines.push(line);
+          lines.push(...discoveredDeclarations(f));
         }
 
         if (missing.length) {
@@ -1631,6 +1643,7 @@ export function createToolHandlers(client: AethisClient) {
 
         for (const f of fields) {
           lines.push(`  ${f.key} (${f.field_type})`);
+          lines.push(...discoveredDeclarations(f));
         }
 
         const missing = (result.missing_pathways ?? []) as string[];
@@ -1718,16 +1731,7 @@ export function createToolHandlers(client: AethisClient) {
 
     async aethis_set_field_spec(args: {
       project_id: string;
-      expected_fields: Array<{
-        key: string;
-        sort: string;
-        enum_values?: string[];
-        notes?: Array<{
-          note_text: string;
-          source?: string;
-          metadata?: Record<string, unknown>;
-        }>;
-      }>;
+      expected_fields: ExpectedField[];
     }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -2485,13 +2489,26 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     "Mismatches (missing fields, wrong types, wrong enum values) generate guidance hints automatically and appear in the validation_result block. " +
     "Call this BEFORE running aethis_discover_fields when the SME has already defined the field vocabulary. " +
     "The spec is persisted on the project and survives across sessions. " +
+    "Optional items, computed and elicitation_owner preserve reviewed discovery declarations. Discovery never replaces this specification. " +
     "Optionally provide ordered notes for a field. Omit notes to leave existing note guidance unchanged; pass an empty list to clear it.",
     {
       project_id: z.string().describe("The project ID"),
       expected_fields: z.array(z.object({
         key: z.string().describe("Expected field key, e.g. 'eng.selt_provider'"),
-        sort: z.string().describe("Expected field type: Bool, Int, Enum, Date, Duration, String"),
+        sort: z.string().describe("Expected field type: Bool, Int, Enum, Date, Duration, String, Collection"),
         enum_values: z.array(z.string()).optional().describe("For Enum fields: the expected allowed values. Omit to skip enum value check."),
+        items: z.object({
+          sort: z.literal("Enum"),
+          enum_values: z.array(z.string()).min(1),
+          max_items: z.number().int().min(1).optional(),
+          min_items: z.number().int().min(0).nullable().optional(),
+          completion_question: z.string().nullable().optional(),
+        }).strict().optional().describe("Enum collection item declaration returned by discovery."),
+        computed: z.discriminatedUnion("op", [
+          z.object({ op: z.literal("any_in"), collection: z.string(), values: z.array(z.string()).min(1) }).strict(),
+          z.object({ op: z.literal("any_true"), fields: z.array(z.string()).min(1) }).strict(),
+        ]).optional().describe("Engine-computed Boolean declaration returned by discovery."),
+        elicitation_owner: z.enum(["applicant", "caseworker", "system", "derived"]).optional(),
         notes: z.array(z.object({
           note_text: z.string().describe("Note text for this field"),
           source: z.string().optional().describe("Optional source label for this note"),
