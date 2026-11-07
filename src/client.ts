@@ -44,6 +44,20 @@ const PROGRESS_DETAIL_MAX_CHARS = 120;
 // arbitrarily large integer string.
 const MAX_THINKING_DIGITS = 10;
 
+/** Validate the public decimal grammar while preserving the exact wire text. */
+export function normalizeMaxCostUsd(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length > 64 || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,9})?$/.test(value)) {
+    throw new AethisAPIError(422, "invalid_max_cost_usd: use a positive plain decimal string, at most 9 fractional digits and USD 1000000.");
+  }
+  const [whole, fraction = ""] = value.split(".");
+  const units = BigInt(whole) * 1_000_000_000n + BigInt(fraction.padEnd(9, "0"));
+  if (units <= 0n || units > 1_000_000_000_000_000n) {
+    throw new AethisAPIError(422, "invalid_max_cost_usd: use a positive plain decimal string, at most 9 fractional digits and USD 1000000.");
+  }
+  return value;
+}
+
 /** Validate syntax only; provider/model capability remains engine-owned. */
 export function normalizeThinking(thinking: string | null | undefined): string | null | undefined {
   if (thinking === undefined || thinking === null) return thinking;
@@ -210,6 +224,7 @@ export class AethisClient {
         let reasonCode: string | undefined;
         let action: string | undefined;
         let missingPermissions: string[] = [];
+        let receipt: unknown;
         try {
           const json = JSON.parse(text) as Record<string, unknown>;
           const rawDetail = json.detail;
@@ -217,6 +232,10 @@ export class AethisClient {
             detail = rawDetail;
           } else if (rawDetail && typeof rawDetail === "object") {
             const payload = rawDetail as Record<string, unknown>;
+            if (payload.spend_budget !== undefined) receipt = {
+              spend_budget: payload.spend_budget,
+              ...(payload.operation_id !== undefined ? { operation_id: payload.operation_id } : {}),
+            };
             reasonCode = typeof payload.reason_code === "string" ? payload.reason_code : undefined;
             action = typeof payload.action === "string" ? payload.action : undefined;
             missingPermissions = Array.isArray(payload.missing_permissions)
@@ -237,7 +256,7 @@ export class AethisClient {
         } catch {
           detail = text || `HTTP ${resp.status}`;
         }
-        throw new AethisAPIError(resp.status, detail, reasonCode, action, missingPermissions);
+        throw new AethisAPIError(resp.status, detail, reasonCode, action, missingPermissions, receipt);
       }
 
       if (resp.status === 204) return {};
@@ -471,18 +490,22 @@ export class AethisClient {
     mode?: "fresh" | "refine",
     thinking?: string | null,
     model?: "claude-sonnet-5" | "deepseek-flash",
+    maxCostUsd?: string,
   ): Promise<unknown> {
     // mode="refine" seeds generation from the section's active ruleset and asks
     // for the minimal edit to fix failing tests (finding-driven incremental
     // re-authoring); omitting it / "fresh" authors from scratch.
     const body: Record<string, unknown> = {};
+    const budget = normalizeMaxCostUsd(maxCostUsd);
+    if (budget !== undefined) body.max_cost_usd = budget;
     if (mode) body.mode = mode;
     const normalizedThinking = normalizeThinking(thinking);
     if (normalizedThinking !== undefined) body.thinking = normalizedThinking;
     if (model !== undefined) body.model = model;
-    if (model !== undefined || thinking !== undefined) await this.preflightGenerationControls(model, thinking !== undefined);
+    await this.preflightGenerationControls(model, thinking !== undefined, budget);
     const header = model === "deepseek-flash" ? "X-DeepSeek-Key" : "X-Anthropic-Key";
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, Object.keys(body).length ? body : undefined, llmKey, true, header);
+    // An ambiguous capped admission must never allocate another native budget.
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/generate`, Object.keys(body).length ? body : undefined, llmKey, budget === undefined, header);
   }
 
   async listRulesets(projectId: string): Promise<unknown> {
@@ -557,6 +580,9 @@ export class AethisClient {
       key: string;
       sort: string;
       enum_values?: string[];
+      label?: string;
+      question?: string | null;
+      weight?: number;
       items?: {
         sort: "Enum";
         enum_values: string[];
@@ -575,6 +601,18 @@ export class AethisClient {
       }>;
     }>,
   ): Promise<unknown> {
+    const controls = ["label", "question", "weight"].filter((key) => expectedFields.some((field) => Object.hasOwn(field, key)));
+    if (controls.length) {
+      let document: unknown;
+      try { document = await this.request("GET", "/openapi.json"); } catch {
+        throw new AethisAPIError(400, "Field metadata is unavailable: the target OpenAPI document could not be read. No field specification was changed.");
+      }
+      const properties = (document as { components?: { schemas?: { ExpectedFieldSpec?: { properties?: Record<string, unknown> } } } })
+        ?.components?.schemas?.ExpectedFieldSpec?.properties;
+      if (!properties || controls.some((key) => !(key in properties))) {
+        throw new AethisAPIError(400, "Field metadata is unavailable: the target does not advertise the requested field pins. No field specification was changed.");
+      }
+    }
     return this.request(
       "POST",
       `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/spec`,
@@ -599,8 +637,14 @@ export class AethisClient {
     );
   }
 
-  async discoverFields(projectId: string, llmKey?: string): Promise<unknown> {
-    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, {}, llmKey);
+  async discoverFields(projectId: string, llmKey?: string, maxCostUsd?: string): Promise<unknown> {
+    const budget = normalizeMaxCostUsd(maxCostUsd);
+    const body: Record<string, unknown> = {};
+    if (budget !== undefined) {
+      await this.preflightDiscoveryBudget(budget);
+      body.max_cost_usd = budget;
+    }
+    return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/discover`, body, llmKey, budget === undefined);
   }
 
   async validateFields(
@@ -696,16 +740,31 @@ export class AethisClient {
   }
 
   /** Refuse explicit generation controls unless the target advertises them. */
-  async preflightGenerationControls(model?: "claude-sonnet-5" | "deepseek-flash", hasThinking = false): Promise<void> {
-    if (model === undefined && !hasThinking) return;
+  async preflightGenerationControls(model?: "claude-sonnet-5" | "deepseek-flash", hasThinking = false, maxCostUsd?: string): Promise<void> {
+    const budget = normalizeMaxCostUsd(maxCostUsd);
+    if (model === undefined && !hasThinking && budget === undefined) return;
     let openApi: unknown;
     try { openApi = await this.request("GET", "/openapi.json"); } catch {
       throw new AethisAPIError(400, "Generation controls are unavailable: the target OpenAPI document could not be read. No generation was started.");
     }
     const properties = (openApi as { components?: { schemas?: { GenerationModeRequest?: { properties?: Record<string, unknown> } } } })
       .components?.schemas?.GenerationModeRequest?.properties;
-    if (!properties || (model !== undefined && !("model" in properties)) || (hasThinking && !("thinking" in properties))) {
+    if (!properties || (model !== undefined && !("model" in properties)) || (hasThinking && !("thinking" in properties)) || (budget !== undefined && !("max_cost_usd" in properties))) {
       throw new AethisAPIError(400, "Generation controls are unavailable: the target OpenAPI document does not expose the requested GenerationModeRequest field. No generation was started.");
+    }
+  }
+
+  /** Discovery has a separate native allowance; probe afresh before its POST. */
+  async preflightDiscoveryBudget(maxCostUsd: string): Promise<void> {
+    normalizeMaxCostUsd(maxCostUsd);
+    let document: unknown;
+    try { document = await this.request("GET", "/openapi.json"); } catch {
+      throw new AethisAPIError(400, "Discovery budget is unavailable: the target OpenAPI document could not be read. No discovery was started.");
+    }
+    const properties = (document as { components?: { schemas?: Record<string, { properties?: Record<string, unknown> }> } })
+      ?.components?.schemas?.FieldDiscoveryRequest?.properties;
+    if (!properties || !("max_cost_usd" in properties)) {
+      throw new AethisAPIError(400, "Discovery budget is unavailable: the target does not advertise max_cost_usd. No discovery was started.");
     }
   }
 
@@ -786,9 +845,10 @@ export class AethisClient {
     mode?: "fresh" | "refine",
     thinking?: string | null,
     model?: "claude-sonnet-5" | "deepseek-flash",
+    maxCostUsd?: string,
   ): Promise<unknown> {
     // 1. Trigger generation (mode="refine" → seed-from-existing incremental edit)
-    const job = await this.generate(projectId, llmKey, mode, thinking, model) as Record<string, unknown>;
+    const job = await this.generate(projectId, llmKey, mode, thinking, model, maxCostUsd) as Record<string, unknown>;
     const jobId = job.job_id as string;
 
     // 2. Poll until done
@@ -802,16 +862,20 @@ export class AethisClient {
 
     let lastDetail = "";
     let authoringConfig: unknown = job.authoring_config;
+    let spendBudget: unknown = job.spend_budget;
+    const receipt = (): unknown => spendBudget === undefined ? authoringConfig : {
+      ...(authoringConfig === undefined ? {} : { authoring_config: authoringConfig }), spend_budget: spendBudget,
+    };
     // Preserve the admitted receipt even if a status/test transport fails or
     // the local polling deadline expires before the first status response.
     const withReceipt = async <T>(operation: Promise<T>): Promise<T> => {
       try { return await operation; } catch (error) {
         if (error instanceof AethisAPIError) {
           throw new AethisAPIError(error.statusCode, error.detail, error.reasonCode, error.action,
-            error.missingPermissions, authoringConfig);
+            error.missingPermissions, receipt());
         }
         throw new AethisAPIError(0, "Generation status or test request failed. Check aethis_generation_status before retrying.",
-          undefined, undefined, [], authoringConfig);
+          undefined, undefined, [], receipt());
       }
     };
 
@@ -825,6 +889,7 @@ export class AethisClient {
           continue;
         }
         authoringConfig = jobData.authoring_config ?? authoringConfig;
+        spendBudget = jobData.spend_budget ?? spendBudget;
         const jobStatus = jobData.status as string;
 
         // Log progress changes to stderr so the MCP client can surface them.
@@ -861,7 +926,7 @@ export class AethisClient {
           } else {
             diagnostic = `Generation failed (job ${jobId}): ${errorMsg}`;
           }
-          throw new AethisAPIError(500, diagnostic, undefined, undefined, [], authoringConfig);
+          throw new AethisAPIError(500, diagnostic, undefined, undefined, [], receipt());
         }
       }
 
@@ -873,7 +938,7 @@ export class AethisClient {
         504,
         `Generation timed out after ${this.pollTimeoutMs / 1000}s. The job may still be running server-side. ` +
           "Check aethis_generation_status before retrying; cancel it with aethis_cancel_generation only if the caller wants to stop it.",
-        undefined, undefined, [], authoringConfig,
+        undefined, undefined, [], receipt(),
       );
     }
 
@@ -887,6 +952,7 @@ export class AethisClient {
       if (merged[key] === undefined || merged[key] === null) merged[key] = value;
     }
     if (authoringConfig !== undefined) merged.authoring_config = authoringConfig;
+    if (spendBudget !== undefined) merged.spend_budget = spendBudget;
     return merged;
   }
 }
