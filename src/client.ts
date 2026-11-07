@@ -557,6 +557,17 @@ export class AethisClient {
       key: string;
       sort: string;
       enum_values?: string[];
+      items?: {
+        sort: "Enum";
+        enum_values: string[];
+        max_items?: number;
+        min_items?: number | null;
+        completion_question?: string | null;
+      };
+      computed?:
+        | { op: "any_in"; collection: string; values: string[] }
+        | { op: "any_true"; fields: string[] };
+      elicitation_owner?: "applicant" | "caseworker" | "system" | "derived";
       notes?: Array<{
         note_text: string;
         source?: string;
