@@ -2119,6 +2119,7 @@ describe("aethis_discover_fields", () => {
       ? await h.aethis_discover_fields({ project_id: "p_1", anthropic_key: "sk-ant-test" })
       : await h.aethis_refine_fields({ project_id: "p_1", feedback: "Check fields", anthropic_key: "sk-ant-test" });
     const output = text(result);
+    expect(output).toContain(UNTRUSTED_PREFACE);
     expect(output).toContain("training (collection)");
     for (const key of ["items", "computed", "elicitation_owner"]) {
       expect(output).toContain(`label="field_${key}"`);
@@ -2185,7 +2186,8 @@ describe("aethis_set_field_spec", () => {
     const fields = [
       { key: "training", sort: "Collection", items: { sort: "Enum", enum_values: ["basic", "advanced"], min_items: 0 } },
       { key: "qualified", sort: "Bool", computed: { op: "any_in", collection: "training", values: ["advanced"] }, elicitation_owner: "derived" },
-      { key: "complete", sort: "Bool", computed: { op: "any_true", fields: ["qualified"] }, elicitation_owner: "system" },
+      { key: "checked", sort: "Bool", elicitation_owner: "system" },
+      { key: "complete", sort: "Bool", computed: { op: "any_true", fields: ["checked"] }, elicitation_owner: "system" },
     ];
     const parsed = parseFields!.parse(fields);
     expect(parsed).toEqual(fields);
