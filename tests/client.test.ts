@@ -473,6 +473,22 @@ describe("AethisClient API methods", () => {
     });
   });
 
+  it("replaceTests() forwards retained_passages only when the engine advertises them", async () => {
+    const cases = [{ name: "c", field_values: {}, expected_outcome: "eligible" }];
+    const passages = [{ id: "P1", text: "Keep this.", match: "normalized_contains" }];
+    const props = { replace: { type: "boolean" }, contract_version: { type: "integer" }, expected_review_bindings: { type: "object" } };
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({ components: { schemas: { AddTestCaseRequest: { properties: { ...props, retained_passages: { type: "array" } } } } } }))
+      .mockResolvedValueOnce(jsonResponse({ added: 1, replaced: 0 }));
+    await client.replaceTests("p_1", cases, { contract_version: 1, retained_passages: passages });
+    expect(JSON.parse(fetchSpy.mock.calls[1][1].body)).toEqual({ test_cases: cases, replace: true, contract_version: 1, retained_passages: passages });
+
+    fetchSpy.mockClear();
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ components: { schemas: { AddTestCaseRequest: { properties: props } } } }));
+    await expect(client.replaceTests("p_1", cases, { contract_version: 1, retained_passages: passages })).rejects.toThrow(/retained_passages/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     [undefined, "absent"],
     [false, "false schema"],
