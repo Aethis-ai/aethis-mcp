@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.4 (2026-11-08)
+
+- Preserve optional `expectations.criterion_statuses` in authoring test contracts, including literal criterion IDs. Accept only bounded nonempty maps of `satisfied`, `not_satisfied` or `pending`; refuse invalid maps before authoring writes. Existing callers can continue to omit these assertions.
+
 ## 0.22.3 (2026-11-07)
 
 - Forward optional exact-decimal `max_cost_usd` limits through field discovery,

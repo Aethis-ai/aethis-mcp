@@ -84,6 +84,7 @@ interface AuthoringConfig {
 type AcceptanceExpectations = {
   pending_reviews?: { resolution_fields: string[]; unmapped_count: number };
   useful_unknown_fields?: string[];
+  criterion_statuses?: Record<string, "satisfied" | "not_satisfied" | "pending">;
 };
 type AcceptanceTestCase = {
   name: string;
@@ -734,7 +735,7 @@ export function validateAcceptanceContract(
     let expectations: AcceptanceExpectations | undefined;
     if (tc.expectations !== undefined && tc.expectations !== null) {
       const value = tc.expectations;
-      if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0 || Object.keys(value).some((key) => key !== "pending_reviews" && key !== "useful_unknown_fields")) return { error: `Error: Acceptance test case ${i + 1} expectations must be a non-empty object with supported keys.` };
+      if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0 || Object.keys(value).some((key) => key !== "pending_reviews" && key !== "useful_unknown_fields" && key !== "criterion_statuses")) return { error: `Error: Acceptance test case ${i + 1} expectations must be a non-empty object with supported keys.` };
       const rawExpectations = value as AcceptanceExpectations & { pending_reviews?: { resolution_fields?: string[]; unmapped_count: number } };
       const pending = rawExpectations.pending_reviews;
       if (pending !== undefined && (
@@ -752,11 +753,20 @@ export function validateAcceptanceContract(
         : { resolution_fields: pending.resolution_fields ?? [], unmapped_count: pending.unmapped_count };
       if (bindings && normalisedPending?.resolution_fields.some((field) => !Object.hasOwn(bindings, field))) return { error: `Error: Acceptance test case ${i + 1} references a resolution field absent from expected_review_bindings.` };
       if (rawExpectations.useful_unknown_fields !== undefined && !boundedUniqueStrings(rawExpectations.useful_unknown_fields)) return { error: `Error: Acceptance test case ${i + 1} useful_unknown_fields must contain up to 500 unique non-empty strings of at most 300 Unicode code points.` };
+      if (Object.hasOwn(value, "criterion_statuses")) {
+        const statuses = rawExpectations.criterion_statuses;
+        if (!statuses || typeof statuses !== "object" || Array.isArray(statuses)
+          || Object.keys(statuses).length < 1 || Object.keys(statuses).length > 500
+          || Object.entries(statuses).some(([key, status]) => !isCoreNonEmptyId(key) || !hasWellFormedUnicode(key) || !["satisfied", "not_satisfied", "pending"].includes(status))) {
+          return { error: `Error: Acceptance test case ${i + 1} criterion_statuses requires 1 to 500 non-empty IDs of at most 300 Unicode code points mapped to satisfied, not_satisfied, or pending.` };
+        }
+      }
       expectations = {
         ...(normalisedPending ? { pending_reviews: normalisedPending } : {}),
         ...(rawExpectations.useful_unknown_fields !== undefined
           ? { useful_unknown_fields: rawExpectations.useful_unknown_fields }
           : {}),
+        ...(rawExpectations.criterion_statuses !== undefined ? { criterion_statuses: Object.fromEntries(Object.entries(rawExpectations.criterion_statuses)) } : {}),
       };
     }
     cases.push({ name: tc.name, field_values: tc.field_values as Record<string, unknown>, expected_outcome: tc.expected_outcome as AcceptanceTestCase["expected_outcome"], ...(expectations ? { expectations } : {}) });
@@ -2107,12 +2117,26 @@ const nonEmptyId = z.string().refine(isCoreNonEmptyId, {
   message: "Must contain a non-whitespace character and be at most 300 Unicode code points.",
 });
 const reviewBindingKey = transportKey(nonEmptyId);
+const criterionStatusId = z.string().regex(
+  /^(?=[\s\S]{1,300}(?![\s\S]))[\s\S]*[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000][\s\S]*(?![\s\S])/u,
+  "Criterion IDs must contain a non-whitespace character and at most 300 Unicode code points.",
+);
+// Zod's record validates __proto__ but discards it from its output. Intersect
+// with the original object so literal criterion IDs survive parsing safely:
+// Zod merges intersection objects with object spread, never prototype setters.
+const criterionStatusesSchema = z.intersection(
+  z.record(criterionStatusId, z.enum(["satisfied", "not_satisfied", "pending"])),
+  z.unknown(),
+).refine((value) => Object.keys(value).length >= 1 && Object.keys(value).length <= 500, {
+  message: "Must contain 1 to 500 criterion statuses.",
+}).describe("Optional criterion-status assertions: a nonempty object with 1 to 500 entries. Each literal criterion ID must contain a non-whitespace character and have at most 300 Unicode code points. Values must be exactly satisfied, not_satisfied or pending; null is invalid. Entry-count limits are enforced before authoring writes.");
 const acceptanceExpectationsSchema = z.object({
   pending_reviews: z.object({
     resolution_fields: z.array(nonEmptyId).max(500).optional(),
     unmapped_count: z.number().int().min(0).max(500),
   }).strict().optional(),
   useful_unknown_fields: z.array(nonEmptyId).max(500).optional(),
+  criterion_statuses: criterionStatusesSchema.optional(),
 }).strict().nullable().optional();
 const acceptanceTestCaseSchema = z.object({
   name: z.string().min(1),

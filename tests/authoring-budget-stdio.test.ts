@@ -86,6 +86,62 @@ async function fixture(options: { advertised?: boolean; unreadable?: boolean; fa
 }
 
 describe("native authoring budget through MCP stdio", () => {
+  it("advertises criterion status constraints through actual tools/list", async () => {
+    const { client, requests } = await fixture();
+    const listed = await client.listTools();
+    for (const name of ["aethis_set_tests", "aethis_create_ruleset"]) {
+      const tool = listed.tools.find((item) => item.name === name)!;
+      const properties = tool.inputSchema.properties as Record<string, any>;
+      const expectations = properties.test_cases.items.properties.expectations;
+      const map = (expectations.properties ? expectations : expectations.anyOf.find((item: any) => item.properties)).properties.criterion_statuses;
+      expect(map.description).toContain("1 to 500 entries");
+      expect(map.description).toContain("300 Unicode code points");
+      expect(map.description).toContain("non-whitespace");
+      expect(map.allOf[0].additionalProperties.enum).toEqual(["satisfied", "not_satisfied", "pending"]);
+      expect(map.allOf[0].propertyNames.pattern).toBeTruthy();
+      // Zod 3 cannot emit entry-count refinements as min/maxProperties.
+      // The description advertises them and registered runtime validation
+      // rejects every invalid shape before an authoring HTTP request.
+    }
+    expect(requests).toEqual([]);
+  });
+
+  it.each(["aethis_set_tests", "aethis_generate_and_test", "aethis_refine"])("preserves literal criterion statuses through %s", async (name) => {
+    const { client, requests } = await fixture();
+    const statuses = JSON.parse('{"criterion.😀":"satisfied","constructor":"pending","__proto__":"not_satisfied"}');
+    statuses["😀".repeat(300)] = "pending";
+    statuses["\ufeff"] = "pending";
+    statuses["\x1c"] = "pending";
+    const test_cases = [{ name: "auxiliary", field_values: {}, expected_outcome: "eligible", expectations: { criterion_statuses: statuses } }];
+    const result = await client.callTool({ name: "aethis_set_tests", arguments: { project_id: "p", contract_version: 1, test_cases } });
+    expect(result.isError, JSON.stringify(result)).not.toBe(true);
+    expect(requests.find((r) => r.path.endsWith("/tests"))?.body).toEqual({ contract_version: 1, replace: true, test_cases });
+    if (name !== "aethis_set_tests") {
+      const generation = await client.callTool({ name, arguments: { project_id: "p" } });
+      expect(generation.isError, JSON.stringify(generation)).not.toBe(true);
+      expect(requests.some((r) => r.path.endsWith("/generate"))).toBe(true);
+      expect(requests.some((r) => r.path.endsWith("/test-run"))).toBe(true);
+    }
+    expect(Object.getPrototypeOf(statuses)).toBe(Object.prototype);
+    expect(Object.hasOwn(statuses, "__proto__")).toBe(true);
+  });
+
+  it("accepts the 500-entry criterion map boundary through stdio", async () => {
+    const { client, requests } = await fixture();
+    const criterion_statuses = Object.fromEntries(Array.from({ length: 500 }, (_, i) => [`criterion_${i}`, "pending"]));
+    const test_cases = [{ name: "bounded", field_values: {}, expected_outcome: "eligible", expectations: { criterion_statuses } }];
+    const result = await client.callTool({ name: "aethis_set_tests", arguments: { project_id: "p", contract_version: 1, test_cases } });
+    expect(result.isError, JSON.stringify(result)).not.toBe(true);
+    expect(requests.find((r) => r.path.endsWith("/tests"))?.body).toEqual({ contract_version: 1, replace: true, test_cases });
+  });
+
+  it.each([null, {}, [], { "": "pending" }, { " \t": "pending" }, { "\u0085": "pending" }, { "\ud800": "pending" }, { ["x".repeat(301)]: "pending" }, { x: "SATISFIED" }, { x: 1 }, { x: true }, { x: null }, Object.fromEntries(Array.from({ length: 501 }, (_, i) => [String(i), "pending"]))])("rejects malformed criterion statuses before any HTTP: %j", async (criterion_statuses) => {
+    const { client, requests } = await fixture();
+    const result = await client.callTool({ name: "aethis_set_tests", arguments: { project_id: "p", contract_version: 1, test_cases: [{ name: "auxiliary", field_values: {}, expected_outcome: "eligible", expectations: { criterion_statuses } }] } });
+    expect(result.isError).toBe(true);
+    expect(requests).toEqual([]);
+  });
+
   it.each(["19", "19.00", "0.000000001", "1000000", "1000000.000000000"])("preserves valid exact text %s", (value) => {
     expect(normalizeMaxCostUsd(value)).toBe(value);
   });
