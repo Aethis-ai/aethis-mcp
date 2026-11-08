@@ -2369,6 +2369,14 @@ describe("retained passages in the acceptance contract", () => {
     }
   });
 
+  it("enforces the engine caps at the boundaries", () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `P${i}`, text: "x" }));
+    expect(validateAcceptanceContract(cases, 1, undefined, many(100)).error).toBeUndefined();
+    expect(validateAcceptanceContract(cases, 1, undefined, many(101)).error).toContain("at most 100");
+    expect(validateAcceptanceContract(cases, 1, undefined, [{ id: "P", text: "x".repeat(2000) }]).error).toBeUndefined();
+    expect(validateAcceptanceContract(cases, 1, undefined, [{ id: "P", text: "x".repeat(2001) }]).error).toContain("2000");
+  });
+
   it("aethis_set_tests sends the passages and verifies their readback", async () => {
     const validation = validateAcceptanceContract(cases, 1, undefined, passages);
     if (!validation.contract) throw new Error("fixture should be valid");

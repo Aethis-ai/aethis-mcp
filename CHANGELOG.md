@@ -3,7 +3,7 @@
 ## 0.23.0 (unreleased)
 
 - `aethis_create_ruleset` and `aethis_set_tests` accept an optional
-  `retained_passages` list (`[{ id, text }]`, at most 500): source passages that
+  `retained_passages` list (`[{ id, text }]`, at most 100 passages of at most 2000 characters each): source passages that
   must be retained in the generated rule notes. Matching ignores case,
   whitespace runs and typographic quotes and checks literal retention, not
   meaning. It needs `contract_version: 1`, is verified on readback, and is

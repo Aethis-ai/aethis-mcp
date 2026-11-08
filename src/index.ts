@@ -716,14 +716,14 @@ export function validateAcceptanceContract(
   }
   let passages: RetainedPassage[] | undefined;
   if (retainedPassages !== undefined) {
-    if (!Array.isArray(retainedPassages) || retainedPassages.length > 500) return { error: "Error: retained_passages must be a list of at most 500 passages; null is not valid." };
+    if (!Array.isArray(retainedPassages) || retainedPassages.length > 100) return { error: "Error: retained_passages must be a list of at most 100 passages; null is not valid." };
     const ids = new Set<string>();
     const normalised: RetainedPassage[] = [];
     for (const item of retainedPassages as unknown[]) {
       const passage = item as Record<string, unknown> | null;
       if (!passage || typeof passage !== "object" || Array.isArray(passage) || Object.keys(passage).some((key) => key !== "id" && key !== "text" && key !== "match")) return { error: "Error: Each retained_passages entry needs only id, text and optional match." };
       if (typeof passage.id !== "string" || !isCoreNonEmptyId(passage.id) || ids.has(passage.id)) return { error: "Error: retained_passages ids must be unique non-empty strings of at most 300 Unicode code points." };
-      if (typeof passage.text !== "string" || !passage.text.trim() || [...passage.text].length > 20000) return { error: "Error: retained_passages text must be non-blank and at most 20000 Unicode code points." };
+      if (typeof passage.text !== "string" || !passage.text.trim() || [...passage.text].length > 2000) return { error: "Error: retained_passages text must be non-blank and at most 2000 Unicode code points." };
       if (passage.match !== undefined && passage.match !== "normalized_contains") return { error: "Error: retained_passages match must be normalized_contains." };
       ids.add(passage.id);
       normalised.push({ id: passage.id, text: passage.text, match: "normalized_contains" });
@@ -2137,7 +2137,7 @@ const createRulesetInputSchema = z.object({
   test_cases: z.array(acceptanceTestCaseSchema).min(1).max(500).describe("Test cases with optional strict acceptance expectations."),
   contract_version: z.literal(1).optional().describe("Required when acceptance expectations, expected_review_bindings or retained_passages are supplied."),
   expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
-  retained_passages: z.array(retainedPassageSchema).max(500).optional().describe("Optional list of source passages that must be retained in the rule notes. Each is {id, text}; matching ignores case, whitespace runs and typographic quotes and checks literal retention, not meaning."),
+  retained_passages: z.array(retainedPassageSchema).max(100).optional().describe("Optional list of source passages that must be retained in the rule notes. Each is {id, text} with text at most 2000 characters; matching ignores case, whitespace runs and typographic quotes and checks literal retention, not meaning."),
   domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
 }).strict();
 
@@ -2146,7 +2146,7 @@ const setTestsInputSchema = z.object({
   test_cases: z.array(acceptanceTestCaseSchema).min(1).max(500).describe("The complete authoritative reviewed suite (1-500 cases); this replaces existing tests"),
   contract_version: z.literal(1).optional().describe("Required when acceptance expectations, expected_review_bindings or retained_passages are supplied."),
   expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
-  retained_passages: z.array(retainedPassageSchema).max(500).optional().describe("Optional list of source passages that must be retained in the rule notes. Each is {id, text}; matching ignores case, whitespace runs and typographic quotes and checks literal retention, not meaning."),
+  retained_passages: z.array(retainedPassageSchema).max(100).optional().describe("Optional list of source passages that must be retained in the rule notes. Each is {id, text} with text at most 2000 characters; matching ignores case, whitespace runs and typographic quotes and checks literal retention, not meaning."),
 }).strict();
 
 export function registerTools(server: McpServer, handlers: ToolHandlers): void {
