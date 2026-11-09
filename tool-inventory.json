@@ -115,6 +115,7 @@
         "domain",
         "expected_review_bindings",
         "name",
+        "retained_passages",
         "section_id",
         "source_text",
         "test_cases"
@@ -531,6 +532,7 @@
         "contract_version",
         "expected_review_bindings",
         "project_id",
+        "retained_passages",
         "test_cases"
       ],
       "annotations": {

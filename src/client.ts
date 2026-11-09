@@ -610,7 +610,7 @@ export class AethisClient {
   async addTests(
     projectId: string,
     testCases: unknown[],
-    contract?: { contractVersion: 1; expectedReviewBindings?: Record<string, Record<string, boolean | null>> },
+    contract?: { contractVersion: 1; expectedReviewBindings?: Record<string, Record<string, boolean | null>>; retainedPassages?: unknown[] },
   ): Promise<unknown> {
     const body: Record<string, unknown> = { test_cases: testCases };
     if (contract) {
@@ -619,6 +619,7 @@ export class AethisClient {
       if (contract.expectedReviewBindings !== undefined) {
         body.expected_review_bindings = contract.expectedReviewBindings;
       }
+      if (contract.retainedPassages !== undefined) body.retained_passages = contract.retainedPassages;
     }
     return this.request("POST", `/api/v1/public/projects/${encodeURIComponent(projectId)}/tests`, {
       ...body,
@@ -660,7 +661,7 @@ export class AethisClient {
    * capability the caller needs. Composite tools call this before creating a
    * project so an old engine cannot leave a partial project behind.
    */
-  async preflightTestReplacement(requireAcceptanceContract = false): Promise<void> {
+  async preflightTestReplacement(requireAcceptanceContract = false, requireRetainedPassages = false): Promise<void> {
     let openApi: unknown;
     try {
       openApi = await this.request("GET", "/openapi.json");
@@ -678,6 +679,9 @@ export class AethisClient {
         400,
         "Test-suite replacement is unavailable: the target OpenAPI document does not expose a readable replace capability that accepts true. No tests were changed.",
       );
+    }
+    if (requireRetainedPassages && (!properties || !("retained_passages" in properties))) {
+      throw new AethisAPIError(400, "Retained-passages replacement is unavailable: the target OpenAPI document does not expose retained_passages. No tests were changed.");
     }
     if (requireAcceptanceContract && (!properties || !("contract_version" in properties) || !("expected_review_bindings" in properties))) {
       throw new AethisAPIError(400, "Acceptance-contract replacement is unavailable: the target OpenAPI document does not expose the complete v1 envelope. No tests were changed.");
@@ -706,13 +710,14 @@ export class AethisClient {
   async replaceTests(
     projectId: string,
     testCases: unknown[],
-    contract?: { contract_version: 1; expected_review_bindings?: Record<string, Record<string, boolean | null>> },
+    contract?: { contract_version: 1; expected_review_bindings?: Record<string, Record<string, boolean | null>>; retained_passages?: unknown[] },
   ): Promise<unknown> {
-    await this.preflightTestReplacement(contract !== undefined);
+    await this.preflightTestReplacement(contract !== undefined, contract?.retained_passages !== undefined);
     const body: Record<string, unknown> = { test_cases: testCases, replace: true };
     if (contract) {
       body.contract_version = 1;
       if (contract.expected_review_bindings !== undefined) body.expected_review_bindings = contract.expected_review_bindings;
+      if (contract.retained_passages !== undefined) body.retained_passages = contract.retained_passages;
     }
     try {
       return await this.request(

@@ -2343,3 +2343,73 @@ describe("decidePromptText", () => {
     expect(text).toContain("undetermined");
   });
 });
+
+describe("retained passages in the acceptance contract", () => {
+  const cases = [{ name: "c", field_values: {}, expected_outcome: "eligible" }];
+  const passages = [{ id: "P1", text: "Keep this wording." }];
+
+  it.each(["​", "­", "⁠", " ‌ ", "﻿\n", "\u001c\u001d", "\u001e \u001f", "\u0085"])(
+    "refuses passage text that is only invisible characters (%j), as the engine does",
+    (text) => {
+      const result = validateAcceptanceContract(cases, 1, undefined, [{ id: "P1", text }]);
+      expect(result.error).toMatch(/non-blank/);
+    },
+  );
+
+  it("accepts visible text that contains invisible characters", () => {
+    const result = validateAcceptanceContract(cases, 1, undefined, [{ id: "P1", text: "Keep­ this" }]);
+    expect(result.error).toBeUndefined();
+  });
+
+  it("normalises passages and keeps the digest of contracts without them unchanged", () => {
+    const plain = validateAcceptanceContract(cases, 1);
+    const withPassages = validateAcceptanceContract(cases, 1, undefined, passages);
+    if (!plain.contract || !withPassages.contract) throw new Error("fixtures should be valid");
+    expect(withPassages.contract.retained_passages).toEqual([{ id: "P1", text: "Keep this wording.", match: "normalized_contains" }]);
+    expect(plain.contract).not.toHaveProperty("retained_passages");
+    // An empty list asserts nothing: same contract, same digest as omission.
+    const empty = validateAcceptanceContract(cases, 1, undefined, []);
+    expect(empty.contract).toEqual(plain.contract);
+    expect(acceptanceContractDigest(empty.contract!)).toBe(acceptanceContractDigest(plain.contract));
+    expect(acceptanceContractDigest(withPassages.contract)).not.toBe(acceptanceContractDigest(plain.contract));
+  });
+
+  it("requires contract_version 1 and rejects malformed passages", () => {
+    expect(validateAcceptanceContract(cases, undefined, undefined, passages).error).toContain("contract_version: 1");
+    for (const bad of [null, "x", [{ id: "", text: "x" }], [{ id: "P", text: " " }], [{ id: "P", text: "x", match: "fuzzy" }],
+      [{ id: "P", text: "x", extra: 1 }], [{ id: "P", text: "x" }, { id: "P", text: "y" }]]) {
+      expect(validateAcceptanceContract(cases, 1, undefined, bad).error).toBeDefined();
+    }
+  });
+
+  it("enforces the engine caps at the boundaries", () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `P${i}`, text: "x" }));
+    expect(validateAcceptanceContract(cases, 1, undefined, many(100)).error).toBeUndefined();
+    expect(validateAcceptanceContract(cases, 1, undefined, many(101)).error).toContain("at most 100");
+    expect(validateAcceptanceContract(cases, 1, undefined, [{ id: "P", text: "x".repeat(2000) }]).error).toBeUndefined();
+    expect(validateAcceptanceContract(cases, 1, undefined, [{ id: "P", text: "x".repeat(2001) }]).error).toContain("2000");
+  });
+
+  it("aethis_set_tests sends the passages and verifies their readback", async () => {
+    const validation = validateAcceptanceContract(cases, 1, undefined, passages);
+    if (!validation.contract) throw new Error("fixture should be valid");
+    const readback = {
+      authoring_acceptance_contract_version: 1,
+      expected_review_bindings: null,
+      retained_passages: validation.contract.retained_passages,
+      authoring_acceptance_contract_digest: acceptanceContractDigest(validation.contract),
+    };
+    const client = mockClient({ getProject: vi.fn().mockResolvedValue(readback) });
+    const ok = await createToolHandlers(client).aethis_set_tests({
+      project_id: "p_existing", test_cases: cases, contract_version: 1, retained_passages: passages,
+    });
+    expect((client.replaceTests as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("p_existing", cases, validation.contract);
+    expect(ok.isError).not.toBe(true);
+
+    const dropped = mockClient({ getProject: vi.fn().mockResolvedValue({ ...readback, retained_passages: undefined }) });
+    const bad = await createToolHandlers(dropped).aethis_set_tests({
+      project_id: "p_existing", test_cases: cases, contract_version: 1, retained_passages: passages,
+    });
+    expect(bad.isError).toBe(true);
+  });
+});

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.23.0 (unreleased)
+
+- `aethis_create_ruleset` and `aethis_set_tests` accept an optional
+  `retained_passages` list (`[{ id, text }]`, at most 100 passages of at most 2000 characters each): source passages that
+  must be retained in the generated rule notes. Matching ignores case,
+  whitespace runs and typographic quotes and checks literal retention, not
+  meaning. It needs `contract_version: 1`, is verified on readback, and is
+  refused before any change if the engine does not advertise it. Omitting it, or
+  sending an empty list, changes nothing, including the contract digest.
+  Passage text made only of invisible characters is refused locally, before
+  any project is created.
+
 ## 0.22.1 (2026-10-01)
 
 - `aethis_generate_and_test` and `aethis_refine` accept optional per-run

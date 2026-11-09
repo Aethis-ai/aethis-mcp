@@ -252,7 +252,8 @@ aethis_create_ruleset({
   name, section_id, domain?, source_text,
   test_cases: [{ name, field_values, expected_outcome, expectations? }, ...],
   contract_version?: 1,
-  expected_review_bindings?: { field_id: { token: true | false | null } }
+  expected_review_bindings?: { field_id: { token: true | false | null } },
+  retained_passages?: [{ id, text }]   // source passages that must be retained in the rule notes
 })
 aethis_generate_and_test({ project_id })
 aethis_refine({ project_id, feedback })          // iterate until tests pass

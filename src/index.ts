@@ -80,10 +80,13 @@ type AcceptanceTestCase = {
   expectations?: AcceptanceExpectations;
 };
 type ReviewBindings = Record<string, Record<string, boolean | null>>;
+/** Source text that must be retained in the generated rules' notes (literal match after whitespace, case and quote normalisation). */
+export type RetainedPassage = { id: string; text: string; match: "normalized_contains" };
 export type AcceptanceContract = {
   contract_version: 1;
   test_cases: AcceptanceTestCase[];
   expected_review_bindings?: ReviewBindings;
+  retained_passages?: RetainedPassage[];
 };
 
 // -- Authoring safeguards --
@@ -690,9 +693,11 @@ function canonicalJsonDomainError(value: unknown, path = "contract", seen = new 
 
 export function validateAcceptanceContract(
   testCases: Array<Record<string, unknown>>, contractVersion?: unknown, expectedReviewBindings?: unknown,
+  retainedPassages?: unknown,
 ): { contract?: AcceptanceContract; error?: string } {
   const advanced = contractVersion !== undefined
     || expectedReviewBindings !== undefined
+    || retainedPassages !== undefined
     || testCases.some((tc) => tc.expectations !== undefined && tc.expectations !== null);
   if (!advanced) {
     if (testCases.length > 100) return { error: "Error: Legacy test uploads allow at most 100 cases; use contract_version: 1 for up to 500." };
@@ -708,6 +713,26 @@ export function validateAcceptanceContract(
       if (!isCoreNonEmptyId(field) || !tokens || typeof tokens !== "object" || Array.isArray(tokens) || Object.keys(tokens).length === 0) return { error: "Error: Each expected_review_bindings entry needs a non-empty field id of at most 300 Unicode code points and a token object." };
       if (Object.entries(tokens).some(([token, strict]) => !isCoreNonEmptyId(token) || (strict !== null && typeof strict !== "boolean"))) return { error: "Error: Review-binding tokens must be non-empty strings of at most 300 Unicode code points mapped to true, false, or null." };
     }
+  }
+  let passages: RetainedPassage[] | undefined;
+  if (retainedPassages !== undefined) {
+    if (!Array.isArray(retainedPassages) || retainedPassages.length > 100) return { error: "Error: retained_passages must be a list of at most 100 passages; null is not valid." };
+    const ids = new Set<string>();
+    const normalised: RetainedPassage[] = [];
+    for (const item of retainedPassages as unknown[]) {
+      const passage = item as Record<string, unknown> | null;
+      if (!passage || typeof passage !== "object" || Array.isArray(passage) || Object.keys(passage).some((key) => key !== "id" && key !== "text" && key !== "match")) return { error: "Error: Each retained_passages entry needs only id, text and optional match." };
+      if (typeof passage.id !== "string" || !isCoreNonEmptyId(passage.id) || ids.has(passage.id)) return { error: "Error: retained_passages ids must be unique non-empty strings of at most 300 Unicode code points." };
+      // Same blank test as the engine: invisible characters it ignores (soft hyphen,
+      // zero-width characters, word joiner, BOM) do not count as text, and the
+      // separators U+001C-U+001F and U+0085 are whitespace there though not to trim().
+      if (typeof passage.text !== "string" || !passage.text.normalize("NFKC").replace(/[­​‌‍⁠﻿\u001c-\u001f\u0085]/g, "").trim() || [...passage.text].length > 2000) return { error: "Error: retained_passages text must be non-blank and at most 2000 Unicode code points." };
+      if (passage.match !== undefined && passage.match !== "normalized_contains") return { error: "Error: retained_passages match must be normalized_contains." };
+      ids.add(passage.id);
+      normalised.push({ id: passage.id, text: passage.text, match: "normalized_contains" });
+    }
+    // An empty list asserts nothing and is treated as omitted.
+    if (normalised.length > 0) passages = normalised;
   }
   const cases: AcceptanceTestCase[] = [];
   const names = new Set<string>();
@@ -752,6 +777,7 @@ export function validateAcceptanceContract(
     contract_version: 1,
     test_cases: cases,
     ...(bindings !== undefined ? { expected_review_bindings: bindings } : {}),
+    ...(passages !== undefined ? { retained_passages: passages } : {}),
   };
   const domainError = canonicalJsonDomainError(contract, "Acceptance contract");
   if (domainError) return { error: `Error: ${domainError}` };
@@ -764,6 +790,8 @@ export function acceptanceContractDigest(contract: AcceptanceContract): string {
     canonical = canonicalize({
       version: 1,
       expected_review_bindings: contract.expected_review_bindings ?? null,
+      // Present only when supplied, so existing contracts keep their digest.
+      ...(contract.retained_passages ? { retained_passages: contract.retained_passages } : {}),
       test_cases: contract.test_cases.map((tc) => ({ name: tc.name, inputs: tc.field_values, expect: { outcome: tc.expected_outcome, ...(tc.expectations ?? {}) } })),
     });
   } catch {
@@ -1213,13 +1241,14 @@ export function createToolHandlers(client: AethisClient) {
       domain?: string;
       contract_version?: 1;
       expected_review_bindings?: ReviewBindings;
+      retained_passages?: Array<{ id: string; text: string; match?: "normalized_contains" }>;
     }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
       if (!args.test_cases.length) {
         return err("Error: At least 1 test case is required. Rules authoring is test-driven — define expected outcomes first.");
       }
-      const acceptance = validateAcceptanceContract(args.test_cases, args.contract_version, args.expected_review_bindings);
+      const acceptance = validateAcceptanceContract(args.test_cases, args.contract_version, args.expected_review_bindings, args.retained_passages);
       if (acceptance.error) return err(acceptance.error);
       let expectedDigest: string | undefined;
       if (acceptance.contract) {
@@ -1242,7 +1271,10 @@ export function createToolHandlers(client: AethisClient) {
       }
 
       try {
-        if (acceptance.contract) await client.preflightTestReplacement(true);
+        if (acceptance.contract) {
+          if (acceptance.contract.retained_passages !== undefined) await client.preflightTestReplacement(true, true);
+          else await client.preflightTestReplacement(true);
+        }
         const project = await client.createProject(args.name, args.section_id, args.domain ?? "") as Record<string, unknown>;
         const projectId = project.project_id as string;
         const filename = `${args.section_id}.md`;
@@ -1253,6 +1285,7 @@ export function createToolHandlers(client: AethisClient) {
           if (
             readback.authoring_acceptance_contract_version !== 1
             || canonicalize(readback.expected_review_bindings) !== canonicalize(acceptance.contract.expected_review_bindings ?? null)
+            || canonicalize(readback.retained_passages ?? null) !== canonicalize(acceptance.contract.retained_passages ?? null)
             || readback.authoring_acceptance_contract_digest !== expectedDigest
           ) return err("The engine did not return the exact acceptance-contract v1 readback; generation was not started.");
         } else await client.addTests(projectId, args.test_cases);
@@ -1274,6 +1307,7 @@ export function createToolHandlers(client: AethisClient) {
       test_cases: Array<Record<string, unknown>>;
       contract_version?: 1;
       expected_review_bindings?: ReviewBindings;
+      retained_passages?: Array<{ id: string; text: string; match?: "normalized_contains" }>;
     }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -1281,7 +1315,7 @@ export function createToolHandlers(client: AethisClient) {
       if (idErr) return err(idErr);
       const casesErr = validateReplacementTestCases(args.test_cases);
       if (casesErr) return err(casesErr);
-      const acceptance = validateAcceptanceContract(args.test_cases, args.contract_version, args.expected_review_bindings);
+      const acceptance = validateAcceptanceContract(args.test_cases, args.contract_version, args.expected_review_bindings, args.retained_passages);
       if (acceptance.error) return err(acceptance.error);
       let expectedDigest: string | undefined;
       if (acceptance.contract) {
@@ -1300,6 +1334,7 @@ export function createToolHandlers(client: AethisClient) {
           if (
             readback.authoring_acceptance_contract_version !== 1
             || canonicalize(readback.expected_review_bindings) !== canonicalize(acceptance.contract.expected_review_bindings ?? null)
+            || canonicalize(readback.retained_passages ?? null) !== canonicalize(acceptance.contract.retained_passages ?? null)
             || readback.authoring_acceptance_contract_digest !== expectedDigest
           ) return err("The engine did not return the exact acceptance-contract v1 readback; generation was not started.");
         }
@@ -2092,21 +2127,29 @@ const acceptanceTestCaseSchema = z.object({
   expectations: acceptanceExpectationsSchema,
 }).strict();
 
+const retainedPassageSchema = z.object({
+  id: z.string().describe("Unique identifier for the passage"),
+  text: z.string().describe("Source text that must be retained"),
+  match: z.literal("normalized_contains").optional(),
+}).strict();
+
 const createRulesetInputSchema = z.object({
   name: z.string().describe("Human-readable name for the rule ruleset"),
   section_id: z.string().describe("Unique section identifier (e.g., 'flight_readiness')"),
   source_text: z.string().describe("The source legislation, policy, or specification text"),
   test_cases: z.array(acceptanceTestCaseSchema).min(1).max(500).describe("Test cases with optional strict acceptance expectations."),
-  contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
+  contract_version: z.literal(1).optional().describe("Required when acceptance expectations, expected_review_bindings or retained_passages are supplied."),
   expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
+  retained_passages: z.array(retainedPassageSchema).max(100).optional().describe("Optional list of source passages that must be retained in the rule notes. Each is {id, text} with text at most 2000 characters; matching ignores case, whitespace runs and typographic quotes and checks literal retention, not meaning."),
   domain: z.string().optional().describe("Domain hint (e.g., 'uk_immigration')"),
 }).strict();
 
 const setTestsInputSchema = z.object({
   project_id: z.string().describe("Existing project ID whose complete test suite will be replaced"),
   test_cases: z.array(acceptanceTestCaseSchema).min(1).max(500).describe("The complete authoritative reviewed suite (1-500 cases); this replaces existing tests"),
-  contract_version: z.literal(1).optional().describe("Required when acceptance expectations or expected_review_bindings are supplied."),
+  contract_version: z.literal(1).optional().describe("Required when acceptance expectations, expected_review_bindings or retained_passages are supplied."),
   expected_review_bindings: z.record(reviewBindingKey, z.record(reviewBindingKey, z.union([z.boolean(), z.null()]))).optional().describe("Optional review-binding catalogue; omit for no assertion or use {} to assert zero bindings."),
+  retained_passages: z.array(retainedPassageSchema).max(100).optional().describe("Optional list of source passages that must be retained in the rule notes. Each is {id, text} with text at most 2000 characters; matching ignores case, whitespace runs and typographic quotes and checks literal retention, not meaning."),
 }).strict();
 
 export function registerTools(server: McpServer, handlers: ToolHandlers): void {
