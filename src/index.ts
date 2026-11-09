@@ -724,8 +724,9 @@ export function validateAcceptanceContract(
       if (!passage || typeof passage !== "object" || Array.isArray(passage) || Object.keys(passage).some((key) => key !== "id" && key !== "text" && key !== "match")) return { error: "Error: Each retained_passages entry needs only id, text and optional match." };
       if (typeof passage.id !== "string" || !isCoreNonEmptyId(passage.id) || ids.has(passage.id)) return { error: "Error: retained_passages ids must be unique non-empty strings of at most 300 Unicode code points." };
       // Same blank test as the engine: invisible characters it ignores (soft hyphen,
-      // zero-width characters, word joiner, BOM) do not count as text.
-      if (typeof passage.text !== "string" || !passage.text.normalize("NFKC").replace(/[­​‌‍⁠﻿]/g, "").trim() || [...passage.text].length > 2000) return { error: "Error: retained_passages text must be non-blank and at most 2000 Unicode code points." };
+      // zero-width characters, word joiner, BOM) do not count as text, and the
+      // separators U+001C-U+001F and U+0085 are whitespace there though not to trim().
+      if (typeof passage.text !== "string" || !passage.text.normalize("NFKC").replace(/[­​‌‍⁠﻿\u001c-\u001f\u0085]/g, "").trim() || [...passage.text].length > 2000) return { error: "Error: retained_passages text must be non-blank and at most 2000 Unicode code points." };
       if (passage.match !== undefined && passage.match !== "normalized_contains") return { error: "Error: retained_passages match must be normalized_contains." };
       ids.add(passage.id);
       normalised.push({ id: passage.id, text: passage.text, match: "normalized_contains" });

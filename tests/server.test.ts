@@ -2348,7 +2348,7 @@ describe("retained passages in the acceptance contract", () => {
   const cases = [{ name: "c", field_values: {}, expected_outcome: "eligible" }];
   const passages = [{ id: "P1", text: "Keep this wording." }];
 
-  it.each(["​", "­", "⁠", " ‌ ", "﻿\n"])(
+  it.each(["​", "­", "⁠", " ‌ ", "﻿\n", "\u001c\u001d", "\u001e \u001f", "\u0085"])(
     "refuses passage text that is only invisible characters (%j), as the engine does",
     (text) => {
       const result = validateAcceptanceContract(cases, 1, undefined, [{ id: "P1", text }]);
