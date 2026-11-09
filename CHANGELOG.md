@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.23.0 (unreleased)
+## 0.23.0 (2026-11-09)
 
 - `aethis_create_ruleset` and `aethis_set_tests` accept an optional
   `retained_passages` list (`[{ id, text }]`, at most 100 passages of at most 2000 characters each): source passages that
