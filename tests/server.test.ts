@@ -2348,6 +2348,19 @@ describe("retained passages in the acceptance contract", () => {
   const cases = [{ name: "c", field_values: {}, expected_outcome: "eligible" }];
   const passages = [{ id: "P1", text: "Keep this wording." }];
 
+  it.each(["​", "­", "⁠", " ‌ ", "﻿\n"])(
+    "refuses passage text that is only invisible characters (%j), as the engine does",
+    (text) => {
+      const result = validateAcceptanceContract(cases, 1, undefined, [{ id: "P1", text }]);
+      expect(result.error).toMatch(/non-blank/);
+    },
+  );
+
+  it("accepts visible text that contains invisible characters", () => {
+    const result = validateAcceptanceContract(cases, 1, undefined, [{ id: "P1", text: "Keep­ this" }]);
+    expect(result.error).toBeUndefined();
+  });
+
   it("normalises passages and keeps the digest of contracts without them unchanged", () => {
     const plain = validateAcceptanceContract(cases, 1);
     const withPassages = validateAcceptanceContract(cases, 1, undefined, passages);

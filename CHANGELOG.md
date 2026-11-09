@@ -9,6 +9,8 @@
   meaning. It needs `contract_version: 1`, is verified on readback, and is
   refused before any change if the engine does not advertise it. Omitting it, or
   sending an empty list, changes nothing, including the contract digest.
+  Passage text made only of invisible characters is refused locally, before
+  any project is created.
 
 ## 0.22.1 (2026-10-01)
 
