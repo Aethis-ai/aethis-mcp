@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.1 (2026-11-12)
+
+- Release pipeline only; no change to the server or its tools. The Registry
+  publish step now waits until npm serves the new version before it runs. npm
+  accepts a publish before it serves it, and the Registry looks the version up
+  on npm, so 0.24.0's first Registry publish was refused and had to be re-run.
+
 ## 0.24.0 (2026-11-12)
 
 - New authoring tool `aethis_set_bundle_contract`: stores a project's input
