@@ -212,6 +212,7 @@ const CASES: Record<string, (h: ToolHandlers) => Promise<unknown>> = {
   aethis_set_tests: (h) => h.aethis_set_tests({ project_id: "p_1", test_cases: [{ name: "tc", field_values: {}, expected_outcome: "eligible" }] }),
   aethis_add_guidance: (h) => h.aethis_add_guidance({ project_id: "p_1", guidance_text: "x" }),
   aethis_set_field_spec: (h) => h.aethis_set_field_spec({ project_id: "p_1", expected_fields: [{ key: "k", sort: "Bool" }] }),
+  aethis_set_bundle_contract: (h) => h.aethis_set_bundle_contract({ project_id: "p_1" }),
   aethis_validate_fields: (h) => h.aethis_validate_fields({ project_id: "p_1", expected_fields: [{ key: "k", sort: "Bool" }] }),
   aethis_validate_sections: (h) => h.aethis_validate_sections({ domain: "d", expected_sections: ["a"], discovered_sections: ["a"] }),
   aethis_discover_sections: (h) => h.aethis_discover_sections({ domain: "d", sources: [{ name: "s", content: "c" }], ...KEY }),

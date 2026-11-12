@@ -194,6 +194,7 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_refine_fields");
     expect(names).toContain("aethis_validate_fields");
     expect(names).toContain("aethis_set_field_spec");
+    expect(names).toContain("aethis_set_bundle_contract");
     // Domain guidance
     expect(names).toContain("aethis_add_domain_guidance");
     expect(names).toContain("aethis_list_domain_guidance");

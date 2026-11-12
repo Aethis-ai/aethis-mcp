@@ -9,7 +9,7 @@
  * *correspondence*: which operation a tool drives and which engine field each
  * zod field maps to (including renames like `force -> force_unsafe`).
  *
- * Discipline: every one of the 30 `server.tool()` registrations
+ * Discipline: every one of the 36 `server.tool()` registrations
  * MUST appear here, and every operation named here MUST exist in the deployed
  * OpenAPI document. A tool missing from this map, an unknown extra tool, or a
  * mapped operation absent from the engine is a FAILURE, never a skip.
@@ -407,6 +407,18 @@ export const TOOL_ENDPOINT_MAP: Record<string, ToolMapEntry> = {
         path: `${PUB}/projects/{project_id}/fields/spec`,
         pathParams: { project_id: "project_id" },
         body: { expected_fields: "expected_fields" },
+      },
+    ],
+  },
+
+  aethis_set_bundle_contract: {
+    endpoints: [
+      {
+        method: "PUT",
+        path: `${PUB}/projects/{project_id}/bundle-contract`,
+        pathParams: { project_id: "project_id" },
+        body: { input_invariants: "input_invariants" },
+        bodyDefaults: ["schema_version"],
       },
     ],
   },
