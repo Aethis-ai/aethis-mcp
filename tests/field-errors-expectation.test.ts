@@ -190,6 +190,44 @@ describe("rendering of input-invariant results", () => {
     expect(out).not.toContain("Field errors");
   });
 
+  it("uses neutral wording that is true for a type error as well as an invariant", async () => {
+    for (const fe of [{ age: "Expected a number." }, FIELD_ERRORS]) {
+      const client = {
+        hasApiKey: false,
+        decide: vi.fn().mockResolvedValue({ decision: "undetermined", undetermined_reason: "input_errors", field_errors: fe }),
+      } as unknown as AethisClient;
+      const t = (await createToolHandlers(client).aethis_next_question({ ruleset_id: "r_1", field_values: {} })).content[0].text;
+      expect(t).toContain("some inputs were rejected");
+      expect(t).not.toContain("contradict");
+    }
+    // also when the reason is something else but field_errors is present
+    const client = {
+      hasApiKey: false,
+      decide: vi.fn().mockResolvedValue({ decision: "undetermined", undetermined_reason: "other", field_errors: { a: "b" } }),
+    } as unknown as AethisClient;
+    const t = (await createToolHandlers(client).aethis_next_question({ ruleset_id: "r_1", field_values: {} })).content[0].text;
+    expect(t).not.toContain("contradict");
+    expect(t).toContain("some inputs were rejected");
+  });
+
+  it("fences field_errors keys in next_question and in failing test results", async () => {
+    const key = "ZZ_KEY_INJECT";
+    const client = {
+      hasApiKey: false,
+      decide: vi.fn().mockResolvedValue({ decision: "undetermined", undetermined_reason: "input_errors", field_errors: { [key]: "m" } }),
+    } as unknown as AethisClient;
+    const nq = (await createToolHandlers(client).aethis_next_question({ ruleset_id: "r_1", field_values: {} })).content[0].text;
+    const tr = formatTestResults({
+      ruleset_id: "r", total: 1, passed: 0, failed: 1, errors: 0,
+      results: [{ name: "c", expected: "undetermined", actual: "eligible", passed: false, field_errors: { [key]: "m" } }],
+    }, null, 1);
+    for (const out of [nq, tr]) {
+      expect(out.replace(/<api_response label="[^"]*">\n[\s\S]*?<\/api_response>/g, "")).not.toContain(key);
+      expect(out).toContain(key);
+      expect(out).toContain("some inputs were rejected");
+    }
+  });
+
   it("aethis_next_question shows why an undetermined decision stopped on input errors", async () => {
     const client = {
       hasApiKey: false,

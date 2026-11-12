@@ -79,6 +79,30 @@ describe("aethis_set_bundle_contract handler", () => {
     expect(text(result)).toContain("cleared");
   });
 
+  it("treats a null input_invariants exactly like omission (clears)", async () => {
+    const client = mockClient({ setBundleContract: vi.fn().mockResolvedValue({ project_id: "p_1", bundle_contract_digest: null }) });
+    const result = await callThroughSdk(client, { project_id: "p_1", input_invariants: null });
+    expect(result.isError).toBeFalsy();
+    expect(client.setBundleContract).toHaveBeenCalledWith("p_1", { schema_version: 1 });
+    expect(text(result)).toContain("cleared");
+  });
+
+  it("shows a well-formed stored digest bare and fences anything else", async () => {
+    const odd = "sha256:ZZ_UNTRUSTED";
+    const client = mockClient({ setBundleContract: vi.fn().mockResolvedValue({ project_id: "p_1", bundle_contract_digest: odd }) });
+    const t = text(await createToolHandlers(client).aethis_set_bundle_contract({ project_id: "p_1", input_invariants: [INVARIANT] }));
+    expect(t).not.toContain(`Stored digest: ${odd}`);
+    expect(t).toContain("<api_response");
+    expect(t).toContain(odd);
+  });
+
+  it("reports a non-null digest after a clear as unexpected, not as success", async () => {
+    const client = mockClient();
+    const result = await createToolHandlers(client).aethis_set_bundle_contract({ project_id: "p_1", input_invariants: [] });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("unexpected");
+  });
+
   it("requires an API key", async () => {
     const client = mockClient({ hasApiKey: false });
     const result = await createToolHandlers(client).aethis_set_bundle_contract({ project_id: "p_1", input_invariants: [INVARIANT] });
@@ -128,6 +152,7 @@ describe("aethis_set_bundle_contract input schema (MCP boundary)", () => {
     ["a comparison with three operands", [{ ...INVARIANT, expr: { ...INVARIANT.expr, args: [...INVARIANT.expr.args, INVARIANT.expr.args[0]] } }]],
     ["a nested expression operand", [{ ...INVARIANT, expr: { ...INVARIANT.expr, args: [INVARIANT.expr, INVARIANT.expr.args[1]] } }]],
     ["duplicate ids", [INVARIANT, INVARIANT]],
+    ["an id with a trailing newline (deliberately refused)", [{ ...INVARIANT, id: "abc\n" }]],
     ["an error field the expression does not read", [{ ...INVARIANT, error_fields: ["member.other"] }]],
   ];
 
@@ -150,6 +175,19 @@ describe("aethis_set_bundle_contract input schema (MCP boundary)", () => {
     const result = await callThroughSdk(client, { project_id: "p_1", input_invariants: [invariant] });
     expect(result.isError).toBeFalsy();
     expect(client.setBundleContract).toHaveBeenCalledWith("p_1", { schema_version: 1, input_invariants: [invariant] });
+  });
+
+  it("accepts every sort the engine names for a constant, including Collection, and lets the engine decide", async () => {
+    const client = mockClient();
+    const invariant = {
+      id: "coll",
+      expr: { operator: "=", args: [{ type: "field_ref", key: "member.tags" }, { type: "const", sort: "Collection", value: "x" }] },
+      error_fields: ["member.tags"],
+      message: "No.",
+    };
+    const result = await callThroughSdk(client, { project_id: "p_1", input_invariants: [invariant] });
+    expect(result.isError).toBeFalsy();
+    expect(client.setBundleContract).toHaveBeenCalledTimes(1);
   });
 
   it("rejects unknown top-level arguments", async () => {
