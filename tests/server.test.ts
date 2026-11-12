@@ -157,10 +157,10 @@ function parseData(result: { content: Array<{ type: string; text?: string }> }):
 // ---------------------------------------------------------------------------
 
 describe("createToolHandlers", () => {
-  it("returns all 36 tool handlers", () => {
+  it("returns all 37 tool handlers", () => {
     const handlers = createToolHandlers(mockClient());
     const names = Object.keys(handlers);
-    expect(names).toHaveLength(36);
+    expect(names).toHaveLength(37);
     // Decision
     expect(names).toContain("aethis_schema");
     expect(names).toContain("aethis_decide");
@@ -194,6 +194,7 @@ describe("createToolHandlers", () => {
     expect(names).toContain("aethis_refine_fields");
     expect(names).toContain("aethis_validate_fields");
     expect(names).toContain("aethis_set_field_spec");
+    expect(names).toContain("aethis_set_bundle_contract");
     // Domain guidance
     expect(names).toContain("aethis_add_domain_guidance");
     expect(names).toContain("aethis_list_domain_guidance");

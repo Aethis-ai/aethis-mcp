@@ -80,7 +80,7 @@ Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark
 
 ## Tools
 
-35 tools across six groups.
+36 tools across six groups.
 
 | Group | Access | Tools |
 |-------|--------|-------|
@@ -88,7 +88,7 @@ Engine determinism + accuracy benchmarks: [Aethis-ai/confidently-wrong-benchmark
 | **Discovery — public catalogue** | public | `aethis_discover_rulesets` |
 | **Discovery — your tenant** | private beta | `aethis_list_projects`, `aethis_list_rulesets`, `aethis_list_rulebooks`, `aethis_rulebook_schema` |
 | **Authoring — rulebooks** | private beta | `aethis_create_rulebook`, `aethis_update_rulebook` |
-| **Authoring — sections & fields** | private beta | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` |
+| **Authoring — sections & fields** | private beta | `aethis_discover_sections`, `aethis_refine_sections`, `aethis_validate_sections`, `aethis_set_field_spec`, `aethis_set_bundle_contract`, `aethis_discover_fields`, `aethis_refine_fields`, `aethis_validate_fields` |
 | **Authoring — generation** | private beta | `aethis_create_ruleset`, `aethis_set_tests`, `aethis_add_guidance`, `aethis_list_guidance`, `aethis_generate_and_test`, `aethis_generation_status`, `aethis_cancel_generation`, `aethis_refine`, `aethis_publish`, `aethis_add_domain_guidance`, `aethis_list_domain_guidance` |
 | **Management** | private beta | `aethis_archive_project`, `aethis_archive_ruleset` |
 
@@ -244,6 +244,41 @@ aethis_discover_fields({ project_id })           // auto-validates against the s
 aethis_refine_fields({ project_id, feedback })
 aethis_validate_fields({ project_id, expected_fields })
 ```
+
+### Input invariants (bundle contract)
+
+Declare rules that the inputs must satisfy together, for example that a renewal
+date must not be before the joined date. Set them before generating:
+
+```
+aethis_set_bundle_contract({
+  project_id,
+  input_invariants: [{
+    id: "renewal_after_joined",
+    expr: { operator: ">=", args: [
+      { type: "field_ref", key: "member.renewal_date" },
+      { type: "field_ref", key: "member.joined_date" },
+    ] },
+    error_fields: ["member.renewal_date"],
+    message: "The renewal date must not be before the date the member joined."
+  }]
+})
+```
+
+Each invariant is one comparison (`=`, `!=`, `<`, `<=`, `>`, `>=`) over field
+references and typed constants. Every generation of the project copies them into
+the compiled ruleset. When a decision's inputs break one, it returns
+`undetermined` with `undetermined_reason: "input_errors"` and a `field_errors`
+message for each named field, and asks no further question; an invariant is
+skipped while any input it reads is missing. Calling the tool again replaces the
+stored contract; omit `input_invariants` or pass `[]` to clear it. The tool
+reports the stored digest. This needs an Aethis API version that supports
+bundle contracts; when the API does not, the tool says so clearly and changes
+nothing.
+
+To assert the rejection in a test case, use `expected_outcome: "undetermined"`
+with `expectations: { field_errors: { "member.renewal_date": "<exact message>" } }`
+(needs `contract_version: 1`; at most 500 entries, messages up to 20000 characters).
 
 ### Phase 3 — Generate, test, publish
 
