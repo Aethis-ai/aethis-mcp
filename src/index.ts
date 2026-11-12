@@ -954,8 +954,13 @@ export function createToolHandlers(client: AethisClient) {
 
         const fieldErrors = Object.entries((result.field_errors ?? {}) as Record<string, string>);
         const reason = typeof result.undetermined_reason === "string" ? result.undetermined_reason : null;
-        if (reason === "input_errors" || fieldErrors.length) {
-          lines.push(`Reason: ${fenceUntrusted("undetermined_reason", reason ?? "input_errors")} (some inputs were rejected; see the field errors below, correct them and ask again)`);
+        if (fieldErrors.length) {
+          lines.push(
+            (reason ? `Reason: ${fenceUntrusted("undetermined_reason", reason)} ` : "") +
+            "(some inputs were rejected; see the field errors below, correct them and ask again)",
+          );
+        } else if (reason === "input_errors") {
+          lines.push(`Reason: ${fenceUntrusted("undetermined_reason", reason)} (some inputs were rejected; no field detail was returned)`);
         }
         if (nq || path.length || fieldErrors.length) {
           lines.push("", UNTRUSTED_PREFACE);
@@ -1852,7 +1857,7 @@ export function createToolHandlers(client: AethisClient) {
         if (!invariants.length) {
           if (rawDigest !== null && rawDigest !== undefined) {
             return err(
-              `Bundle contract clear for project ${args.project_id} returned an unexpected stored digest, so the contract may not have been cleared. Inspect the project before generating.\n` +
+              `${UNTRUSTED_PREFACE}\n\nBundle contract clear for project ${args.project_id} returned an unexpected stored digest, so the contract may not have been cleared. Inspect the project before generating.\n` +
               `Returned digest: ${fenceUntrusted("bundle_contract_digest", String(rawDigest))}`,
             );
           }
@@ -1862,12 +1867,19 @@ export function createToolHandlers(client: AethisClient) {
             `Next step: Call aethis_generate_and_test(project_id="${args.project_id}") to regenerate without input invariants.`,
           ].join("\n"));
         }
+        if (!wellFormed) {
+          return err(
+            `${UNTRUSTED_PREFACE}\n\nThe API did not confirm the stored contract for project ${args.project_id}: ` +
+            (rawDigest === null || rawDigest === undefined
+              ? "it returned no stored digest."
+              : `it returned an unexpected digest: ${fenceUntrusted("bundle_contract_digest", String(rawDigest))}`) +
+            " Inspect the project before generating.",
+          );
+        }
         return ok([
           `Bundle contract stored for project ${args.project_id}.`,
           `${invariants.length} input invariant(s) registered.`,
-          digest === null
-            ? "The API did not return a stored digest."
-            : wellFormed ? `Stored digest: ${digest}` : `Stored digest (unexpected format): ${fenceUntrusted("bundle_contract_digest", digest)}`,
+          `Stored digest: ${digest}`,
           "",
           `Next step: Call aethis_generate_and_test(project_id="${args.project_id}"); the invariants are copied into the generated ruleset. Add test cases with expectations.field_errors (and expected_outcome "undetermined") to assert their messages.`,
         ].join("\n"));
@@ -2714,7 +2726,7 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
         "Store the bundle contract for a project: input invariants, which are author-declared consistency rules over the ruleset's inputs (for example member.renewal_date must not be before member.joined_date). " +
         "Every later generation copies them into the compiled ruleset. When a decision's inputs break one, it returns undetermined with undetermined_reason input_errors and a field_errors message for each named field, and asks no further question; an invariant is skipped while any input it reads is missing. " +
         "Each invariant is {id, expr, error_fields, message}: expr is exactly one comparison (=, !=, <, <=, >, >=) over field references and typed constants, and every error field must be read by it. At most 32 invariants. " +
-        "Replaces any stored contract; omit input_invariants or pass [] to clear it. Field names and types are checked against the project's fields when generation starts. " +
+        "Replaces any stored contract; omit input_invariants, or pass null or [], to clear it. Field names and types are checked against the project's fields when generation starts. " +
         "Use a test case's expectations.field_errors to assert the messages.",
       inputSchema: setBundleContractInputSchema,
       annotations: toolAnnotations("aethis_set_bundle_contract"),
