@@ -31,14 +31,26 @@ function tc(over: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 function mockClient(): AethisClient {
+  const sent: { contract?: Parameters<typeof acceptanceContractDigest>[0] } = {};
   return {
     hasApiKey: true,
     createProject: vi.fn().mockResolvedValue({ project_id: "proj_1" }),
     uploadSourceText: vi.fn().mockResolvedValue({}),
     preflightTestReplacement: vi.fn().mockResolvedValue(undefined),
-    replaceTests: vi.fn().mockResolvedValue({ added: 1, replaced: 0 }),
+    replaceTests: vi.fn().mockImplementation(async (_id: string, _cases: unknown, contract?: Parameters<typeof acceptanceContractDigest>[0]) => {
+      sent.contract = contract;
+      return { added: 1, replaced: 0 };
+    }),
     addTests: vi.fn().mockResolvedValue({ added: 1 }),
-    getProject: vi.fn().mockResolvedValue({}),
+    // Read back exactly what was sent, as the engine would.
+    getProject: vi.fn().mockImplementation(async () => {
+      const contract = sent.contract!;
+      return {
+        authoring_acceptance_contract_version: 1,
+        expected_review_bindings: null,
+        authoring_acceptance_contract_digest: acceptanceContractDigest(contract),
+      };
+    }),
   } as unknown as AethisClient;
 }
 

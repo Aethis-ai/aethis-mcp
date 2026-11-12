@@ -10,7 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { AethisClient, AethisAPIError, normalizeThinking, type AethisClientOptions } from "./client.js";
+import { AethisClient, AethisAPIError, BundleContractUnsupportedError, normalizeThinking, type AethisClientOptions } from "./client.js";
 import { redactSecrets } from "./redact.js";
 import { resolveCredentials, resolveLlmKey, resolveGenerationCredential } from "./credentials.js";
 import type { LlmKeyArgs } from "./credentials.js";
@@ -72,6 +72,8 @@ interface AuthoringConfig {
 type AcceptanceExpectations = {
   pending_reviews?: { resolution_fields: string[]; unmapped_count: number };
   useful_unknown_fields?: string[];
+  /** Exact per-field messages an input invariant is expected to report; only with an `undetermined` outcome. */
+  field_errors?: Record<string, string>;
 };
 type AcceptanceTestCase = {
   name: string;
@@ -339,6 +341,13 @@ export function formatTestResults(
         lines.push(`  x ${name}: ${fenceUntrusted("test_error", f.error)}`);
       } else {
         lines.push(`  x ${name}: expected ${f.expected ?? "unknown"}, got ${f.actual ?? "error"}`);
+      }
+      const fieldErrors = Object.entries(f.field_errors ?? {});
+      if (fieldErrors.length) {
+        lines.push("    Field errors reported:");
+        for (const [field, message] of fieldErrors) {
+          lines.push(`      ${field}: ${fenceUntrusted("field_error", message)}`);
+        }
       }
     }
     lines.push("");
@@ -634,6 +643,25 @@ async function requireAuth(client: AethisClient): Promise<ToolResult | null> {
 
 export type ToolHandlers = ReturnType<typeof createToolHandlers>;
 
+const FIELD_ERRORS_MAX_ENTRIES = 500;
+const FIELD_ERRORS_MAX_MESSAGE_CODE_POINTS = 20000;
+
+/** A non-empty map of field id to non-empty message, within the engine's bounds. */
+function validFieldErrors(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  return entries.length >= 1
+    && entries.length <= FIELD_ERRORS_MAX_ENTRIES
+    && entries.every(([key, message]) =>
+      isCoreNonEmptyId(key)
+      && typeof message === "string"
+      && [...message].length >= 1
+      && [...message].length <= FIELD_ERRORS_MAX_MESSAGE_CODE_POINTS);
+}
+
+const FIELD_ERRORS_MESSAGE =
+  "field_errors must be a non-empty object of at most 500 entries mapping a field id (1-300 Unicode code points) to a non-empty message of at most 20000 Unicode code points";
+
 function boundedUniqueStrings(value: unknown): value is string[] {
   return Array.isArray(value)
     && value.length <= 500
@@ -746,8 +774,12 @@ export function validateAcceptanceContract(
     let expectations: AcceptanceExpectations | undefined;
     if (tc.expectations !== undefined && tc.expectations !== null) {
       const value = tc.expectations;
-      if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0 || Object.keys(value).some((key) => key !== "pending_reviews" && key !== "useful_unknown_fields")) return { error: `Error: Acceptance test case ${i + 1} expectations must be a non-empty object with supported keys.` };
+      if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0 || Object.keys(value).some((key) => key !== "pending_reviews" && key !== "useful_unknown_fields" && key !== "field_errors")) return { error: `Error: Acceptance test case ${i + 1} expectations must be a non-empty object with supported keys (pending_reviews, useful_unknown_fields, field_errors).` };
       const rawExpectations = value as AcceptanceExpectations & { pending_reviews?: { resolution_fields?: string[]; unmapped_count: number } };
+      if (rawExpectations.field_errors !== undefined) {
+        if (!validFieldErrors(rawExpectations.field_errors)) return { error: `Error: Acceptance test case ${i + 1}: ${FIELD_ERRORS_MESSAGE}.` };
+        if (tc.expected_outcome !== "undetermined") return { error: `Error: Acceptance test case ${i + 1}: expectations.field_errors is only valid when expected_outcome is undetermined.` };
+      }
       const pending = rawExpectations.pending_reviews;
       if (pending !== undefined && (
         !pending
@@ -769,6 +801,7 @@ export function validateAcceptanceContract(
         ...(rawExpectations.useful_unknown_fields !== undefined
           ? { useful_unknown_fields: rawExpectations.useful_unknown_fields }
           : {}),
+        ...(rawExpectations.field_errors !== undefined ? { field_errors: rawExpectations.field_errors } : {}),
       };
     }
     cases.push({ name: tc.name, field_values: tc.field_values as Record<string, unknown>, expected_outcome: tc.expected_outcome as AcceptanceTestCase["expected_outcome"], ...(expectations ? { expectations } : {}) });
@@ -919,8 +952,19 @@ export function createToolHandlers(client: AethisClient) {
           `Decision: undetermined (${result.fields_provided ?? 0}/${result.fields_evaluated ?? 0} fields provided)`,
         ];
 
-        if (nq || path.length) {
+        const fieldErrors = Object.entries((result.field_errors ?? {}) as Record<string, string>);
+        const reason = typeof result.undetermined_reason === "string" ? result.undetermined_reason : null;
+        if (reason === "input_errors" || fieldErrors.length) {
+          lines.push(`Reason: ${reason ?? "input_errors"} (the inputs given contradict each other; correct them and ask again)`);
+        }
+        if (nq || path.length || fieldErrors.length) {
           lines.push("", UNTRUSTED_PREFACE);
+        }
+        if (fieldErrors.length) {
+          lines.push("\nField errors:");
+          for (const [field, message] of fieldErrors) {
+            lines.push(`  ${field}: ${fenceUntrusted("field_error", message)}`);
+          }
         }
         if (nq) {
           lines.push("\nNext question to ask:");
@@ -1788,6 +1832,43 @@ export function createToolHandlers(client: AethisClient) {
       } catch (e) { return apiError(e); }
     },
 
+    async aethis_set_bundle_contract(args: {
+      project_id: string;
+      input_invariants?: unknown[];
+    }): Promise<ToolResult> {
+      const authErr = await requireAuth(client);
+      if (authErr) return authErr;
+      const idErr = validateId(args.project_id, "project_id");
+      if (idErr) return err(idErr);
+      const invariants = args.input_invariants ?? [];
+      try {
+        const result = await client.setBundleContract(
+          args.project_id,
+          invariants.length ? { schema_version: 1, input_invariants: invariants } : { schema_version: 1 },
+        ) as Record<string, unknown>;
+        const digest = typeof result?.bundle_contract_digest === "string" ? result.bundle_contract_digest : null;
+        if (!invariants.length) {
+          return ok([
+            `Bundle contract cleared for project ${args.project_id}.`,
+            "",
+            `Next step: Call aethis_generate_and_test(project_id="${args.project_id}") to regenerate without input invariants.`,
+          ].join("\n"));
+        }
+        return ok([
+          `Bundle contract stored for project ${args.project_id}.`,
+          `${invariants.length} input invariant(s) registered.`,
+          digest ? `Stored digest: ${digest}` : "The API did not return a stored digest.",
+          "",
+          `Next step: Call aethis_generate_and_test(project_id="${args.project_id}"); the invariants are copied into the generated ruleset. Add test cases with expectations.field_errors (and expected_outcome "undetermined") to assert their messages.`,
+        ].join("\n"));
+      } catch (e) {
+        if (e instanceof BundleContractUnsupportedError) {
+          return err("This Aethis API does not support bundle contracts yet. Nothing was changed.");
+        }
+        return apiError(e);
+      }
+    },
+
     async aethis_generate_and_test(args: { project_id: string; thinking?: string | null; model?: "claude-sonnet-5" | "deepseek-flash" } & LlmKeyArgs): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -2065,6 +2146,7 @@ export const TOOL_CAPABILITIES: Record<string, ToolCapability> = {
   aethis_add_guidance: { auth: "api_key", mutating: true, title: "Add project guidance" },
   aethis_add_domain_guidance: { auth: "api_key", mutating: true, title: "Add domain guidance" },
   aethis_set_field_spec: { auth: "api_key", mutating: true, idempotent: true, title: "Set field spec" },
+  aethis_set_bundle_contract: { auth: "api_key", mutating: true, idempotent: true, title: "Set bundle contract" },
   aethis_refine_sections: { auth: "api_key", mutating: true, title: "Refine sections" },
   aethis_refine_fields: { auth: "api_key", mutating: true, title: "Refine fields" },
   aethis_generate_and_test: { auth: "api_key", mutating: true, title: "Generate and test rules" },
@@ -2119,12 +2201,81 @@ const acceptanceExpectationsSchema = z.object({
     unmapped_count: z.number().int().min(0).max(500),
   }).strict().optional(),
   useful_unknown_fields: z.array(nonEmptyId).max(500).optional(),
+  field_errors: z.record(transportKey(nonEmptyId), z.string().refine(
+    (message) => [...message].length >= 1 && [...message].length <= FIELD_ERRORS_MAX_MESSAGE_CODE_POINTS,
+    { message: "Must be a non-empty message of at most 20000 Unicode code points." },
+  )).refine((value) => { const n = Object.keys(value).length; return n >= 1 && n <= FIELD_ERRORS_MAX_ENTRIES; }, {
+    message: "field_errors must have between 1 and 500 entries.",
+  }).optional().describe("Exact message the engine is expected to report for each field when an input invariant rejects the inputs. Only valid when expected_outcome is undetermined."),
 }).strict().nullable().optional();
 const acceptanceTestCaseSchema = z.object({
   name: z.string().min(1),
   field_values: z.record(jsonObjectKey, z.unknown()),
   expected_outcome: z.enum(["eligible", "not_eligible", "undetermined"]),
   expectations: acceptanceExpectationsSchema,
+}).strict().superRefine((testCase, ctx) => {
+  if (testCase.expectations?.field_errors !== undefined && testCase.expected_outcome !== "undetermined") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["expectations", "field_errors"],
+      message: "expectations.field_errors is only valid when expected_outcome is undetermined.",
+    });
+  }
+});
+
+// -- Bundle contract (input invariants) --
+// Checks only what the engine checks without looking at the project's fields;
+// field existence, sorts and constant types are left to the engine, whose
+// message is shown as-is.
+const encoder = new TextEncoder();
+const utf8Bytes = (value: string): number => encoder.encode(value).length;
+const invariantOperandSchema = z.union([
+  z.object({ type: z.literal("field_ref").optional(), key: z.string().min(1).refine((k) => utf8Bytes(k) <= 256, "At most 256 UTF-8 bytes") }).strict(),
+  z.object({
+    type: z.literal("const").optional(),
+    sort: z.enum(["Int", "Real", "Bool", "String", "Enum", "Date", "Duration"]),
+    value: z.union([z.number(), z.boolean(), z.string()]),
+    field_context: z.string().nullable().optional(),
+  }).strict(),
+]);
+const inputInvariantSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, "Letters, digits, '_', '.', '-'; starting with a letter or digit")
+    .refine((v) => utf8Bytes(v) <= 256, "At most 256 UTF-8 bytes"),
+  expr: z.object({
+    type: z.literal("op").optional(),
+    operator: z.enum(["=", "!=", "<", "<=", ">", ">="]),
+    args: z.tuple([invariantOperandSchema, invariantOperandSchema]),
+  }).strict().describe("Exactly one comparison (=, !=, <, <=, >, >=) over field references ({type: \"field_ref\", key}) and typed constants ({type: \"const\", sort, value})"),
+  error_fields: z.array(z.string().min(1).refine((k) => utf8Bytes(k) <= 256, "At most 256 UTF-8 bytes")).min(1).max(16)
+    .describe("Fields that receive the message; each must be read by the expression"),
+  message: z.string().min(1).refine((v) => utf8Bytes(v) <= 512, "At most 512 UTF-8 bytes").describe("The message shown for each error field"),
+  provenance: z.record(jsonObjectKey, z.unknown()).nullable().optional().describe("Optional source provenance; checked by the engine"),
+}).strict().superRefine((invariant, ctx) => {
+  const read = new Set(
+    invariant.expr.args.flatMap((arg) => ("key" in arg ? [arg.key] : [])),
+  );
+  if (read.size === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["expr"], message: "The comparison must read at least one field." });
+  }
+  if (new Set(invariant.error_fields).size !== invariant.error_fields.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["error_fields"], message: "error_fields must be unique." });
+  }
+  for (const field of invariant.error_fields) {
+    if (!read.has(field)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["error_fields"], message: `error field '${field}' is not read by the expression.` });
+    }
+  }
+});
+const inputInvariantsSchema = z.array(inputInvariantSchema).max(32).superRefine((list, ctx) => {
+  const seen = new Set<string>();
+  for (const [index, item] of list.entries()) {
+    if (seen.has(item.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, "id"], message: `Duplicate invariant id '${item.id}'.` });
+    seen.add(item.id);
+  }
+});
+const setBundleContractInputSchema = z.object({
+  project_id: z.string().describe("The project ID"),
+  input_invariants: inputInvariantsSchema.optional().describe("Input invariants for the project: consistency rules over the ruleset's inputs, for example member.renewal_date must not be before member.joined_date. Omit or pass [] to clear the stored contract."),
 }).strict();
 
 const retainedPassageSchema = z.object({
@@ -2546,6 +2697,21 @@ export function registerTools(server: McpServer, handlers: ToolHandlers): void {
     (args) => handlers.aethis_set_field_spec(args),
   );
 
+  server.registerTool(
+    "aethis_set_bundle_contract",
+    {
+      description:
+        "Store the bundle contract for a project: input invariants, which are author-declared consistency rules over the ruleset's inputs (for example member.renewal_date must not be before member.joined_date). " +
+        "Every later generation copies them into the compiled ruleset. When a decision's inputs break one, it returns undetermined with undetermined_reason input_errors and a field_errors message for each named field, and asks no further question; an invariant is skipped while any input it reads is missing. " +
+        "Each invariant is {id, expr, error_fields, message}: expr is exactly one comparison (=, !=, <, <=, >, >=) over field references and typed constants, and every error field must be read by it. At most 32 invariants. " +
+        "Replaces any stored contract; omit input_invariants or pass [] to clear it. Field names and types are checked against the project's fields when generation starts. " +
+        "Use a test case's expectations.field_errors to assert the messages.",
+      inputSchema: setBundleContractInputSchema,
+      annotations: toolAnnotations("aethis_set_bundle_contract"),
+    },
+    (args) => handlers.aethis_set_bundle_contract(args),
+  );
+
   server.tool(
     "aethis_generate_and_test",
     "Generate rules from source text and run all test cases. Triggers generation, polls until complete, then runs tests. Returns pass/fail with regression detection. Usually takes 60-120 seconds; if polling times out, use aethis_generation_status before retrying, and aethis_cancel_generation only when the caller wants to stop the run.",
@@ -2647,6 +2813,8 @@ Now that you have the correct field vocabulary, write the full test suite:
 - Use "undetermined" (NOT "not_eligible") for advisory restrictions that aren't statutory bars
 
 Replace the existing project's tests with the full reviewed suite by calling aethis_set_tests with its project_id and complete test_cases list. Do not create another project. This destructive replacement accepts 1-500 cases; if its outcome is interrupted, inspect the project before approving another replacement.
+
+If some inputs must agree with each other (for example a renewal date must not be before a joined date), declare them as input invariants with aethis_set_bundle_contract before generating. A test case that expects such a rejection uses expected_outcome "undetermined" with expectations.field_errors mapping each field id to the exact message (this needs contract_version: 1).
 
 ## Step 5 — Seed domain guidance (recommended)
 If domain-level guidance exists (e.g., cross-section principles), import it before generating:

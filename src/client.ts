@@ -13,6 +13,17 @@ const { version: CLIENT_VERSION } = require("../package.json") as { version: str
 // epic (aethis-workspace#514): `review_hint` shown counts are keyed by client.
 const CLIENT_ID = `mcp/${CLIENT_VERSION}`;
 
+/**
+ * The Aethis API this server is talking to does not offer project bundle
+ * contracts yet (its API description has no such route).
+ */
+export class BundleContractUnsupportedError extends Error {
+  constructor() {
+    super("This Aethis API does not support bundle contracts yet.");
+    this.name = "BundleContractUnsupportedError";
+  }
+}
+
 export class AethisAPIError extends Error {
   constructor(
     public readonly statusCode: number,
@@ -569,6 +580,46 @@ export class AethisClient {
       `/api/v1/public/projects/${encodeURIComponent(projectId)}/fields/spec`,
       { expected_fields: expectedFields },
     );
+  }
+
+  /**
+   * Store (or, with no invariants, clear) a project's bundle contract.
+   *
+   * An API that predates the route answers 404 or 405. A 404 also means "no
+   * such project", so the API description decides: only when it can be read
+   * and lacks the route is the failure reported as unsupported; otherwise the
+   * API's own error is kept.
+   */
+  async setBundleContract(
+    projectId: string,
+    contract: { schema_version: 1; input_invariants?: unknown[] },
+  ): Promise<unknown> {
+    try {
+      return await this.request(
+        "PUT",
+        `/api/v1/public/projects/${encodeURIComponent(projectId)}/bundle-contract`,
+        contract,
+      );
+    } catch (error) {
+      if (error instanceof AethisAPIError && (error.statusCode === 404 || error.statusCode === 405)) {
+        if (await this.lacksBundleContractRoute()) throw new BundleContractUnsupportedError();
+      }
+      throw error;
+    }
+  }
+
+  /** True only when the API description is readable and has no bundle-contract PUT. */
+  private async lacksBundleContractRoute(): Promise<boolean> {
+    try {
+      const openApi = await this.request("GET", "/openapi.json") as { paths?: Record<string, unknown> };
+      const paths = openApi?.paths;
+      if (!paths || typeof paths !== "object") return false;
+      return !Object.entries(paths).some(([path, item]) =>
+        path.endsWith("/projects/{project_id}/bundle-contract")
+        && !!item && typeof item === "object" && "put" in (item as object));
+    } catch {
+      return false;
+    }
   }
 
   async listDomainGuidance(domain: string): Promise<unknown> {
