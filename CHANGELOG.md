@@ -10,14 +10,16 @@
   message per field. The tool reports the stored digest; omitting
   `input_invariants` or passing `[]` clears the contract. Obvious shape errors
   are refused locally; everything else is left to the API and its message is
-  shown as-is. An API that does not offer bundle contracts yet is reported
-  clearly, with nothing changed.
+  shown as-is. The tool needs an Aethis API version that supports bundle
+  contracts; when the API does not, the tool says so clearly and changes
+  nothing. `null` clears the contract like omission or `[]`.
 - Test cases accept `expectations.field_errors` (field id to exact message; 1-500
   entries, messages up to 20000 characters), valid only with
   `expected_outcome: "undetermined"` and `contract_version: 1`. Cases that do
   not use it are sent exactly as before.
 - Failing test results and `aethis_next_question` now show the `field_errors`
-  (and the `input_errors` reason) a decision returned.
+  (and the `input_errors` reason) a decision returned, with neutral wording
+  (some inputs were rejected), since the reason also covers wrong-type values.
 
 ## 0.23.0 (2026-11-09)
 

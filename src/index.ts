@@ -344,9 +344,9 @@ export function formatTestResults(
       }
       const fieldErrors = Object.entries(f.field_errors ?? {});
       if (fieldErrors.length) {
-        lines.push("    Field errors reported:");
+        lines.push("    Field errors reported (some inputs were rejected):");
         for (const [field, message] of fieldErrors) {
-          lines.push(`      ${field}: ${fenceUntrusted("field_error", message)}`);
+          lines.push(`      ${fenceUntrusted("field_id", field)}: ${fenceUntrusted("field_error", message)}`);
         }
       }
     }
@@ -955,7 +955,7 @@ export function createToolHandlers(client: AethisClient) {
         const fieldErrors = Object.entries((result.field_errors ?? {}) as Record<string, string>);
         const reason = typeof result.undetermined_reason === "string" ? result.undetermined_reason : null;
         if (reason === "input_errors" || fieldErrors.length) {
-          lines.push(`Reason: ${reason ?? "input_errors"} (the inputs given contradict each other; correct them and ask again)`);
+          lines.push(`Reason: ${fenceUntrusted("undetermined_reason", reason ?? "input_errors")} (some inputs were rejected; see the field errors below, correct them and ask again)`);
         }
         if (nq || path.length || fieldErrors.length) {
           lines.push("", UNTRUSTED_PREFACE);
@@ -963,7 +963,7 @@ export function createToolHandlers(client: AethisClient) {
         if (fieldErrors.length) {
           lines.push("\nField errors:");
           for (const [field, message] of fieldErrors) {
-            lines.push(`  ${field}: ${fenceUntrusted("field_error", message)}`);
+            lines.push(`  ${fenceUntrusted("field_id", field)}: ${fenceUntrusted("field_error", message)}`);
           }
         }
         if (nq) {
@@ -1834,7 +1834,7 @@ export function createToolHandlers(client: AethisClient) {
 
     async aethis_set_bundle_contract(args: {
       project_id: string;
-      input_invariants?: unknown[];
+      input_invariants?: unknown[] | null;
     }): Promise<ToolResult> {
       const authErr = await requireAuth(client);
       if (authErr) return authErr;
@@ -1846,8 +1846,16 @@ export function createToolHandlers(client: AethisClient) {
           args.project_id,
           invariants.length ? { schema_version: 1, input_invariants: invariants } : { schema_version: 1 },
         ) as Record<string, unknown>;
-        const digest = typeof result?.bundle_contract_digest === "string" ? result.bundle_contract_digest : null;
+        const rawDigest = result?.bundle_contract_digest;
+        const digest = typeof rawDigest === "string" ? rawDigest : null;
+        const wellFormed = digest !== null && /^sha256:[0-9a-f]{64}$/.test(digest);
         if (!invariants.length) {
+          if (rawDigest !== null && rawDigest !== undefined) {
+            return err(
+              `Bundle contract clear for project ${args.project_id} returned an unexpected stored digest, so the contract may not have been cleared. Inspect the project before generating.\n` +
+              `Returned digest: ${fenceUntrusted("bundle_contract_digest", String(rawDigest))}`,
+            );
+          }
           return ok([
             `Bundle contract cleared for project ${args.project_id}.`,
             "",
@@ -1857,7 +1865,9 @@ export function createToolHandlers(client: AethisClient) {
         return ok([
           `Bundle contract stored for project ${args.project_id}.`,
           `${invariants.length} input invariant(s) registered.`,
-          digest ? `Stored digest: ${digest}` : "The API did not return a stored digest.",
+          digest === null
+            ? "The API did not return a stored digest."
+            : wellFormed ? `Stored digest: ${digest}` : `Stored digest (unexpected format): ${fenceUntrusted("bundle_contract_digest", digest)}`,
           "",
           `Next step: Call aethis_generate_and_test(project_id="${args.project_id}"); the invariants are copied into the generated ruleset. Add test cases with expectations.field_errors (and expected_outcome "undetermined") to assert their messages.`,
         ].join("\n"));
@@ -2233,7 +2243,7 @@ const invariantOperandSchema = z.union([
   z.object({ type: z.literal("field_ref").optional(), key: z.string().min(1).refine((k) => utf8Bytes(k) <= 256, "At most 256 UTF-8 bytes") }).strict(),
   z.object({
     type: z.literal("const").optional(),
-    sort: z.enum(["Int", "Real", "Bool", "String", "Enum", "Date", "Duration"]),
+    sort: z.string().min(1), // every sort the engine names is accepted; the engine decides what can compile
     value: z.union([z.number(), z.boolean(), z.string()]),
     field_context: z.string().nullable().optional(),
   }).strict(),
@@ -2275,7 +2285,7 @@ const inputInvariantsSchema = z.array(inputInvariantSchema).max(32).superRefine(
 });
 const setBundleContractInputSchema = z.object({
   project_id: z.string().describe("The project ID"),
-  input_invariants: inputInvariantsSchema.optional().describe("Input invariants for the project: consistency rules over the ruleset's inputs, for example member.renewal_date must not be before member.joined_date. Omit or pass [] to clear the stored contract."),
+  input_invariants: inputInvariantsSchema.nullable().optional().describe("Input invariants for the project: consistency rules over the ruleset's inputs, for example member.renewal_date must not be before member.joined_date. Omit, or pass null or [], to clear the stored contract."),
 }).strict();
 
 const retainedPassageSchema = z.object({

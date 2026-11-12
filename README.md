@@ -272,8 +272,9 @@ the compiled ruleset. When a decision's inputs break one, it returns
 message for each named field, and asks no further question; an invariant is
 skipped while any input it reads is missing. Calling the tool again replaces the
 stored contract; omit `input_invariants` or pass `[]` to clear it. The tool
-reports the stored digest. An Aethis API that predates bundle contracts is
-reported as such, with nothing changed.
+reports the stored digest. This needs an Aethis API version that supports
+bundle contracts; when the API does not, the tool says so clearly and changes
+nothing.
 
 To assert the rejection in a test case, use `expected_outcome: "undetermined"`
 with `expectations: { field_errors: { "member.renewal_date": "<exact message>" } }`
