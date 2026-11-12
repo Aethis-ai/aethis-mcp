@@ -210,6 +210,17 @@ describe("rendering of input-invariant results", () => {
     expect(t).toContain("some inputs were rejected");
   });
 
+  it("does not point at field errors that are not there, nor invent a reason", async () => {
+    const mk = (r: Record<string, unknown>) => ({ hasApiKey: false, decide: vi.fn().mockResolvedValue({ decision: "undetermined", ...r }) }) as unknown as AethisClient;
+    const none = (await createToolHandlers(mk({ undetermined_reason: "input_errors" })).aethis_next_question({ ruleset_id: "r", field_values: {} })).content[0].text;
+    expect(none).toContain("no field detail was returned");
+    expect(none).not.toContain("see the field errors below");
+    const noReason = (await createToolHandlers(mk({ field_errors: { a: "b" } })).aethis_next_question({ ruleset_id: "r", field_values: {} })).content[0].text;
+    expect(noReason).not.toContain("input_errors");
+    expect(noReason).not.toContain("Reason:");
+    expect(noReason).toContain("some inputs were rejected");
+  });
+
   it("fences field_errors keys in next_question and in failing test results", async () => {
     const key = "ZZ_KEY_INJECT";
     const client = {

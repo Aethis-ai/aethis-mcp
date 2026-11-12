@@ -8,7 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { AethisAPIError, AethisClient, BundleContractUnsupportedError } from "../src/client.js";
-import { createToolHandlers, registerTools } from "../src/index.js";
+import { createToolHandlers, registerTools, UNTRUSTED_PREFACE } from "../src/index.js";
 
 const INVARIANT = {
   id: "renewal_after_joined",
@@ -87,13 +87,37 @@ describe("aethis_set_bundle_contract handler", () => {
     expect(text(result)).toContain("cleared");
   });
 
-  it("shows a well-formed stored digest bare and fences anything else", async () => {
+  it("shows a well-formed stored digest bare and reports anything else as unconfirmed, fenced with the preface", async () => {
     const odd = "sha256:ZZ_UNTRUSTED";
     const client = mockClient({ setBundleContract: vi.fn().mockResolvedValue({ project_id: "p_1", bundle_contract_digest: odd }) });
-    const t = text(await createToolHandlers(client).aethis_set_bundle_contract({ project_id: "p_1", input_invariants: [INVARIANT] }));
-    expect(t).not.toContain(`Stored digest: ${odd}`);
+    const result = await createToolHandlers(client).aethis_set_bundle_contract({ project_id: "p_1", input_invariants: [INVARIANT] });
+    const t = text(result);
+    expect(result.isError).toBe(true);
+    expect(t).toContain("did not confirm the stored contract");
+    expect(t).not.toContain("Bundle contract stored");
     expect(t).toContain("<api_response");
+    expect(t).toContain(UNTRUSTED_PREFACE);
     expect(t).toContain(odd);
+  });
+
+  it.each([[null], [undefined], [42]])("does not report success when a set returns digest %s", async (digest) => {
+    const client = mockClient({ setBundleContract: vi.fn().mockResolvedValue({ project_id: "p_1", bundle_contract_digest: digest }) });
+    const result = await createToolHandlers(client).aethis_set_bundle_contract({ project_id: "p_1", input_invariants: [INVARIANT] });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("did not confirm the stored contract");
+    expect(text(result)).not.toContain("Bundle contract stored");
+  });
+
+  it("prefaces the fenced digest reported after a clear", async () => {
+    const result = await createToolHandlers(mockClient()).aethis_set_bundle_contract({ project_id: "p_1", input_invariants: [] });
+    expect(text(result)).toContain(UNTRUSTED_PREFACE);
+  });
+
+  it("describes null as a way to clear", () => {
+    const tools: Record<string, string> = {};
+    const fake = { tool: () => {}, registerTool: (n: string, c: { description: string }) => { tools[n] = c.description; }, prompt: () => {} } as unknown as Parameters<typeof registerTools>[0];
+    registerTools(fake, createToolHandlers(mockClient()));
+    expect(tools.aethis_set_bundle_contract).toContain("null");
   });
 
   it("reports a non-null digest after a clear as unexpected, not as success", async () => {
