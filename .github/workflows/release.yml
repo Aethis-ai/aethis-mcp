@@ -199,6 +199,26 @@ jobs:
           tar xzf mcp-publisher.tgz mcp-publisher
           chmod +x mcp-publisher
 
+      # The Registry validates the package by looking the exact version up on
+      # npm. npm accepts a publish before it serves it ("may take a few minutes
+      # to become available"), so publishing here straight after publish-npm
+      # can be refused with a 400. Wait until npm serves the version, and fail
+      # loudly if it never does. This detects npm availability only; it says
+      # nothing about whether the Registry will accept the record.
+      - name: Wait for npm to serve the exact version
+        run: |
+          set -euo pipefail
+          V="${{ needs.build-artefact.outputs.version }}"
+          for attempt in $(seq 1 36); do
+            if curl -fsS --max-time 20 -o /dev/null "https://registry.npmjs.org/aethis-mcp/${V}"; then
+              echo "npm serves aethis-mcp@$V (attempt $attempt)"
+              exit 0
+            fi
+            echo "npm not yet serving aethis-mcp@$V (attempt $attempt/36)"; sleep 10
+          done
+          echo "::error::npm never served aethis-mcp@$V — Registry publish NOT attempted"
+          exit 1
+
       - name: Publish server.json to the official MCP Registry (GitHub OIDC)
         run: |
           set -euo pipefail
