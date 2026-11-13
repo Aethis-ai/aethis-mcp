@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.24.2 (2026-11-13)
+
+- Test-only. The scheduled staging integration check now expects the 36 tools the server has registered since 0.24.0. No change to the server or its tools.
+
 ## 0.24.1 (2026-11-12)
 
 - Release pipeline only; no change to the server or its tools. The Registry
