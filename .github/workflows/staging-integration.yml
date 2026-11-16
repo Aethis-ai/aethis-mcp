@@ -52,6 +52,26 @@ jobs:
             exit 1
           fi
 
+      - name: Warm up staging (retry while the cold instance starts)
+        # Staging scales to zero and a cold instance takes ~20s to answer
+        # (measured 2026-11-16: 19.7s and 21.3s for the first request after
+        # idle). Probe with a patient timeout first, so an unreachable staging
+        # fails here with a clear message and the drift suite starts warm.
+        run: |
+          set -euo pipefail
+          code=""
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -m 60 -w "%{http_code}" "$AETHIS_BASE_URL/openapi.json" || true)
+            if [ "$code" = "200" ]; then break; fi
+            echo "staging not ready (attempt $attempt/5): HTTP ${code:-000}"
+            sleep 10
+          done
+          if [ "$code" != "200" ]; then
+            echo "::error::staging unreachable ($AETHIS_BASE_URL/openapi.json → HTTP ${code:-000})"
+            exit 1
+          fi
+          echo "staging awake"
+
       - name: Drift suite (network-required)
         id: drift
         env:
