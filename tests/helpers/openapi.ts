@@ -43,13 +43,23 @@ export async function fetchOpenApi(url: string = STAGING_OPENAPI_URL): Promise<O
   // deploying/overloaded staging) is treated as unreachability: the caller
   // tolerates it on the PR gate and fails red only on the network-required
   // nightly. A 4xx — a reachable host serving the wrong or absent document —
-  // is a real signal and always red. One retry absorbs a single transient hit.
-  const ATTEMPTS = 2;
+  // is a real signal and always red.
+  //
+  // Staging scales to zero and a cold instance takes ~20s to answer (measured
+  // 2026-11-16: 19.7s and 21.3s for the first request after idle). The old
+  // 2 x 20s budget straddled that edge and turned the nightly red without a
+  // real drift signal. A skipped lane makes a silent gap in the record, so the
+  // nightly is patient (three 60s attempts, ~3 minutes) while the PR gate keeps
+  // its old short budget — it tolerates unreachability anyway.
+  const NETWORK_REQUIRED = process.env.DRIFT_NETWORK_REQUIRED === "1";
+  const ATTEMPTS = NETWORK_REQUIRED ? 3 : 2;
+  const ATTEMPT_TIMEOUT_MS = NETWORK_REQUIRED ? 60_000 : 20_000;
   let lastTransient = "";
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, 2_000));
     let resp: Response;
     try {
-      resp = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      resp = await fetch(url, { signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS) });
     } catch (err) {
       lastTransient = `network error: ${(err as Error).message}`;
       continue; // retry, then fall through to unreachable

@@ -157,9 +157,11 @@ describe("drift: live alignment against staging OpenAPI", () => {
       }
       throw err; // reachable host, bad response → real signal
     }
-    // fetchOpenApi permits two 20-second attempts. Let its network policy
-    // finish before Vitest aborts the hook; nightly still rejects unreachability.
-  }, 60_000);
+    // fetchOpenApi's nightly budget is three 60-second attempts with a pause
+    // between them (a cold staging instance takes ~20s to answer); the PR gate
+    // keeps 2 x 20s. Let the longer budget finish before Vitest aborts the
+    // hook; nightly still rejects unreachability.
+  }, 240_000);
 
   it("reports the engine version it validated against", () => {
     if (unreachable) return;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.24.3 (2026-11-16)
+
+- Test-only. The nightly staging lane now waits out a cold staging start instead of going red without a drift signal: the drift suite's OpenAPI fetch gets three 60-second attempts on the nightly (the PR gate keeps its short budget), its hook timeout rises to match, and the workflow probes staging with retries before the suite so an unreachable engine fails with a clear message. No change to the server or its tools.
+
 ## 0.24.2 (2026-11-13)
 
 - Test-only. The scheduled staging integration check now expects the 36 tools the server has registered since 0.24.0. No change to the server or its tools.
